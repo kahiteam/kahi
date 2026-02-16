@@ -17,7 +17,7 @@
         "Verify internal/version package exists for build metadata",
         "Verify internal/testutil package exists for shared test helpers"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": []
     },
     {
@@ -38,7 +38,7 @@
         "Run 'task test-integration' and verify it runs tests with the integration build tag",
         "Run 'task test-e2e' and verify it runs tests with the e2e build tag"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": []
     },
     {
@@ -55,7 +55,7 @@
         "Verify ldflags inject version, commit, and date into the binary",
         "Verify checksum file generation is configured for all artifacts"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": []
     },
     {
@@ -75,7 +75,7 @@
         "Run 'kahi --help' and verify it prints usage with descriptions for each subcommand",
         "Run 'kahi nonexistent' and verify it prints an error and exits with code 1"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": []
     },
     {
@@ -95,7 +95,7 @@
         "Parse a config with [supervisor] section and verify daemon-level settings are extracted",
         "Write a unit test that parses an empty TOML string and verifies defaults are applied"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": []
     },
     {
@@ -112,7 +112,7 @@
         "Verify no third-party logging library is imported; only stdlib slog is used",
         "Write a unit test that captures log output and asserts JSON structure"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": []
     },
     {
@@ -134,7 +134,7 @@
         "Verify transition from STOPPING to EXITED works even if stop signal was not the cause of exit",
         "Write a unit test using a mock Clock to verify clock rollback during STARTING does not cause premature RUNNING transition"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["go-module-structure"]
     },
     {
@@ -383,7 +383,7 @@
         "Write a test with KAHI_CONFIG env var set and verify it takes precedence over search paths",
         "Write a test with a non-readable config file and verify exit with error message 'cannot read config: {path}: {error}'"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["toml-config-parser"]
     },
     {
@@ -400,7 +400,7 @@
         "Run 'kahi init --output --force' targeting an existing file and verify it overwrites",
         "Verify the generated config includes commented-out sections for all configurable options"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["toml-config-parser"]
     },
     {

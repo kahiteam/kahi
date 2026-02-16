@@ -1,6 +1,20 @@
-# Claude Code - Allow .claude directory for hooks and settings
+# Build artifacts
+/bin/
+/dist/
+/kahi
+coverage.out
+.task/
+
+# OS files
+.DS_Store
+
+# Go
+*.exe
+*.test
+*.prof
+
+# Claude Code
 !.claude/
 !.claude/**
-# But ignore Claude Mind memory files
 .claude/mind.*
 .claude/*.mv2

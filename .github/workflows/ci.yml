@@ -38,6 +38,8 @@ jobs:
       - uses: arduino/setup-task@v2
         with:
           version: '3.x'
+      - name: Install golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
       - run: task fmt
         name: Format check
       - run: task vet

@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Description:** [PROJECT_DESCRIPTION]
-**Tech Stack:** [PRIMARY_LANGUAGE], [FRAMEWORK], [DATABASE]
-**Repository:** [REPO_URL]
+**Description:** Kahi -- lightweight process supervisor for modern infrastructure
+**Tech Stack:** Go 1.26.0, cobra, BurntSushi/toml, stdlib slog
+**Repository:** github.com/kahidev/kahi
 
 ## Development Workflow
 
@@ -44,24 +44,38 @@ The main conversation orchestrates, summarizes, and interacts with the user. All
 ./init.sh
 
 # Run tests
-[TEST_COMMAND]
+task test
 
 # Run single test
-[SINGLE_TEST_COMMAND]
+go test -v -run TestName ./internal/package/...
 
 # Lint
-[LINT_COMMAND]
+task lint
 
 # Type check
-[TYPECHECK_COMMAND]
+task vet
 
 # Build
-[BUILD_COMMAND]
+task build
 ```
 
 ## Architecture
 
-[Describe the project architecture: main modules, data flow, key abstractions.]
+Single binary (`kahi`) with subcommand routing via cobra:
+- `cmd/kahi/` -- CLI entry point and subcommands
+- `internal/config/` -- TOML parsing, validation, defaults, search paths
+- `internal/process/` -- State machine, start/stop, reaping
+- `internal/supervisor/` -- Main run loop, signal handling, shutdown
+- `internal/api/` -- REST handlers, SSE streaming, auth middleware
+- `internal/events/` -- Pub/sub bus, event types
+- `internal/logging/` -- slog-based structured logging
+- `internal/ctl/` -- CLI control client logic
+- `internal/migrate/` -- supervisord.conf parser and converter
+- `internal/fcgi/` -- FastCGI socket management
+- `internal/metrics/` -- Prometheus collectors
+- `internal/web/` -- Web UI templates, embedded assets
+- `internal/version/` -- Build metadata
+- `internal/testutil/` -- Shared test helpers
 
 ## Quality Standards
 
@@ -74,7 +88,7 @@ Quality is enforced by the Claude Project Foundation hooks:
 - **Pre-commit:** Checks for secrets, forbidden files, runs linters
 - **Commit-msg:** Validates conventional commits, blocks AI-isms and emoji
 
-Coverage threshold: [COVERAGE_THRESHOLD]% (configured in constitution)
+Coverage threshold: 85% (configured in constitution)
 
 ## Git Commit Guidelines
 

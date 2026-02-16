@@ -1,0 +1,100 @@
+# https://taskfile.dev
+
+version: "3"
+
+vars:
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+  COMMIT:
+    sh: git rev-parse --short HEAD
+  DATE:
+    sh: date -u +%Y-%m-%dT%H:%M:%SZ
+  GO_VERSION:
+    sh: go version | cut -d' ' -f3
+  LDFLAGS: >-
+    -s -w
+    -X github.com/kahidev/kahi/internal/version.Version={{.VERSION}}
+    -X github.com/kahidev/kahi/internal/version.Commit={{.COMMIT}}
+    -X github.com/kahidev/kahi/internal/version.Date={{.DATE}}
+    -X github.com/kahidev/kahi/internal/version.GoVersion={{.GO_VERSION}}
+
+tasks:
+  build:
+    desc: Compile binary to ./bin/kahi
+    cmds:
+      - CGO_ENABLED=0 go build -ldflags '{{.LDFLAGS}}' -o ./bin/kahi ./cmd/kahi
+    sources:
+      - ./**/*.go
+      - go.mod
+      - go.sum
+    generates:
+      - ./bin/kahi
+
+  test:
+    desc: Run unit tests with race detector
+    cmds:
+      - go test -race -count=1 ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  fmt:
+    desc: Check formatting (exits non-zero if files need formatting)
+    cmds:
+      - |
+        unformatted=$(gofmt -l .)
+        if [ -n "$unformatted" ]; then
+          echo "Files need formatting:"
+          echo "$unformatted"
+          exit 1
+        fi
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  coverage:
+    desc: Generate coverage report and fail if below 85%
+    cmds:
+      - go test -race -count=1 -coverprofile=coverage.out ./...
+      - |
+        total=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
+        echo "Total coverage: ${total}%"
+        threshold=85
+        if [ "$(echo "$total < $threshold" | bc -l)" -eq 1 ]; then
+          echo "Coverage ${total}% is below threshold ${threshold}%"
+          exit 1
+        fi
+
+  all:
+    desc: Run fmt, vet, lint, test, build in sequence
+    cmds:
+      - task: fmt
+      - task: vet
+      - task: lint
+      - task: test
+      - task: build
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -rf ./bin
+
+  test-integration:
+    desc: Run integration tests
+    cmds:
+      - go test -race -count=1 -tags=integration ./...
+
+  test-e2e:
+    desc: Run end-to-end tests
+    cmds:
+      - go test -race -count=1 -tags=e2e ./...
+
+  setup:
+    desc: Install development tools
+    cmds:
+      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      - go install github.com/goreleaser/goreleaser/v2@latest
