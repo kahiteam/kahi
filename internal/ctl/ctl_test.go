@@ -799,3 +799,123 @@ func TestClientReadyWithProcesses(t *testing.T) {
 		t.Fatalf("expected ready, got %s", status)
 	}
 }
+
+// --- CLI Output Formatting tests ---
+
+func TestStatusTableFixedWidth(t *testing.T) {
+	procs := []ProcessInfo{
+		{Name: "web", State: "RUNNING", PID: 1234, Uptime: 3600},
+		{Name: "worker", State: "STOPPED"},
+		{Name: "api", State: "FATAL", ExitStatus: 1},
+	}
+
+	var buf bytes.Buffer
+	if err := FormatStatusTable(procs, &buf, false); err != nil {
+		t.Fatal(err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) < 4 {
+		t.Fatalf("expected at least 4 lines (header + 3 procs), got %d", len(lines))
+	}
+
+	// All lines should have consistent column alignment via tabwriter.
+	// Header and data lines should contain the same number of tab-separated fields.
+	for i, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			t.Errorf("line %d has fewer than 4 fields: %q", i, line)
+		}
+	}
+}
+
+func TestStatusTableColorANSI(t *testing.T) {
+	procs := []ProcessInfo{
+		{Name: "web", State: "RUNNING", PID: 1234, Uptime: 3600},
+		{Name: "api", State: "FATAL", ExitStatus: 1},
+		{Name: "job", State: "STARTING"},
+	}
+
+	var buf bytes.Buffer
+	if err := FormatStatusTable(procs, &buf, true); err != nil {
+		t.Fatal(err)
+	}
+	output := buf.String()
+
+	// RUNNING -> green (\033[32m)
+	if !strings.Contains(output, "\033[32m") {
+		t.Error("missing green ANSI for RUNNING")
+	}
+	// FATAL -> red (\033[31m)
+	if !strings.Contains(output, "\033[31m") {
+		t.Error("missing red ANSI for FATAL")
+	}
+	// STARTING -> yellow (\033[33m)
+	if !strings.Contains(output, "\033[33m") {
+		t.Error("missing yellow ANSI for STARTING")
+	}
+}
+
+func TestStatusTableNoColor(t *testing.T) {
+	procs := []ProcessInfo{
+		{Name: "web", State: "RUNNING", PID: 1234},
+	}
+
+	var buf bytes.Buffer
+	if err := FormatStatusTable(procs, &buf, false); err != nil {
+		t.Fatal(err)
+	}
+	output := buf.String()
+
+	if strings.Contains(output, "\033[") {
+		t.Error("ANSI escape codes present when color=false")
+	}
+}
+
+func TestStatusTablePipeDisablesColor(t *testing.T) {
+	// A bytes.Buffer is not a terminal, so isTerminal should return false.
+	var buf bytes.Buffer
+	if isTerminal(&buf) {
+		t.Error("bytes.Buffer should not be detected as terminal")
+	}
+}
+
+func TestClientStatusWithOptionsNoColor(t *testing.T) {
+	ts := mockAPIServer()
+	defer ts.Close()
+	c := testClient(ts)
+
+	var buf bytes.Buffer
+	err := c.StatusWithOptions(nil, StatusOptions{NoColor: true}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := buf.String()
+
+	if strings.Contains(output, "\033[") {
+		t.Error("ANSI escape codes present with NoColor=true")
+	}
+	if !strings.Contains(output, "NAME") {
+		t.Error("missing header")
+	}
+}
+
+func TestClientStatusWithOptionsJSON(t *testing.T) {
+	ts := mockAPIServer()
+	defer ts.Close()
+	c := testClient(ts)
+
+	var buf bytes.Buffer
+	err := c.StatusWithOptions(nil, StatusOptions{JSON: true}, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var procs []ProcessInfo
+	if err := json.Unmarshal(buf.Bytes(), &procs); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(procs) != 3 {
+		t.Fatalf("expected 3 processes, got %d", len(procs))
+	}
+}

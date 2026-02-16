@@ -145,7 +145,10 @@ var ctlStatusCmd = &cobra.Command{
 	Short: "Show process status",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := newCtlClient()
-		return c.Status(args, ctlJSON, cmd.OutOrStdout())
+		return c.StatusWithOptions(args, ctl.StatusOptions{
+			JSON:    ctlJSON,
+			NoColor: ctlNoColor,
+		}, cmd.OutOrStdout())
 	},
 }
 

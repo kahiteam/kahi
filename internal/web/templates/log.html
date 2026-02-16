@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Kahi - {{.Name}} {{.Stream}}</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>K</text></svg>">
+</head>
+<body class="log-page">
+    <header>
+        <h1><a href="/">Kahi</a> &rsaquo; {{.Name}} &rsaquo; {{.Stream}}</h1>
+        <div class="header-actions">
+            <a href="/log/{{.Name}}/stdout" class="btn btn-log{{if eq .Stream "stdout"}} active{{end}}">stdout</a>
+            <a href="/log/{{.Name}}/stderr" class="btn btn-log{{if eq .Stream "stderr"}} active{{end}}">stderr</a>
+            <label class="toggle">
+                <input type="checkbox" id="autoscroll" checked> Auto-scroll
+            </label>
+        </div>
+    </header>
+
+    <main>
+        <div id="log-viewer">
+            <pre id="log-output"></pre>
+        </div>
+        <div id="log-status">
+            <span id="connection-status">Connecting...</span>
+        </div>
+    </main>
+
+    <script>
+    (function() {
+        var output = document.getElementById('log-output');
+        var statusEl = document.getElementById('connection-status');
+        var autoscrollEl = document.getElementById('autoscroll');
+        var processName = '{{.Name}}';
+        var stream = '{{.Stream}}';
+        var eventID = 0;
+
+        function connect() {
+            statusEl.textContent = 'Connecting...';
+            var url = '/api/v1/processes/' + processName + '/log/' + stream + '/stream';
+            var source = new EventSource(url);
+
+            source.onopen = function() {
+                statusEl.textContent = 'Connected';
+            };
+
+            source.onmessage = function(e) {
+                eventID++;
+                var line = document.createTextNode(e.data + '\n');
+                output.appendChild(renderAnsi(e.data + '\n'));
+                if (autoscrollEl.checked) {
+                    output.scrollTop = output.scrollHeight;
+                }
+            };
+
+            source.onerror = function() {
+                statusEl.textContent = 'Disconnected. Reconnecting...';
+                source.close();
+                setTimeout(connect, 3000);
+            };
+        }
+
+        function renderAnsi(text) {
+            var span = document.createElement('span');
+            // Basic ANSI color mapping.
+            var colors = {
+                '30': '#000', '31': '#c00', '32': '#0a0', '33': '#aa0',
+                '34': '#00a', '35': '#a0a', '36': '#0aa', '37': '#aaa',
+                '90': '#555', '91': '#f55', '92': '#5f5', '93': '#ff5',
+                '94': '#55f', '95': '#f5f', '96': '#5ff', '97': '#fff'
+            };
+
+            var parts = text.split(/\033\[(\d+(?:;\d+)*)m/);
+            for (var i = 0; i < parts.length; i++) {
+                if (i % 2 === 0) {
+                    span.appendChild(document.createTextNode(parts[i]));
+                } else {
+                    var codes = parts[i].split(';');
+                    var s = document.createElement('span');
+                    for (var j = 0; j < codes.length; j++) {
+                        if (codes[j] === '0') {
+                            s.style.color = '';
+                            s.style.fontWeight = '';
+                        } else if (codes[j] === '1') {
+                            s.style.fontWeight = 'bold';
+                        } else if (colors[codes[j]]) {
+                            s.style.color = colors[codes[j]];
+                        }
+                    }
+                    i++;
+                    if (i < parts.length) {
+                        s.appendChild(document.createTextNode(parts[i]));
+                    }
+                    span.appendChild(s);
+                }
+            }
+            return span;
+        }
+
+        if (processName && stream) {
+            connect();
+        } else {
+            statusEl.textContent = 'No log file configured for this process';
+        }
+    })();
+    </script>
+</body>
+</html>

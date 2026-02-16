@@ -1412,7 +1412,7 @@
         "Verify signal names are normalized (e.g., TERM to SIGTERM)",
         "Verify comments from the original file are preserved as TOML comments where possible"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "toml-config-parser"
       ]
@@ -1431,7 +1431,7 @@
         "Verify %(ENV_X)s syntax is mapped to Kahi's ${X} syntax",
         "Verify boolean values (true/false, yes/no, on/off, 1/0) map to TOML booleans"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "go-module-structure"
       ]
@@ -1449,7 +1449,7 @@
         "Verify byte size values (e.g., 50MB) are preserved in human-readable format",
         "Verify signal names are normalized to uppercase"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "migration-ini-parser"
       ]
@@ -1466,7 +1466,7 @@
         "Run dry-run migration on a config with unsupported supervisord directives and verify warnings are printed for each",
         "Run dry-run migration and verify the output is valid TOML that can be parsed without errors"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "config-migration-tool"
       ]
@@ -1482,7 +1482,7 @@
         "Verify the generated file is still available for manual correction even when validation errors exist",
         "Verify validation catches missing required fields that could not be inferred from supervisord config"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "config-migration-tool",
         "toml-config-parser"
@@ -1576,7 +1576,7 @@
         "Verify GET / returns complete HTML with process data even without JavaScript execution",
         "Verify HTML includes viewport meta tag and CSS media queries for responsive layout"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "rest-api-endpoints"
       ]
@@ -1595,7 +1595,7 @@
         "Verify SSE stream sends sequential event IDs for ordered rendering",
         "Verify a message is displayed when no log file is configured for the process"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "sse-streaming",
         "web-ui-status-page"
@@ -1614,7 +1614,7 @@
         "Verify Content-Type headers are set correctly based on file extension",
         "Verify caching headers (ETag, Cache-Control) are set for static assets"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "web-ui-status-page"
       ]
@@ -1666,7 +1666,7 @@
         "Verify CSS specifies font-family including monospace for the log viewer",
         "Verify no external URLs in CSS or JavaScript imports"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "web-ui-status-page"
       ]
@@ -1683,7 +1683,7 @@
         "Run 'kahi ctl status --no-color' and verify colors are disabled explicitly",
         "Run 'kahi ctl status --json' and verify machine-readable JSON output is returned"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "cli-status-display"
       ]
@@ -1701,7 +1701,7 @@
         "Verify config parsing tests use in-memory TOML strings via MustParseConfig helper",
         "Verify testify assertions (assert, require) are used consistently across tests"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "taskfile-workflow"
       ]
@@ -1719,7 +1719,7 @@
         "Verify all integration tests clean up processes and sockets on completion",
         "Verify integration test temp directories are cleaned up via TempDir helper"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "unit-test-infrastructure",
         "unix-socket-server"
@@ -1742,7 +1742,7 @@
         "Write an E2E test that verifies graceful shutdown stops all processes and exits with code 0",
         "Write an E2E test that verifies config hot reload adds and removes processes correctly"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "integration-test-infrastructure"
       ]

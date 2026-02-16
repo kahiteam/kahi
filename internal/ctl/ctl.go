@@ -145,8 +145,19 @@ func (c *Client) RestartGroup(name string) error {
 
 // --- Status display ---
 
+// StatusOptions configures status output formatting.
+type StatusOptions struct {
+	JSON    bool
+	NoColor bool
+}
+
 // Status retrieves and formats process status.
 func (c *Client) Status(names []string, jsonOutput bool, w io.Writer) error {
+	return c.StatusWithOptions(names, StatusOptions{JSON: jsonOutput}, w)
+}
+
+// StatusWithOptions retrieves and formats process status with full options.
+func (c *Client) StatusWithOptions(names []string, opts StatusOptions, w io.Writer) error {
 	resp, err := c.do("GET", "/api/v1/processes", nil)
 	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
@@ -173,13 +184,19 @@ func (c *Client) Status(names []string, jsonOutput bool, w io.Writer) error {
 		procs = filtered
 	}
 
-	if jsonOutput {
+	if opts.JSON {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		return enc.Encode(procs)
 	}
 
-	return formatStatusTable(procs, w, isTerminal(w))
+	useColor := !opts.NoColor && isTerminal(w)
+	return formatStatusTable(procs, w, useColor)
+}
+
+// FormatStatusTable formats processes as an aligned table. Exported for testing.
+func FormatStatusTable(procs []ProcessInfo, w io.Writer, color bool) error {
+	return formatStatusTable(procs, w, color)
 }
 
 func formatStatusTable(procs []ProcessInfo, w io.Writer, color bool) error {

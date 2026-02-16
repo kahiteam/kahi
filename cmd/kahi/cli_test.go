@@ -68,11 +68,44 @@ func TestCtlCommand(t *testing.T) {
 }
 
 func TestMigrateCommand(t *testing.T) {
+	// Create a temp supervisord.conf to migrate.
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "supervisord.conf")
+	if err := os.WriteFile(conf, []byte("[program:web]\ncommand = /bin/echo hello\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	buf := new(bytes.Buffer)
 	rootCmd.SetOut(buf)
-	rootCmd.SetArgs([]string{"migrate"})
+	rootCmd.SetArgs([]string{"migrate", conf})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatal(err)
+	}
+
+	if !strings.Contains(buf.String(), "[programs.web]") {
+		t.Error("migrate output should contain [programs.web]")
+	}
+}
+
+func TestMigrateCommandNoArgs(t *testing.T) {
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"migrate"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for migrate with no args")
+	}
+}
+
+func TestMigrateCommandNonexistent(t *testing.T) {
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"migrate", "/nonexistent/file.conf"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
 	}
 }
 

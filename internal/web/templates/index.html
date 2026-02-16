@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Kahi - Process Supervisor</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>K</text></svg>">
+</head>
+<body>
+    <header>
+        <h1>Kahi</h1>
+        <div class="header-actions">
+            <form method="POST" action="/api/v1/processes/all/start" class="inline-form">
+                <button type="submit" class="btn btn-start">Start All</button>
+            </form>
+            <form method="POST" action="/api/v1/processes/all/stop" class="inline-form">
+                <button type="submit" class="btn btn-stop">Stop All</button>
+            </form>
+            <form method="POST" action="/api/v1/processes/all/restart" class="inline-form">
+                <button type="submit" class="btn btn-restart">Restart All</button>
+            </form>
+        </div>
+    </header>
+
+    <main>
+        <table id="process-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Group</th>
+                    <th>State</th>
+                    <th>PID</th>
+                    <th>Uptime</th>
+                    <th>Description</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="process-list">
+                {{range .Processes}}
+                <tr data-name="{{.Name}}">
+                    <td class="col-name">{{.Name}}</td>
+                    <td class="col-group">{{.Group}}</td>
+                    <td class="col-state"><span class="state state-{{.StateLower}}">{{.State}}</span></td>
+                    <td class="col-pid">{{if gt .PID 0}}{{.PID}}{{else}}-{{end}}</td>
+                    <td class="col-uptime">{{.UptimeStr}}</td>
+                    <td class="col-desc">{{.Description}}</td>
+                    <td class="col-actions">
+                        <button class="btn btn-start btn-sm" onclick="doAction('{{.Name}}', 'start')">Start</button>
+                        <button class="btn btn-stop btn-sm" onclick="doAction('{{.Name}}', 'stop')">Stop</button>
+                        <button class="btn btn-restart btn-sm" onclick="doAction('{{.Name}}', 'restart')">Restart</button>
+                        <a href="/log/{{.Name}}/stdout" class="btn btn-log btn-sm">Tail Stdout</a>
+                        <a href="/log/{{.Name}}/stderr" class="btn btn-log btn-sm">Tail Stderr</a>
+                    </td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </main>
+
+    <footer>
+        <span id="last-update">Last update: -</span>
+    </footer>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
