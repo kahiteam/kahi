@@ -10,7 +10,25 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      golang: ${{ steps.filter.outputs.golang }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            golang:
+              - '**.go'
+              - 'go.mod'
+              - 'go.sum'
+              - 'Taskfile.yml'
+
   golang:
+    needs: changes
+    if: needs.changes.outputs.golang == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,11 +78,13 @@ jobs:
 
   summary:
     if: always()
-    needs: [golang, commit-standards]
+    needs: [changes, golang, commit-standards]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
         run: |
           if [[ "${{ needs.golang.result }}" == "failure" ]]; then exit 1; fi
           if [[ "${{ needs.commit-standards.result }}" == "failure" ]]; then exit 1; fi
+          echo "golang: ${{ needs.golang.result }}"
+          echo "commits: ${{ needs.commit-standards.result }}"
           echo "All checks passed."

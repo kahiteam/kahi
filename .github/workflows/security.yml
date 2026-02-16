@@ -3,8 +3,16 @@ name: Security
 on:
   push:
     branches: [main]
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
   pull_request:
     branches: [main]
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
   schedule:
     - cron: '0 6 * * 1'
 
@@ -13,7 +21,23 @@ permissions:
   security-events: write
 
 jobs:
+  check-go-files:
+    runs-on: ubuntu-latest
+    outputs:
+      has-go: ${{ steps.check.outputs.has-go }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if [ -f go.mod ] && compgen -G "**/*.go" > /dev/null 2>&1; then
+            echo "has-go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has-go=false" >> "$GITHUB_OUTPUT"
+          fi
+
   codeql:
+    needs: check-go-files
+    if: needs.check-go-files.outputs.has-go == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +51,8 @@ jobs:
       - uses: github/codeql-action/analyze@v3
 
   govulncheck:
+    needs: check-go-files
+    if: needs.check-go-files.outputs.has-go == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +60,6 @@ jobs:
         with:
           go-version: '1.26'
       - name: Install govulncheck
-        run: go install golang.org/dl/govulncheck@latest || go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: Run govulncheck
         run: govulncheck ./...
