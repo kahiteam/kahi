@@ -137,6 +137,13 @@ lint_staged_files() {
             fi
             ;;
         go)
+            if command -v gofmt >/dev/null 2>&1; then
+                if [[ -n "$(gofmt -l "$file" 2>/dev/null)" ]]; then
+                    gofmt -w "$file"
+                    git add "$file"
+                    echo "  FORMATTED: $file"
+                fi
+            fi
             if command -v go >/dev/null 2>&1; then
                 (cd "$project_root" && go vet "./$dir/..." 2>/dev/null) || return 1
             fi

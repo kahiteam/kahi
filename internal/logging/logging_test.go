@@ -3,6 +3,9 @@ package logging
 import (
 	"bytes"
 	"encoding/json"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -109,5 +112,117 @@ func TestChildLoggerWithFields(t *testing.T) {
 
 	if v, _ := entry["process"].(string); v != "foo" {
 		t.Errorf("process = %q, want %q", v, "foo")
+	}
+}
+
+func TestValidateLevel(t *testing.T) {
+	valid := []string{"debug", "info", "warn", "error", "DEBUG", "Info", " warn "}
+	for _, lvl := range valid {
+		if err := ValidateLevel(lvl); err != nil {
+			t.Errorf("ValidateLevel(%q) returned error: %v", lvl, err)
+		}
+	}
+
+	invalid := []string{"", "trace", "fatal", "nonsense", "WARNING"}
+	for _, lvl := range invalid {
+		if err := ValidateLevel(lvl); err == nil {
+			t.Errorf("ValidateLevel(%q) expected error, got nil", lvl)
+		}
+	}
+}
+
+func TestNewLevelVar(t *testing.T) {
+	lv := NewLevelVar("warn")
+	if got := lv.Level(); got != slog.LevelWarn {
+		t.Errorf("NewLevelVar(\"warn\").Level() = %v, want %v", got, slog.LevelWarn)
+	}
+}
+
+func TestLevelVarSet(t *testing.T) {
+	lv := NewLevelVar("info")
+	if got := lv.Level(); got != slog.LevelInfo {
+		t.Fatalf("initial level = %v, want %v", got, slog.LevelInfo)
+	}
+
+	lv.Set("error")
+	if got := lv.Level(); got != slog.LevelError {
+		t.Errorf("after Set(\"error\"), Level() = %v, want %v", got, slog.LevelError)
+	}
+
+	lv.Set("debug")
+	if got := lv.Level(); got != slog.LevelDebug {
+		t.Errorf("after Set(\"debug\"), Level() = %v, want %v", got, slog.LevelDebug)
+	}
+}
+
+func TestLevelVarLevel(t *testing.T) {
+	tests := []struct {
+		input string
+		want  slog.Level
+	}{
+		{"debug", slog.LevelDebug},
+		{"info", slog.LevelInfo},
+		{"warn", slog.LevelWarn},
+		{"error", slog.LevelError},
+		{"unknown", slog.LevelInfo}, // default
+	}
+
+	for _, tc := range tests {
+		lv := NewLevelVar(tc.input)
+		if got := lv.Level(); got != tc.want {
+			t.Errorf("NewLevelVar(%q).Level() = %v, want %v", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestDaemonLoggerStdout(t *testing.T) {
+	logger, cleanup, err := DaemonLogger("info", "json", "")
+	if err != nil {
+		t.Fatalf("DaemonLogger with empty logfile: %v", err)
+	}
+	if cleanup != nil {
+		t.Error("cleanup should be nil when no logfile is set")
+	}
+	if logger == nil {
+		t.Fatal("logger should not be nil")
+	}
+}
+
+func TestDaemonLoggerFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.log")
+
+	logger, cleanup, err := DaemonLogger("debug", "json", path)
+	if err != nil {
+		t.Fatalf("DaemonLogger with temp file: %v", err)
+	}
+	if cleanup == nil {
+		t.Fatal("cleanup should not be nil when logfile is set")
+	}
+	defer cleanup()
+
+	if logger == nil {
+		t.Fatal("logger should not be nil")
+	}
+
+	logger.Info("daemon file test", "key", "val")
+
+	// Ensure data was written to the file.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading log file: %v", err)
+	}
+	if !strings.Contains(string(data), "daemon file test") {
+		t.Errorf("log file missing expected message, got: %s", string(data))
+	}
+}
+
+func TestDaemonLoggerBadPath(t *testing.T) {
+	_, _, err := DaemonLogger("info", "json", "/no/such/directory/logfile.log")
+	if err == nil {
+		t.Fatal("expected error for invalid log path, got nil")
+	}
+	if !strings.Contains(err.Error(), "cannot open log file") {
+		t.Errorf("error message = %q, want it to contain %q", err.Error(), "cannot open log file")
 	}
 }

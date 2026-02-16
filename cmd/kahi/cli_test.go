@@ -77,11 +77,27 @@ func TestMigrateCommand(t *testing.T) {
 }
 
 func TestHashPasswordCommand(t *testing.T) {
+	// Pipe a password via stdin.
+	oldStdin := os.Stdin
+	r, w, _ := os.Pipe()
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = oldStdin })
+
+	go func() {
+		_, _ = w.Write([]byte("testpassword\n"))
+		w.Close()
+	}()
+
 	buf := new(bytes.Buffer)
 	rootCmd.SetOut(buf)
 	rootCmd.SetArgs([]string{"hash-password"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatal(err)
+	}
+
+	output := strings.TrimSpace(buf.String())
+	if !strings.HasPrefix(output, "$2") {
+		t.Fatalf("expected bcrypt hash starting with $2, got: %s", output)
 	}
 }
 
