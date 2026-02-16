@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  golang:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - uses: arduino/setup-task@v2
+        with:
+          version: '3.x'
+      - run: task fmt
+        name: Format check
+      - run: task vet
+        name: Vet
+      - run: task lint
+        name: Lint
+      - run: task test
+        name: Unit tests
+      - run: task coverage
+        name: Coverage check
+      - run: task build
+        name: Build
+
+  commit-standards:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate commits
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          ERRORS=0
+          while IFS= read -r sha; do
+            MSG=$(git log --format='%s' -n 1 "$sha")
+            if echo "$MSG" | grep -qE '^Merge '; then continue; fi
+            if ! echo "$MSG" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+'; then
+              echo "FAIL [$sha]: Not conventional commit: $MSG"
+              ERRORS=$((ERRORS + 1))
+            fi
+            if [ ${#MSG} -gt 72 ]; then
+              echo "WARN [$sha]: Subject > 72 chars: $MSG"
+            fi
+          done < <(git rev-list "$BASE".."$HEAD")
+          if [ $ERRORS -gt 0 ]; then exit 1; fi
+
+  summary:
+    if: always()
+    needs: [golang, commit-standards]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          if [[ "${{ needs.golang.result }}" == "failure" ]]; then exit 1; fi
+          if [[ "${{ needs.commit-standards.result }}" == "failure" ]]; then exit 1; fi
+          echo "All checks passed."

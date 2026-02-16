@@ -1,0 +1,21 @@
+# CODEOWNERS
+
+# Quality gate infrastructure
+.claude/                    @schwichtgit
+.github/                    @schwichtgit
+scripts/hooks/              @schwichtgit
+ci/                         @schwichtgit
+.specify/memory/            @schwichtgit
+
+# Security-critical files
+*.pem                       @schwichtgit
+*.key                       @schwichtgit
+.env*                       @schwichtgit
+**/security*                @schwichtgit
+
+# Go-specific critical paths
+go.mod                      @schwichtgit
+go.sum                      @schwichtgit
+Taskfile.yml                @schwichtgit
+.goreleaser.yml             @schwichtgit
+.golangci.yml               @schwichtgit
