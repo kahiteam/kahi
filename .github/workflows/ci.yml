@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   checks: write
+  statuses: write
 
 jobs:
   changes:
@@ -63,6 +64,66 @@ jobs:
           path: unit-results.xml
           reporter: java-junit
           fail-on-error: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Test summary
+        if: always()
+        run: |
+          {
+            echo "## Unit Test Results"
+            echo ""
+            if [ ! -f unit-results.xml ]; then
+              echo "> No results file found"
+            else
+              line=$(head -5 unit-results.xml | tr '\n' ' ')
+              tests=$(echo "$line" | grep -oP 'tests="\K[0-9]+' | head -1)
+              failures=$(echo "$line" | grep -oP 'failures="\K[0-9]+' | head -1)
+              errors=$(echo "$line" | grep -oP 'errors="\K[0-9]+' | head -1)
+              skipped=$(grep -c '<skipped' unit-results.xml 2>/dev/null) || true
+              skipped=${skipped:-0}
+              tests=${tests:-0}
+              failures=${failures:-0}
+              errors=${errors:-0}
+              passed=$((tests - failures - errors - skipped))
+              echo "| Metric | Count |"
+              echo "| --- | --- |"
+              echo "| Total | $tests |"
+              echo "| Passed | $passed |"
+              echo "| Failed | $failures |"
+              echo "| Skipped | $skipped |"
+            fi
+            echo ""
+            echo "## Coverage"
+            echo ""
+            if [ ! -f coverage.out ]; then
+              echo "> No coverage data found"
+            else
+              total=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}')
+              echo "| Metric | Value |"
+              echo "| --- | --- |"
+              echo "| Coverage | $total |"
+              echo "| Threshold | 85% |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Coverage commit status
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -f coverage.out ]; then
+            echo "No coverage data, skipping status"
+            exit 0
+          fi
+          total=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
+          threshold=85
+          state="success"
+          if [ "$(echo "$total < $threshold" | bc -l)" -eq 1 ]; then
+            state="failure"
+          fi
+          sha="${{ github.event.pull_request.head.sha || github.sha }}"
+          gh api "/repos/${{ github.repository }}/statuses/${sha}" \
+            -f state="$state" \
+            -f description="${total}% (threshold: ${threshold}%)" \
+            -f context="coverage"
 
   commit-standards:
     if: github.event_name == 'pull_request'

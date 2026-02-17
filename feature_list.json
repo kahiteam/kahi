@@ -2051,6 +2051,28 @@
         "process-output-ring-buffer",
         "rest-api-endpoints"
       ]
+    },
+    {
+      "id": "pr-test-result-visibility",
+      "category": "infrastructure",
+      "title": "PR Test Result Visibility",
+      "description": "Surface test counts, coverage %, and test-reporter check runs on PR pages via job summaries, commit statuses, and dorny/test-reporter fix.",
+      "testing_steps": [
+        "Verify ci.yml golang job writes a $GITHUB_STEP_SUMMARY table with passed/failed/skipped counts and coverage %",
+        "Verify integration.yml writes a $GITHUB_STEP_SUMMARY table with passed/failed/skipped for integration and e2e suites",
+        "Verify a commit status with context 'coverage' is posted showing the coverage percentage",
+        "Verify coverage status check shows 'failure' state when coverage is below 85%",
+        "Verify dorny/test-reporter produces a 'Unit Test Results' check run on PR commits",
+        "Verify dorny/test-reporter produces 'Integration Test Results' and 'E2E Test Results' check runs on PR commits",
+        "Verify summary steps use if: always() so results appear even when tests fail",
+        "Verify no new binary dependencies are introduced (shell tools only for parsing)",
+        "Verify workflows have statuses: write permission for the coverage commit status",
+        "Open a test PR and confirm test counts and coverage are visible on the PR page without clicking into job logs"
+      ],
+      "passes": true,
+      "dependencies": [
+        "taskfile-workflow"
+      ]
     }
   ]
 }

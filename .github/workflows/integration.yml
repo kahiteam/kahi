@@ -46,6 +46,7 @@ jobs:
           path: integration-results.xml
           reporter: java-junit
           fail-on-error: false
+          token: ${{ secrets.GITHUB_TOKEN }}
       - name: E2E test report
         uses: dorny/test-reporter@v2
         if: always()
@@ -54,3 +55,39 @@ jobs:
           path: e2e-results.xml
           reporter: java-junit
           fail-on-error: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Test summary
+        if: always()
+        run: |
+          parse_junit() {
+            local file="$1"
+            local suite="$2"
+            if [ ! -f "$file" ]; then
+              echo "| $suite | - | - | - | - | No results file found |"
+              return
+            fi
+            local line tests failures errors skipped passed status
+            line=$(head -5 "$file" | tr '\n' ' ')
+            tests=$(echo "$line" | grep -oP 'tests="\K[0-9]+' | head -1)
+            failures=$(echo "$line" | grep -oP 'failures="\K[0-9]+' | head -1)
+            errors=$(echo "$line" | grep -oP 'errors="\K[0-9]+' | head -1)
+            skipped=$(grep -c '<skipped' "$file" 2>/dev/null) || true
+            skipped=${skipped:-0}
+            tests=${tests:-0}
+            failures=${failures:-0}
+            errors=${errors:-0}
+            passed=$((tests - failures - errors - skipped))
+            status="Pass"
+            if [ "$failures" -gt 0 ] || [ "$errors" -gt 0 ]; then
+              status="FAIL"
+            fi
+            echo "| $suite | $tests | $passed | $failures | $skipped | $status |"
+          }
+          {
+            echo "## Test Results"
+            echo ""
+            echo "| Suite | Total | Passed | Failed | Skipped | Status |"
+            echo "| --- | --- | --- | --- | --- | --- |"
+            parse_junit integration-results.xml "Integration"
+            parse_junit e2e-results.xml "E2E"
+          } >> "$GITHUB_STEP_SUMMARY"
