@@ -395,3 +395,36 @@ After `init.sh && task setup && task all`:
 - 100 processes = ~200MB overhead for ring buffers (acceptable)
 - Configurable via `stdout_capture_maxbytes`
 - Ring buffer also feeds the Web UI log viewer
+
+---
+
+### ADR-008: CodeQL BarrierGuard Pattern for Allocation Bounds
+
+**Date:** 2026-02-17
+**Status:** Accepted (revised after PR #7 and PR #8 failed to close alert)
+
+**Context:** CodeQL's `go/uncontrolled-allocation-size` query uses interprocedural taint tracking from HTTP parameters to `make()` calls. Two prior approaches failed:
+
+- **PR #7 (constant guards):** Clamp pattern `if n > maxReadAlloc { n = maxReadAlloc }` merges both branches at a phi node. CodeQL's `BarrierGuard` does not propagate sanitization through phi-node merges.
+- **PR #8 (`min()` in `make()`):** Go's `min()` builtin has a value-flow model (`builtin.model.yml`) that propagates taint from arguments to return value. It is not a `RelationalComparisonNode` and cannot match the `allocationSizeCheck` barrier predicate.
+
+CodeQL's `BarrierGuard` recognizes only relational comparisons (`<`, `<=`, `>`, `>=`) where the **unsafe branch terminates** (early return or panic). After such a guard, the only surviving branch has the tainted value provably within bounds.
+
+**Decision:** Use early-return guards at two layers:
+
+1. **Ring buffer (`Read()`):** Replace the clamp with `if n <= 0 || n > maxReadAlloc { return nil }`. This terminates the unsafe branch. The `make([]byte, n)` call uses the sanitized value on the surviving branch.
+2. **API handler (`handleReadLog()`):** Replace `min(v, maxReadLength)` with an explicit HTTP 400 response for out-of-bounds length. This validates user input at the system boundary.
+
+**Alternatives Considered:**
+
+1. **Clamp pattern (`if n > X { n = X }`):** Failed -- phi-node merge defeats `BarrierGuard`.
+2. **`min()` in `make()` expression:** Failed -- `min()` propagates taint, not a barrier.
+3. **Derive allocation from non-tainted `rb.size`:** Uncertain -- `if n < allocSize { allocSize = n }` reintroduces tainted value via clamp merge.
+4. **CodeQL query suppression (`// lgtm`):** Rejected -- hides the alert without fixing the pattern.
+
+**Consequences:**
+
+- `Read()` returns nil instead of clamping for `n > 64KB`. This is unreachable from the API path (handler already bounds length) but guards against direct callers.
+- API handler returns HTTP 400 for `length > 64KB` instead of silently clamping. Explicit validation at the boundary.
+- Pattern applies to any future `make()` call where the size flows from user input: use early-return guards, not clamps or `min()`.
+- Go's `min()`/`max()` builtins are NOT CodeQL barriers as of CodeQL 2.24.1.

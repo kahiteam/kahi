@@ -3422,14 +3422,36 @@ GET /api/v1/processes/{name}/log/{stream}?length=N
 
 ### SEC-002: Static-Analysis-Visible Allocation Bounds (CWE-770)
 
-**Description:** SEC-001 added runtime clamps at the API handler and ring buffer, but CodeQL alert [go/uncontrolled-allocation-size #1](https://github.com/kahiteam/kahi/security/code-scanning/1) remains open because the analyzer requires a **compile-time constant** upper bound visible at the `make()` call site. The existing clamp `n = min(n, rb.size)` uses a runtime struct field, which CodeQL cannot verify statically.
+**Description:** CodeQL alert [go/uncontrolled-allocation-size #1](https://github.com/kahiteam/kahi/security/code-scanning/1) flags `make([]byte, n)` in `RingBuffer.Read()` where `n` originates from the HTTP `?length=` query parameter. Prior attempts (PR #7: constant guards, PR #8: `min()` in `make()`) did not close the alert because:
 
-This feature adds constant upper bounds at both allocation points in `internal/logging/ringbuf.go`:
+1. **Clamp patterns** (`if n > X { n = X }`) merge both branches at a phi node; CodeQL's `BarrierGuard` does not propagate sanitization through phi-node merges.
+2. **`min()` builtin** propagates taint (value flow model in `builtin.model.yml`), not a barrier.
 
-1. `NewRingBuffer(size)` -- cap `size` to `maxRingBufSize` (1MB) before the initial `make([]byte, size)`
-2. `Read(n)` -- cap `n` to `maxReadAlloc` (64KB) before `make([]byte, n)`
+**Root Cause:** CodeQL's `BarrierGuard` only recognizes relational comparisons (`<`, `<=`, `>`, `>=`) where the **unsafe branch terminates** (early return or panic). After such a guard, only the safe branch survives and the tainted value is sanitized on that branch.
 
-These constants are defense-in-depth guards. They do not change behavior for any caller using values within normal bounds (the largest configured ring buffer is 64KB, the largest API read is 64KB).
+**Fix (two layers):**
+
+1. **Ring buffer (primary):** Replace the clamp in `Read()` with an early-return guard that terminates the unsafe branch:
+
+```go
+if n <= 0 || n > maxReadAlloc {
+    return nil
+}
+```
+
+After this guard, `n` is proven `<= maxReadAlloc` on the only surviving branch. The `make([]byte, n)` call uses the sanitized value.
+
+2. **API handler (defense-in-depth):** Replace `min(v, maxReadLength)` in `handleReadLog()` with an explicit HTTP 400 that terminates the request:
+
+```go
+if v > maxReadLength {
+    writeError(w, http.StatusBadRequest, "length exceeds maximum of 65536", "BAD_REQUEST")
+    return
+}
+length = v
+```
+
+This validates user input at the system boundary and gives CodeQL a second cut point.
 
 **Acceptance Criteria:**
 
@@ -3438,31 +3460,38 @@ These constants are defense-in-depth guards. They do not change behavior for any
   **Then** `size` is silently clamped to 1,048,576 (1MB)
 
 - **Given** `RingBuffer.Read(200_000)` is called
-  **When** the allocation occurs
-  **Then** `n` is clamped to 65,536 (64KB) before `make([]byte, n)`
+  **When** n exceeds `maxReadAlloc` (64KB)
+  **Then** `Read()` returns nil (early-return guard)
+
+- **Given** `GET /api/v1/processes/web/log/stdout?length=999999`
+  **When** length exceeds `maxReadLength` (64KB)
+  **Then** HTTP 400 is returned with error message
 
 - **Given** the fix is merged to `main`
   **When** CodeQL re-scans via `.github/workflows/security.yml`
   **Then** alert #1 (`go/uncontrolled-allocation-size`) auto-closes
 
-- **Given** normal operation with default config (64KB ring buffers, API reads <= 64KB)
-  **When** any code path calls `NewRingBuffer` or `Read`
+- **Given** normal operation with default config (API reads <= 64KB)
+  **When** any code path calls `Read()` with a valid length
   **Then** behavior is unchanged (values are already within bounds)
 
 **Error Handling:**
 
 | Scenario | Behavior |
-|---|---|
+| --- | --- |
 | `NewRingBuffer(size)` with `size > 1MB` | Silently clamped to 1MB |
 | `NewRingBuffer(size)` with `size <= 0` | Clamped to 1 (minimum viable buffer) |
-| `Read(n)` with `n > 64KB` | Clamped to 64KB before further runtime clamps |
+| `Read(n)` with `n <= 0` or `n > 64KB` | Returns nil (early-return guard) |
+| `handleReadLog` with `length > 64KB` | HTTP 400 BAD_REQUEST |
 
 **Edge Cases:**
 
-- The 1MB cap on `NewRingBuffer` is 16x the default ring buffer size (64KB), providing headroom for future config-driven sizing without requiring a code change
-- The 64KB cap on `Read` matches `maxReadLength` in `api.go`, forming a consistent defense-in-depth chain
-- Both constants are unexported package-level `const` values, not configurable at runtime
-- Existing tests pass without modification since they use buffers well within bounds
+- The API handler already ensures `length <= 64KB` for all HTTP paths, so `Read()` returning nil for `n > 64KB` is unreachable from the API; it guards against direct callers only
+- The 1MB cap on `NewRingBuffer` is 16x the default ring buffer size (64KB)
+- Both `maxRingBufSize` and `maxReadAlloc` are unexported package-level `const` values
+- CodeQL's `BarrierGuard` mechanism: relational comparison + branch termination = taint sanitization on the surviving branch
+- `min()` is NOT a barrier in CodeQL -- it has value-flow propagation that passes taint through
+- Existing tests pass without modification since they use values within bounds
 
 **Dependencies:** SEC-001
 

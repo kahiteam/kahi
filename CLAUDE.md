@@ -8,9 +8,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Tech Stack:** Go 1.26.0, cobra, BurntSushi/toml, stdlib slog
 **Repository:** github.com/kahiteam/kahi
 
-## Development Workflow
+## Feature Development Workflow
 
-### Subagent Policy
+All new feature work follows the `/specforge` specification workflow. Activate it at the start of any feature development session.
+
+**Workflow phases (in order):**
+
+1. `/specforge constitution` -- Define or verify project principles (`.specify/memory/constitution.md`)
+2. `/specforge spec` -- Document features and acceptance criteria (`.specify/specs/spec.md`)
+3. `/specforge clarify` -- Resolve ambiguities, edge cases, contradictions
+4. `/specforge plan` -- Make and record technical architecture decisions (`.specify/specs/plan.md`)
+5. `/specforge features` -- Generate `feature_list.json` with testable steps
+6. `/specforge analyze` -- Score spec for autonomous-readiness (target >= 80)
+7. `/specforge setup` -- Generate platform setup checklist (CI, branch protection, etc.)
+
+Skip phases whose artifacts already exist and are current. Run `/specforge analyze` before implementation to confirm readiness.
+
+**Implementation rule:** Do not begin coding a feature until its spec, plan, and feature_list entry exist and the analyze score is >= 80.
+
+## Subagent Policy
 
 The main conversation orchestrates, summarizes, and interacts with the user. All heavy lifting MUST be delegated to subagents via the Task tool. Never perform these tasks inline:
 

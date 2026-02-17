@@ -1095,6 +1095,17 @@ func TestReadLogWithParams(t *testing.T) {
 	}
 }
 
+func TestReadLogLengthExceedsMax(t *testing.T) {
+	srv, _, _ := testServer()
+	req := httptest.NewRequest("GET", "/api/v1/processes/web/log/stdout?length=100000", nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
 func TestReadLogNotFound(t *testing.T) {
 	srv, _, _ := testServer()
 	req := httptest.NewRequest("GET", "/api/v1/processes/nonexistent/log/stdout", nil)
