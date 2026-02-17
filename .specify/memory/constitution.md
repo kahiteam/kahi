@@ -50,6 +50,12 @@ Once established, these principles do not change without explicit human approval
 - No Co-Authored-By trailers
 - Subject line maximum: 72 characters
 
+### Branching Workflow
+
+- All changes reach `main` via pull request only -- no direct commits to `main`, locally or on origin
+- Feature branches use conventional prefixes: `feat/`, `fix/`, `docs/`, `ci/`, `refactor/`, `test/`, `chore/`
+- Branch protection on `main` is a deployment prerequisite, not optional
+
 ### Communication Style
 
 - Tone: Technical and terse
