@@ -7,34 +7,34 @@ builds:
     binary: kahi
     env:
       - CGO_ENABLED=0
+      - GOFIPS140=v1.0.0
     goos:
       - linux
       - darwin
     goarch:
       - amd64
       - arm64
+      - arm
+      - riscv64
+      - ppc64le
+      - s390x
+    goarm:
+      - "7"
+    ignore:
+      - goos: darwin
+        goarch: arm
+      - goos: darwin
+        goarch: riscv64
+      - goos: darwin
+        goarch: ppc64le
+      - goos: darwin
+        goarch: s390x
     ldflags:
       - -s -w
       - -X github.com/kahiteam/kahi/internal/version.Version={{.Version}}
       - -X github.com/kahiteam/kahi/internal/version.Commit={{.Commit}}
       - -X github.com/kahiteam/kahi/internal/version.Date={{.Date}}
-
-  - id: kahi-fips
-    main: ./cmd/kahi
-    binary: kahi-fips
-    env:
-      - CGO_ENABLED=0
-      - GOFIPS140=v1.0.0
-    goos:
-      - linux
-    goarch:
-      - amd64
-      - arm64
-    ldflags:
-      - -s -w
-      - -X github.com/kahiteam/kahi/internal/version.Version={{.Version}}
-      - -X github.com/kahiteam/kahi/internal/version.Commit={{.Commit}}
-      - -X github.com/kahiteam/kahi/internal/version.Date={{.Date}}
+      - -X github.com/kahiteam/kahi/internal/version.GoVersion={{.Env.GOVERSION}}
       - -X github.com/kahiteam/kahi/internal/version.FIPS=true
 
 archives:
@@ -42,15 +42,29 @@ archives:
     ids:
       - kahi
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-
-  - id: kahi-fips
-    ids:
-      - kahi-fips
-    name_template: "{{ .ProjectName }}-fips_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+      - cmd/kahi/kahi.toml
 
 checksum:
   name_template: "checksums.txt"
   algorithm: sha256
+
+changelog:
+  sort: asc
+  groups:
+    - title: Features
+      regexp: "^feat"
+    - title: Bug Fixes
+      regexp: "^fix"
+    - title: Performance
+      regexp: "^perf"
+    - title: Other
+      order: 999
+  filters:
+    exclude:
+      - "^Merge"
 
 release:
   github:
@@ -58,4 +72,5 @@ release:
     name: kahi
   draft: false
   prerelease: auto
+  make_latest: true
   name_template: "{{.ProjectName}} v{{.Version}}"
