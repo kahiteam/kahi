@@ -72,5 +72,4 @@ release:
     name: kahi
   draft: false
   prerelease: auto
-  make_latest: true
   name_template: "{{.ProjectName}} v{{.Version}}"
