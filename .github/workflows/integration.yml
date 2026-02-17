@@ -39,7 +39,7 @@ jobs:
       - run: task test-e2e
         name: E2E tests
       - name: Integration test report
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v2
         if: always()
         with:
           name: Integration Test Results
@@ -47,7 +47,7 @@ jobs:
           reporter: java-junit
           fail-on-error: false
       - name: E2E test report
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v2
         if: always()
         with:
           name: E2E Test Results
