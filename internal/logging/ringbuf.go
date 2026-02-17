@@ -39,6 +39,10 @@ func (rb *RingBuffer) Read(n int) []byte {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 
+	if n > rb.size {
+		n = rb.size
+	}
+
 	available := rb.pos
 	if rb.full {
 		available = rb.size

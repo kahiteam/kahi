@@ -2031,6 +2031,26 @@
       ],
       "passes": true,
       "dependencies": []
+    },
+    {
+      "id": "api-input-bounds-validation",
+      "category": "infrastructure",
+      "title": "API Input Bounds Validation (CWE-770)",
+      "description": "Add defense-in-depth bounds checking for user-controlled allocation sizes in the log read API path. Resolves CodeQL alert go/uncontrolled-allocation-size.",
+      "testing_steps": [
+        "Verify handleReadLog() in internal/api/api.go clamps length to a maximum of 65536 before passing to ReadLog()",
+        "Verify RingBuffer.Read(n) in internal/logging/ringbuf.go clamps n to rb.size before the make() call",
+        "Verify GET /api/v1/processes/{name}/log/stdout?length=999999999 returns at most 65536 bytes",
+        "Verify GET /api/v1/processes/{name}/log/stdout?length=-5 uses default length of 1600",
+        "Verify GET /api/v1/processes/{name}/log/stdout (no length param) uses default length of 1600",
+        "Verify existing unit tests in ringbuf_test.go still pass after the change",
+        "Verify CodeQL alert go/uncontrolled-allocation-size no longer triggers on the modified code"
+      ],
+      "passes": true,
+      "dependencies": [
+        "process-output-ring-buffer",
+        "rest-api-endpoints"
+      ]
     }
   ]
 }
