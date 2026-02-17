@@ -10,7 +10,7 @@ Once established, these principles do not change without explicit human approval
 **One-Line Description:** A modern, lightweight process supervisor for POSIX systems, written in Go.
 **Canonical Repository:** github.com/kahiteam/kahi
 **Primary Language(s):** Go (1.26.0+)
-**Target Platform(s):** Linux (amd64, arm64), macOS (amd64, arm64)
+**Target Platform(s):** Linux (amd64, arm64, arm/v7, riscv64, ppc64le, s390x), macOS (amd64, arm64)
 
 ## Non-Negotiable Principles
 
@@ -34,6 +34,13 @@ Once established, these principles do not change without explicit human approval
 - Linter: golangci-lint
 - Formatter: gofmt
 - Type checking: go vet (strict mode: yes)
+
+### Versioning
+
+- Semantic Versioning 2.0.0 (semver.org)
+- Breaking changes bump major, non-breaking changes bump minor, builds bump patch
+- Pre-release tags: `-alpha.N`, `-beta.N`, `-rc.N` (e.g., `v0.1.0-alpha.1`)
+- All releases are FIPS 140 compliant -- no separate FIPS variant
 
 ### Commit Standards
 

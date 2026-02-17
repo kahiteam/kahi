@@ -1821,7 +1821,7 @@
         "Verify 'go install github.com/kahiteam/kahi/cmd/kahi@latest' resolves (module proxy indexed)",
         "Verify GitHub Topics include process-supervisor, go, posix, supervisord"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "module-path-migration"
       ]
@@ -1840,9 +1840,120 @@
         "Verify README has 'Where to find the code' section with source, releases, and Go import path links",
         "Verify README contains no emoji"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "repo-migration"
+      ]
+    },
+    {
+      "id": "semver-alpha-releases",
+      "category": "infrastructure",
+      "title": "Semantic Versioning and Alpha Releases",
+      "description": "SemVer 2.0.0 release strategy with alpha/beta/rc pre-release support. GoReleaser auto-detects pre-release tags. Pre-releases not marked Latest. Archives include README, LICENSE, example config. Changelog from conventional commits.",
+      "testing_steps": [
+        "Verify .goreleaser.yml sets make_latest to prevent pre-releases from being marked latest",
+        "Verify .goreleaser.yml has a changelog section using conventional commits",
+        "Verify .goreleaser.yml archives include extra_files: README.md, LICENSE, cmd/kahi/kahi.toml",
+        "Verify .goreleaser.yml ldflags include GoVersion injection",
+        "Run 'goreleaser check' and verify config is valid",
+        "Run 'goreleaser build --snapshot --clean' and verify it produces binaries",
+        "Verify kahi version output shows version, commit, date, Go version, and FIPS status"
+      ],
+      "passes": false,
+      "dependencies": []
+    },
+    {
+      "id": "fips-everywhere",
+      "category": "infrastructure",
+      "title": "FIPS-Everywhere Build Simplification",
+      "description": "Eliminate dual kahi/kahi-fips build. All binaries are FIPS 140 compliant via GOFIPS140=v1.0.0. Single build ID, single archive naming scheme, no -fips suffix. Fixes GOFIPS140 env var scoping bug in release.yml.",
+      "testing_steps": [
+        "Verify .goreleaser.yml has exactly one build ID (kahi), not two",
+        "Verify .goreleaser.yml build env includes GOFIPS140=v1.0.0",
+        "Verify .goreleaser.yml ldflags include -X ...version.FIPS=true",
+        "Verify .goreleaser.yml archives use kahi_VERSION_OS_ARCH naming (no -fips suffix)",
+        "Verify release.yml does NOT set GOFIPS140 at workflow env level",
+        "Run 'goreleaser build --snapshot --clean' and verify single set of binaries produced",
+        "Verify built binary reports fips: true via 'kahi version'"
+      ],
+      "passes": false,
+      "dependencies": []
+    },
+    {
+      "id": "extended-architectures",
+      "category": "infrastructure",
+      "title": "Extended Architecture Support",
+      "description": "Expand build targets to 8 platforms: linux/amd64, linux/arm64, linux/arm (v7), linux/riscv64, linux/ppc64le, linux/s390x, darwin/amd64, darwin/arm64. Covers enterprise (IBM POWER, System z) and embedded (Raspberry Pi, RISC-V).",
+      "testing_steps": [
+        "Verify .goreleaser.yml builds section lists all 8 GOOS/GOARCH targets",
+        "Verify linux/arm build sets GOARM=7",
+        "Verify darwin targets are amd64 and arm64 only (no arm, no riscv64)",
+        "Run 'goreleaser check' and verify config is valid with expanded targets",
+        "Run 'goreleaser build --snapshot --clean' and verify 8 binaries produced",
+        "Verify SHA-256 checksums file lists all 8 archives",
+        "Verify archive naming follows kahi_VERSION_OS_ARCH pattern for all targets"
+      ],
+      "passes": false,
+      "dependencies": [
+        "fips-everywhere"
+      ]
+    },
+    {
+      "id": "oci-multiarch-containers",
+      "category": "infrastructure",
+      "title": "OCI Multi-Arch Container Images",
+      "description": "Multi-arch OCI containers on ghcr.io/kahiteam/kahi. Scratch-based Dockerfile, buildx for multi-arch manifest (all 6 linux architectures). Pre-releases tagged :VERSION only, stable releases get :VERSION, :MAJOR.MINOR, :MAJOR, :latest.",
+      "testing_steps": [
+        "Verify Dockerfile exists at repo root with scratch base image",
+        "Verify Dockerfile copies CA certificates from builder stage",
+        "Verify Dockerfile sets USER 65534:65534 and ENTRYPOINT [/kahi, daemon]",
+        "Verify release.yml docker job references ghcr.io/kahiteam/kahi",
+        "Verify release.yml docker job builds for linux/amd64, linux/arm64, linux/arm/v7, linux/riscv64, linux/ppc64le, linux/s390x",
+        "Verify release.yml docker tagging logic: pre-release gets :VERSION only, stable gets :VERSION :MAJOR.MINOR :MAJOR :latest",
+        "Verify release.yml sets permissions packages: write for GHCR push",
+        "Run 'docker build --platform linux/amd64 -t kahi-test .' and verify image builds",
+        "Verify built image runs as non-root (UID 65534)"
+      ],
+      "passes": false,
+      "dependencies": [
+        "fips-everywhere",
+        "extended-architectures"
+      ]
+    },
+    {
+      "id": "release-pipeline-hardening",
+      "category": "infrastructure",
+      "title": "Release Pipeline Hardening",
+      "description": "Fix known bugs: Docker registry schwichtgit->kahiteam, GOFIPS140 env scoping, GoVersion ldflag. Remove duplicate commit-standards.yml workflow. Consolidate release pipeline.",
+      "testing_steps": [
+        "Verify release.yml docker job references ghcr.io/kahiteam/kahi (not schwichtgit)",
+        "Verify release.yml does not set GOFIPS140 at workflow env level",
+        "Verify .goreleaser.yml ldflags include GoVersion injection",
+        "Verify commit-standards.yml workflow file is removed",
+        "Verify ci.yml commit-standards job still exists and covers the same checks",
+        "Run 'goreleaser build --snapshot --clean' and verify it succeeds"
+      ],
+      "passes": false,
+      "dependencies": [
+        "semver-alpha-releases",
+        "fips-everywhere"
+      ]
+    },
+    {
+      "id": "oci-attestations",
+      "category": "infrastructure",
+      "title": "OCI 1.1 Supply Chain Attestations (Future Work)",
+      "description": "Post-v1.0 feature. Add cosign signing (keyless via GitHub OIDC), SBOM generation (SPDX), and SLSA provenance attestation to container images.",
+      "testing_steps": [
+        "Verify cosign is configured in the release workflow",
+        "Verify container images are signed with cosign keyless signing",
+        "Verify SBOM is attached to container images in SPDX format",
+        "Verify 'cosign verify ghcr.io/kahiteam/kahi:latest' succeeds",
+        "Verify SLSA provenance attestation is at level 2 or higher"
+      ],
+      "passes": false,
+      "dependencies": [
+        "oci-multiarch-containers"
       ]
     }
   ]

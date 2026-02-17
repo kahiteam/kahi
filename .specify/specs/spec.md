@@ -197,6 +197,186 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 ---
 
+### INFRA-009: Semantic Versioning and Alpha Releases
+
+**Description:** Implement SemVer 2.0.0 release strategy with alpha/beta/rc pre-release support. GoReleaser `prerelease: auto` detects pre-release tags automatically. Pre-releases must not be marked as "Latest" on GitHub. Release archives include README, LICENSE, and example config.
+
+**Acceptance Criteria:**
+
+- [ ] GoReleaser config sets `make_latest` to prevent pre-releases from being marked latest
+- [ ] Tag `v0.1.0-alpha.1` produces a GitHub pre-release (not marked "Latest")
+- [ ] Tag `v0.1.0` produces a stable GitHub release (marked "Latest")
+- [ ] Release archives include `README.md`, `LICENSE`, and `cmd/kahi/kahi.toml` as example config
+- [ ] GoReleaser generates a changelog from conventional commits between tags
+- [ ] GoReleaser injects `GoVersion` into ldflags (currently missing, falls back to runtime detection)
+- [ ] `kahi version` output shows correct version, commit, date, Go version, and FIPS status for release builds
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| Tag without `v` prefix | GoReleaser rejects non-semver tags; push fails cleanly |
+| Duplicate tag | Git rejects duplicate tag push; no partial release |
+| Changelog generation fails | GoReleaser falls back to commit list; release still publishes |
+
+**Dependencies:** None
+
+---
+
+### INFRA-010: FIPS-Everywhere Build Simplification
+
+**Description:** Eliminate the separate `kahi-fips` build variant. All binaries are built with `GOFIPS140=v1.0.0` -- every release is FIPS 140 compliant. This simplifies the build matrix, release artifacts, and user experience (no choice to make, no confusion). Fixes the existing bug where `GOFIPS140` was set globally in `release.yml` affecting both builds inconsistently.
+
+**Acceptance Criteria:**
+
+- [ ] `.goreleaser.yml` has a single build ID (`kahi`), not two (`kahi` + `kahi-fips`)
+- [ ] All builds set `GOFIPS140=v1.0.0` in the build env
+- [ ] `kahi version` reports `fips: true` for all release binaries
+- [ ] Archive naming uses `kahi_VERSION_OS_ARCH` (no `-fips` suffix)
+- [ ] `release.yml` does not set `GOFIPS140` at the workflow level (it is in `.goreleaser.yml` per-build)
+- [ ] `FIPS=true` is injected via ldflags for all builds
+- [ ] README documents that all binaries are FIPS 140 compliant
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| Go version does not support GOFIPS140 | Build fails at compile time with clear error |
+| FIPS module validation fails | Go runtime panics at startup; documented in README troubleshooting |
+
+**Dependencies:** None
+
+---
+
+### INFRA-011: Extended Architecture Support
+
+**Description:** Expand release build targets beyond amd64/arm64 to cover enterprise and embedded platforms. Add linux/arm (v7), linux/riscv64, linux/ppc64le, and linux/s390x. macOS remains amd64/arm64 only (Apple does not support other architectures).
+
+**Build matrix:**
+
+| GOOS | GOARCH | Description |
+|------|--------|-------------|
+| linux | amd64 | 64-bit x86 (Intel/AMD) |
+| linux | arm64 | 64-bit ARM (AArch64) |
+| linux | arm | 32-bit ARM v7 (Raspberry Pi, embedded) |
+| linux | riscv64 | 64-bit RISC-V |
+| linux | ppc64le | 64-bit PowerPC little-endian (IBM POWER) |
+| linux | s390x | 64-bit IBM System z (mainframes) |
+| darwin | amd64 | macOS Intel |
+| darwin | arm64 | macOS Apple Silicon |
+
+**Acceptance Criteria:**
+
+- [ ] `.goreleaser.yml` builds for all 8 targets listed above
+- [ ] `linux/arm` build sets `GOARM=7` for ARMv7 compatibility
+- [ ] All 8 archives appear in a GitHub release
+- [ ] SHA-256 checksums cover all 8 archives
+- [ ] `goreleaser check` passes with the expanded config
+- [ ] Cross-compilation succeeds for all targets (`goreleaser build --snapshot --clean`)
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| GOFIPS140 not supported on an architecture | Build excluded for that target; documented in release notes |
+| Cross-compilation failure for exotic arch | CI fails; investigate Go version support for that GOOS/GOARCH |
+
+**Dependencies:** INFRA-010
+
+---
+
+### INFRA-012: OCI Multi-Arch Container Images
+
+**Description:** Build and publish multi-architecture OCI container images to `ghcr.io/kahiteam/kahi`. Uses a minimal `scratch`-based Dockerfile with the pre-built static binary. Multi-arch manifest covers all linux architectures from INFRA-011. Built with buildx (compatible with both Docker and Podman). All container images are FIPS 140 compliant (same binary as release tarballs).
+
+**Container specification:**
+
+- Base image: `scratch` (zero-dependency, smallest possible)
+- Binary: `/kahi` (static, CGO_ENABLED=0, FIPS)
+- CA certificates: copied from builder stage
+- User: `65534:65534` (nobody)
+- Entrypoint: `["/kahi", "daemon"]`
+- Exposed port: none (Unix socket default; TCP optional via config)
+
+**Tagging strategy:**
+
+- Stable release `v1.0.0`: tags `:1.0.0`, `:1.0`, `:1`, `:latest`
+- Pre-release `v1.0.0-alpha.1`: tag `:1.0.0-alpha.1` only (never `:latest`)
+
+**Acceptance Criteria:**
+
+- [ ] `Dockerfile` exists at repo root using multi-stage build (`scratch` final stage)
+- [ ] Dockerfile copies CA certificates from a builder stage
+- [ ] Dockerfile sets `USER 65534:65534` and `ENTRYPOINT ["/kahi", "daemon"]`
+- [ ] `release.yml` docker job pushes to `ghcr.io/kahiteam/kahi` (not `schwichtgit`)
+- [ ] Multi-arch manifest includes: `linux/amd64`, `linux/arm64`, `linux/arm/v7`, `linux/riscv64`, `linux/ppc64le`, `linux/s390x`
+- [ ] Pre-release tags do NOT receive `:latest` Docker tag
+- [ ] Stable releases receive `:VERSION`, `:MAJOR.MINOR`, `:MAJOR`, and `:latest` tags
+- [ ] `docker pull ghcr.io/kahiteam/kahi:latest` works and selects the correct platform
+- [ ] Container runs as non-root (UID 65534)
+- [ ] Container image size is under 20MB (static binary + CA certs only)
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| GHCR authentication fails | Release workflow fails at login step; GITHUB_TOKEN must have packages:write |
+| buildx not available | Setup step installs buildx; fails early if unavailable |
+| Architecture not supported by base image | `scratch` supports all architectures; no issue |
+| CA certificates missing | TLS connections fail; Dockerfile must copy certs from builder |
+
+**Dependencies:** INFRA-010, INFRA-011
+
+---
+
+### INFRA-013: Release Pipeline Hardening
+
+**Description:** Fix known bugs and gaps in the release workflow. Consolidate Docker build into the release pipeline. Remove duplicate commit-standards workflow. Add GoVersion to GoReleaser ldflags.
+
+**Known issues to fix:**
+
+1. Docker registry references `schwichtgit` instead of `kahiteam`
+2. `GOFIPS140` set at workflow level instead of per-build in GoReleaser
+3. `GoVersion` not injected by GoReleaser ldflags (falls back to runtime detection)
+4. No archive extras (README, LICENSE, example config not included in tarballs)
+5. Duplicate `commit-standards.yml` workflow (already covered by `ci.yml`)
+
+**Acceptance Criteria:**
+
+- [ ] `release.yml` Docker job references `ghcr.io/kahiteam/kahi`
+- [ ] `release.yml` does not set `GOFIPS140` at workflow env level
+- [ ] GoReleaser ldflags include `-X ...version.GoVersion={{.Env.GOVERSION}}`
+- [ ] Duplicate `commit-standards.yml` workflow is removed (logic lives in `ci.yml`)
+- [ ] Release workflow sets `permissions: packages: write` for GHCR push
+- [ ] A test release via `goreleaser build --snapshot --clean` succeeds locally
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| GOVERSION env var not set | GoReleaser sets it to empty string; `kahi version` falls back to runtime detection |
+| Removed workflow still triggers | GitHub caches workflow files; merge to main clears stale workflows |
+
+**Dependencies:** INFRA-009, INFRA-010
+
+---
+
+### INFRA-014: OCI 1.1 Attestations (Future Work)
+
+**Description:** Add OCI 1.1 supply chain attestations to container images. Includes cosign signing, SBOM generation (SPDX or CycloneDX), and provenance metadata. Planned for post-v1.0 stable release.
+
+**Acceptance Criteria:**
+
+- [ ] Container images are signed with cosign (keyless, via GitHub OIDC)
+- [ ] SBOM attached to container images (SPDX format)
+- [ ] SLSA provenance attestation at level 2 or higher
+- [ ] `cosign verify ghcr.io/kahiteam/kahi:latest` succeeds
+- [ ] SBOM retrievable via `cosign download sbom ghcr.io/kahiteam/kahi:latest`
+
+**Dependencies:** INFRA-012
+
+---
+
 ## Functional Features
 
 ### FUNC-001: Process State Machine
