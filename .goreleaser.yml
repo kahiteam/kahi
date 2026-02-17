@@ -14,6 +14,21 @@ builds:
     goarch:
       - amd64
       - arm64
+      - arm
+      - riscv64
+      - ppc64le
+      - s390x
+    goarm:
+      - "7"
+    ignore:
+      - goos: darwin
+        goarch: arm
+      - goos: darwin
+        goarch: riscv64
+      - goos: darwin
+        goarch: ppc64le
+      - goos: darwin
+        goarch: s390x
     ldflags:
       - -s -w
       - -X github.com/kahiteam/kahi/internal/version.Version={{.Version}}
