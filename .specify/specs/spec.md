@@ -3325,6 +3325,61 @@ None specific.
 
 ---
 
+## Security Features
+
+### SEC-001: API Input Bounds Validation (CWE-770)
+
+**Description:** Add defense-in-depth bounds checking for user-controlled allocation sizes in the log read API path. CodeQL alert [go/uncontrolled-allocation-size](https://github.com/kahiteam/kahi/security/code-scanning/1) flags `make([]byte, n)` at `internal/logging/ringbuf.go:54` where `n` originates from the HTTP `?length=` query parameter without an explicit upper bound.
+
+The ring buffer already clamps `n` to available data (max 64KB), so exploitation requires no fix beyond satisfying the static analysis rule. However, defense-in-depth dictates explicit bounds at both the API handler and the ring buffer.
+
+**Data Flow:**
+
+```
+GET /api/v1/processes/{name}/log/{stream}?length=N
+  -> handleReadLog()          [internal/api/api.go:386]
+  -> Manager.ReadLog()        [internal/process/manager.go:526]
+  -> CaptureWriter.ReadTail() [internal/logging/capture.go:93]
+  -> RingBuffer.Read(n)       [internal/logging/ringbuf.go:54]
+  -> make([]byte, n)          <-- flagged allocation
+```
+
+**Acceptance Criteria:**
+
+- **Given** `GET /api/v1/processes/web/log/stdout?length=999999999`
+  **When** the request is processed by `handleReadLog()`
+  **Then** `length` is clamped to a maximum of 65536 (64KB) before passing to `ReadLog()`
+
+- **Given** `RingBuffer.Read(n)` is called with `n > rb.size`
+  **When** the allocation occurs
+  **Then** `n` is clamped to `rb.size` before `make([]byte, n)` executes
+
+- **Given** the fix is deployed
+  **When** CodeQL re-scans the repository
+  **Then** alert go/uncontrolled-allocation-size is resolved (no longer open)
+
+- **Given** `GET /api/v1/processes/web/log/stdout?length=-5`
+  **When** the request is processed
+  **Then** the negative value is rejected (existing `v > 0` check) and the default of 1600 is used
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| `length` exceeds 64KB | Silently clamped to 64KB; no error returned |
+| `length` is negative or non-numeric | Ignored; default 1600 used (existing behavior) |
+| Ring buffer is smaller than requested | Returns available data (existing clamp at line 47-49) |
+
+**Edge Cases:**
+
+- `length=0` is treated as "use default" by the existing `v > 0` check
+- The 64KB cap matches the ring buffer allocation in `capture.go:39` (`64 * 1024`)
+- If ring buffer size is made configurable in the future, the API cap should track `stdout_capture_maxbytes`
+
+**Dependencies:** FUNC-082, FUNC-026
+
+---
+
 ## Testing Features
 
 ### TEST-001: Unit Test Infrastructure

@@ -392,10 +392,11 @@ func (s *Server) handleReadLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	offset, _ := strconv.ParseInt(r.URL.Query().Get("offset"), 10, 64)
+	const maxReadLength = 65536 // 64KB, matches ring buffer capacity
 	length := 1600
 	if l := r.URL.Query().Get("length"); l != "" {
 		if v, err := strconv.Atoi(l); err == nil && v > 0 {
-			length = v
+			length = min(v, maxReadLength)
 		}
 	}
 
