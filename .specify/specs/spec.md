@@ -377,6 +377,108 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 ---
 
+### INFRA-015: Security Policy and Vulnerability Reporting
+
+**Description:** Create a SECURITY.md with supported versions, vulnerability reporting instructions, response SLA, and scope. Enable GitHub private vulnerability reporting and secret scanning with push protection on the repository.
+
+**Acceptance Criteria:**
+
+- [ ] `SECURITY.md` exists at repo root
+- [ ] SECURITY.md lists supported versions table (latest minor of each major)
+- [ ] SECURITY.md directs reporters to GitHub private vulnerability reporting as primary channel
+- [ ] SECURITY.md lists `schwicht+kahi+security@gmail.com` as email fallback
+- [ ] SECURITY.md states 48-hour acknowledgment and 90-day fix SLA
+- [ ] SECURITY.md defines scope (what is and is not a security issue)
+- [ ] SECURITY.md describes coordinated disclosure policy
+- [ ] GitHub private vulnerability reporting is enabled on the repository
+- [ ] GitHub secret scanning is enabled on the repository
+- [ ] GitHub secret scanning push protection is enabled on the repository
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| Reporter uses email instead of GitHub | Same SLA applies; maintainer creates private advisory manually |
+| Secret scanning false positive | Maintainer dismisses alert with reason; does not disable scanning |
+
+**Dependencies:** None
+
+---
+
+### INFRA-016: Code of Conduct
+
+**Description:** Adopt the Contributor Covenant v2.1 as the project code of conduct. This is the industry standard recognized by GitHub's community profile checklist.
+
+**Acceptance Criteria:**
+
+- [ ] `CODE_OF_CONDUCT.md` exists at repo root
+- [ ] Document is Contributor Covenant v2.1 (full text, not a link)
+- [ ] Contact method is `schwicht+kahi+security@gmail.com`
+- [ ] Document contains no emoji
+- [ ] GitHub community profile shows Code of Conduct as complete
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| Conduct violation reported | Follow enforcement guidelines in the Contributor Covenant |
+
+**Dependencies:** None
+
+---
+
+### INFRA-017: Contributing Guide
+
+**Description:** Create a CONTRIBUTING.md covering development setup, branching model, commit conventions, PR process, code style requirements, and testing expectations. Must align with the project constitution.
+
+**Acceptance Criteria:**
+
+- [ ] `CONTRIBUTING.md` exists at repo root
+- [ ] Document covers: prerequisites (Go 1.26+, Task), getting started (clone, init.sh, task test)
+- [ ] Document covers: branching model (feature branches off main, PR required)
+- [ ] Document covers: conventional commit format with examples
+- [ ] Document covers: PR requirements (tests pass, lint clean, description)
+- [ ] Document covers: code style (gofmt, golangci-lint, go vet)
+- [ ] Document covers: testing requirements (85% coverage, unit + integration)
+- [ ] Document references SECURITY.md for vulnerability reports
+- [ ] Document references CODE_OF_CONDUCT.md
+- [ ] Document contains no emoji or AI-isms
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| Contributor skips conventional commits | CI commit-standards job fails the PR |
+| Coverage drops below 85% | CI coverage check fails the PR |
+
+**Dependencies:** INFRA-015, INFRA-016
+
+---
+
+### INFRA-018: Issue Templates
+
+**Description:** Create YAML-based GitHub issue templates for bug reports and feature requests. Use structured forms (not freeform markdown) to ensure reporters provide required information. Disable blank issues.
+
+**Acceptance Criteria:**
+
+- [ ] `.github/ISSUE_TEMPLATE/bug_report.yml` exists with required fields: Go version, OS/arch, kahi version, steps to reproduce, expected behavior, actual behavior
+- [ ] `.github/ISSUE_TEMPLATE/feature_request.yml` exists with required fields: problem statement, proposed solution, alternatives considered
+- [ ] `.github/ISSUE_TEMPLATE/config.yml` exists with `blank_issues_enabled: false`
+- [ ] Bug report template has `labels: ["bug"]` and feature request has `labels: ["enhancement"]`
+- [ ] All templates render correctly in GitHub's new issue picker
+- [ ] Templates contain no emoji
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| User needs to file an issue that doesn't fit templates | config.yml provides contact links (security policy, discussions) |
+| Template YAML is invalid | GitHub falls back to freeform; CI should lint templates |
+
+**Dependencies:** None
+
+---
+
 ## Functional Features
 
 ### FUNC-001: Process State Machine

@@ -1955,6 +1955,82 @@
       "dependencies": [
         "oci-multiarch-containers"
       ]
+    },
+    {
+      "id": "security-policy",
+      "category": "infrastructure",
+      "title": "Security Policy and Vulnerability Reporting",
+      "description": "SECURITY.md with supported versions, reporting instructions, SLA, and scope. Enable GitHub private vulnerability reporting and secret scanning with push protection.",
+      "testing_steps": [
+        "Verify SECURITY.md exists at repo root",
+        "Verify SECURITY.md lists supported versions table",
+        "Verify SECURITY.md directs reporters to GitHub private vulnerability reporting",
+        "Verify SECURITY.md lists schwicht+kahi+security@gmail.com as email fallback",
+        "Verify SECURITY.md states 48-hour acknowledgment and 90-day fix SLA",
+        "Verify SECURITY.md defines scope of security issues",
+        "Verify SECURITY.md describes coordinated disclosure policy",
+        "Verify GitHub private vulnerability reporting is enabled via 'gh api /repos/kahiteam/kahi/private-vulnerability-reporting'",
+        "Verify GitHub secret scanning is enabled via 'gh api /repos/kahiteam/kahi' security_and_analysis",
+        "Verify GitHub secret scanning push protection is enabled"
+      ],
+      "passes": false,
+      "dependencies": []
+    },
+    {
+      "id": "code-of-conduct",
+      "category": "infrastructure",
+      "title": "Code of Conduct",
+      "description": "Contributor Covenant v2.1 as project code of conduct. Industry standard recognized by GitHub community profile.",
+      "testing_steps": [
+        "Verify CODE_OF_CONDUCT.md exists at repo root",
+        "Verify document is Contributor Covenant v2.1 (contains 'Contributor Covenant Code of Conduct' heading)",
+        "Verify contact method is schwicht+kahi+security@gmail.com",
+        "Verify document contains no emoji",
+        "Verify GitHub community profile shows Code of Conduct as complete"
+      ],
+      "passes": false,
+      "dependencies": []
+    },
+    {
+      "id": "contributing-guide",
+      "category": "infrastructure",
+      "title": "Contributing Guide",
+      "description": "CONTRIBUTING.md covering dev setup, branching, commits, PR process, code style, and testing. Aligned with project constitution.",
+      "testing_steps": [
+        "Verify CONTRIBUTING.md exists at repo root",
+        "Verify document covers prerequisites (Go 1.26+, Task)",
+        "Verify document covers getting started (clone, init.sh, task test)",
+        "Verify document covers branching model (feature branches, PR required)",
+        "Verify document covers conventional commit format with examples",
+        "Verify document covers PR requirements (tests pass, lint clean)",
+        "Verify document covers code style (gofmt, golangci-lint, go vet)",
+        "Verify document covers testing requirements (85% coverage)",
+        "Verify document references SECURITY.md for vulnerability reports",
+        "Verify document references CODE_OF_CONDUCT.md",
+        "Verify document contains no emoji or AI-isms"
+      ],
+      "passes": false,
+      "dependencies": [
+        "security-policy",
+        "code-of-conduct"
+      ]
+    },
+    {
+      "id": "issue-templates",
+      "category": "infrastructure",
+      "title": "Issue Templates",
+      "description": "YAML-based GitHub issue templates for bug reports and feature requests. Structured forms with required fields. Blank issues disabled.",
+      "testing_steps": [
+        "Verify .github/ISSUE_TEMPLATE/bug_report.yml exists with fields: Go version, OS/arch, kahi version, steps to reproduce, expected, actual",
+        "Verify .github/ISSUE_TEMPLATE/feature_request.yml exists with fields: problem statement, proposed solution, alternatives",
+        "Verify .github/ISSUE_TEMPLATE/config.yml exists with blank_issues_enabled: false",
+        "Verify bug report template has labels: ['bug']",
+        "Verify feature request template has labels: ['enhancement']",
+        "Verify templates contain no emoji",
+        "Verify templates render correctly in GitHub new issue picker"
+      ],
+      "passes": false,
+      "dependencies": []
     }
   ]
 }
