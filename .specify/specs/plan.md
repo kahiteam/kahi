@@ -395,3 +395,26 @@ After `init.sh && task setup && task all`:
 - 100 processes = ~200MB overhead for ring buffers (acceptable)
 - Configurable via `stdout_capture_maxbytes`
 - Ring buffer also feeds the Web UI log viewer
+
+---
+
+### ADR-008: CodeQL Guard Pattern for Allocation Bounds
+
+**Date:** 2026-02-17
+**Status:** Accepted
+
+**Context:** CodeQL's `go/uncontrolled-allocation-size` query uses interprocedural taint tracking. A constant-bounded `if` guard only sanitizes the taint if it is the immediate dominator of the `make()` call. Intervening reassignments from non-constant sources (struct fields, function results) re-taint the variable, even if those assignments can only decrease the value.
+
+**Decision:** Place constant bounds directly in `make()` expressions using Go's built-in `min()` function: `make([]byte, min(n, maxReadAlloc))`. This makes the bound and the allocation a single expression that CodeQL can statically verify.
+
+**Alternatives Considered:**
+
+1. **Duplicate `if` guard immediately before `make()`:** Works but adds redundant code with no semantic value beyond the existing guard.
+2. **Restructure to eliminate intermediate assignments:** Too invasive; the `rb.size` and `available` checks serve correctness purposes.
+3. **CodeQL query suppression via `// lgtm` comment:** Hides the alert without fixing the underlying pattern; violates defense-in-depth principle.
+
+**Consequences:**
+
+- The `min()` expression is the CodeQL-visible sanitizer; the early `if` guard is retained as defense-in-depth
+- Pattern applies to any future `make()` call where the size flows from user input
+- Go 1.21+ built-in `min()` is available (project requires Go 1.26+)

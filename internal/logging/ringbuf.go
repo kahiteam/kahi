@@ -71,7 +71,7 @@ func (rb *RingBuffer) Read(n int) []byte {
 		return nil
 	}
 
-	result := make([]byte, n)
+	result := make([]byte, min(n, maxReadAlloc))
 	start := rb.pos - n
 	if start < 0 {
 		start += rb.size

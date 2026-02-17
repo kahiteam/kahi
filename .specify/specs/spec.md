@@ -3422,14 +3422,17 @@ GET /api/v1/processes/{name}/log/{stream}?length=N
 
 ### SEC-002: Static-Analysis-Visible Allocation Bounds (CWE-770)
 
-**Description:** SEC-001 added runtime clamps at the API handler and ring buffer, but CodeQL alert [go/uncontrolled-allocation-size #1](https://github.com/kahiteam/kahi/security/code-scanning/1) remains open because the analyzer requires a **compile-time constant** upper bound visible at the `make()` call site. The existing clamp `n = min(n, rb.size)` uses a runtime struct field, which CodeQL cannot verify statically.
+**Description:** SEC-001 added runtime clamps at the API handler and ring buffer, and PR #7 added package-level `const` guards (`maxRingBufSize`, `maxReadAlloc`) at both allocation points. However, CodeQL alert [go/uncontrolled-allocation-size #1](https://github.com/kahiteam/kahi/security/code-scanning/1) remains open because CodeQL's interprocedural taint tracker loses the constant bound when `n` is subsequently reassigned through non-constant struct fields (`rb.size`, `available`) between the guard and the `make()` call.
 
-This feature adds constant upper bounds at both allocation points in `internal/logging/ringbuf.go`:
+**Root Cause:** In `RingBuffer.Read()`, the guard `if n > maxReadAlloc { n = maxReadAlloc }` at line 55 is separated from `make([]byte, n)` at line 74 by reassignments through `rb.size` (line 58) and `available` (line 67). CodeQL treats these as new taint sources because they are non-constant, even though they can only decrease `n`. The constant bound is not the immediate dominator of the `make()` call in CodeQL's control flow graph.
 
-1. `NewRingBuffer(size)` -- cap `size` to `maxRingBufSize` (1MB) before the initial `make([]byte, size)`
-2. `Read(n)` -- cap `n` to `maxReadAlloc` (64KB) before `make([]byte, n)`
+**Fix:** Place the constant bound directly in the `make()` expression using Go's built-in `min()`:
 
-These constants are defense-in-depth guards. They do not change behavior for any caller using values within normal bounds (the largest configured ring buffer is 64KB, the largest API read is 64KB).
+```go
+result := make([]byte, min(n, maxReadAlloc))
+```
+
+This makes the constant upper bound and the allocation a single atomic expression that CodeQL can statically verify. The early guard at line 55 becomes defense-in-depth.
 
 **Acceptance Criteria:**
 
@@ -3439,7 +3442,7 @@ These constants are defense-in-depth guards. They do not change behavior for any
 
 - **Given** `RingBuffer.Read(200_000)` is called
   **When** the allocation occurs
-  **Then** `n` is clamped to 65,536 (64KB) before `make([]byte, n)`
+  **Then** `n` is clamped to 65,536 (64KB) via `min(n, maxReadAlloc)` in the `make()` expression
 
 - **Given** the fix is merged to `main`
   **When** CodeQL re-scans via `.github/workflows/security.yml`
@@ -3455,13 +3458,15 @@ These constants are defense-in-depth guards. They do not change behavior for any
 |---|---|
 | `NewRingBuffer(size)` with `size > 1MB` | Silently clamped to 1MB |
 | `NewRingBuffer(size)` with `size <= 0` | Clamped to 1 (minimum viable buffer) |
-| `Read(n)` with `n > 64KB` | Clamped to 64KB before further runtime clamps |
+| `Read(n)` with `n > 64KB` | Clamped to 64KB via `min()` at `make()` site, plus early guard |
 
 **Edge Cases:**
 
 - The 1MB cap on `NewRingBuffer` is 16x the default ring buffer size (64KB), providing headroom for future config-driven sizing without requiring a code change
 - The 64KB cap on `Read` matches `maxReadLength` in `api.go`, forming a consistent defense-in-depth chain
 - Both constants are unexported package-level `const` values, not configurable at runtime
+- The early `if n > maxReadAlloc` guard is retained as defense-in-depth; the `min()` in `make()` is the CodeQL-visible bound
+- CodeQL's `go/uncontrolled-allocation-size` query requires the constant bound to be the immediate dominator of the `make()` call -- intervening non-constant reassignments break taint sanitization
 - Existing tests pass without modification since they use buffers well within bounds
 
 **Dependencies:** SEC-001
