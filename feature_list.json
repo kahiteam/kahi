@@ -1973,7 +1973,7 @@
         "Verify GitHub secret scanning is enabled via 'gh api /repos/kahiteam/kahi' security_and_analysis",
         "Verify GitHub secret scanning push protection is enabled"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": []
     },
     {
@@ -1988,7 +1988,7 @@
         "Verify document contains no emoji",
         "Verify GitHub community profile shows Code of Conduct as complete"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": []
     },
     {
@@ -2009,7 +2009,7 @@
         "Verify document references CODE_OF_CONDUCT.md",
         "Verify document contains no emoji or AI-isms"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": [
         "security-policy",
         "code-of-conduct"
@@ -2029,7 +2029,7 @@
         "Verify templates contain no emoji",
         "Verify templates render correctly in GitHub new issue picker"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": []
     }
   ]
