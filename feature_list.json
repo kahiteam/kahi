@@ -1821,7 +1821,7 @@
         "Verify 'go install github.com/kahiteam/kahi/cmd/kahi@latest' resolves (module proxy indexed)",
         "Verify GitHub Topics include process-supervisor, go, posix, supervisord"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "module-path-migration"
       ]
@@ -1840,7 +1840,7 @@
         "Verify README has 'Where to find the code' section with source, releases, and Go import path links",
         "Verify README contains no emoji"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "repo-migration"
       ]
