@@ -1859,7 +1859,7 @@
         "Run 'goreleaser build --snapshot --clean' and verify it produces binaries",
         "Verify kahi version output shows version, commit, date, Go version, and FIPS status"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": []
     },
     {
@@ -1876,7 +1876,7 @@
         "Run 'goreleaser build --snapshot --clean' and verify single set of binaries produced",
         "Verify built binary reports fips: true via 'kahi version'"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": []
     },
     {
@@ -1893,7 +1893,7 @@
         "Verify SHA-256 checksums file lists all 8 archives",
         "Verify archive naming follows kahi_VERSION_OS_ARCH pattern for all targets"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "fips-everywhere"
       ]
@@ -1914,7 +1914,7 @@
         "Run 'docker build --platform linux/amd64 -t kahi-test .' and verify image builds",
         "Verify built image runs as non-root (UID 65534)"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "fips-everywhere",
         "extended-architectures"
@@ -1933,7 +1933,7 @@
         "Verify ci.yml commit-standards job still exists and covers the same checks",
         "Run 'goreleaser build --snapshot --clean' and verify it succeeds"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "semver-alpha-releases",
         "fips-everywhere"
@@ -1951,7 +1951,7 @@
         "Verify 'cosign verify ghcr.io/kahiteam/kahi:latest' succeeds",
         "Verify SLSA provenance attestation is at level 2 or higher"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "oci-multiarch-containers"
       ]
