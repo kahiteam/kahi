@@ -479,6 +479,46 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 ---
 
+### INFRA-019: PR Test Result Visibility
+
+**Description:** Surface test results (pass/fail/skip counts, coverage percentage) directly on pull request pages. Currently, CI produces JUnit XML via gotestsum and computes coverage inside `task coverage`, but none of this data is visible on the PR without clicking into individual job logs. `dorny/test-reporter@v2` is configured but produces no check runs on PRs.
+
+This feature adds two complementary mechanisms:
+
+1. **Job summaries** (`$GITHUB_STEP_SUMMARY`) -- Markdown tables written to the GitHub Actions job summary showing test counts and coverage percentage for each test suite (unit, integration, e2e).
+2. **Test reporter check runs** -- Debug and fix `dorny/test-reporter@v2` so it produces separate check runs ("Unit Test Results", "Integration Test Results", "E2E Test Results") with per-test annotations on the PR.
+3. **Coverage status check** -- A dedicated commit status (not just a job step) showing the coverage percentage in the PR checks list.
+
+**Acceptance Criteria:**
+
+- [ ] `ci.yml` golang job writes a step summary table with: total tests, passed, failed, skipped, and coverage % parsed from `coverage.out`
+- [ ] `integration.yml` integration job writes a step summary table with: total tests, passed, failed, skipped for both integration and e2e suites
+- [ ] Coverage percentage is posted as a commit status via `gh api` with context `coverage` and description showing the percentage (e.g., "87.3% (threshold: 85%)")
+- [ ] `dorny/test-reporter@v2` produces a separate check run named "Unit Test Results" on PR commits (visible in the PR checks list)
+- [ ] `dorny/test-reporter@v2` produces separate check runs named "Integration Test Results" and "E2E Test Results" on PR commits
+- [ ] Job summaries parse JUnit XML using standard shell tools (no new binary dependencies)
+- [ ] All summary data is derived from existing artifacts: `unit-results.xml`, `integration-results.xml`, `e2e-results.xml`, `coverage.out`
+
+**Error Handling:**
+
+| Scenario | Behavior |
+| --- | --- |
+| JUnit XML file missing (e.g., test step failed before producing output) | Summary step runs with `if: always()` and reports "no results file found" |
+| Coverage below threshold | Coverage status check posts as `failure` state with the percentage; the existing `task coverage` step also fails the job |
+| `dorny/test-reporter` fails to create check run | Job still succeeds (fail-on-error: false already set); summary tables provide fallback visibility |
+| No Go files changed (golang job skipped) | Summary job reports "skipped" for test results; no coverage status posted |
+
+**Edge Cases:**
+
+- `gotestsum --junitfile` always produces valid XML even when tests fail (exit code is non-zero but XML is written)
+- Coverage step summary must handle both the `task coverage` path (which runs tests and produces `coverage.out`) and the `task test` path (which does not produce coverage)
+- The `dorny/test-reporter` issue is likely caused by the action creating check runs on the wrong commit SHA or the `GITHUB_TOKEN` lacking sufficient scope for the check-run API on PR events -- investigate `token` and `sha` input parameters
+- Commit status for coverage uses `gh api /repos/{owner}/{repo}/statuses/{sha}` which requires `statuses: write` permission
+
+**Dependencies:** INFRA-002
+
+---
+
 ## Functional Features
 
 ### FUNC-001: Process State Machine
@@ -3377,6 +3417,54 @@ GET /api/v1/processes/{name}/log/{stream}?length=N
 - If ring buffer size is made configurable in the future, the API cap should track `stdout_capture_maxbytes`
 
 **Dependencies:** FUNC-082, FUNC-026
+
+---
+
+### SEC-002: Static-Analysis-Visible Allocation Bounds (CWE-770)
+
+**Description:** SEC-001 added runtime clamps at the API handler and ring buffer, but CodeQL alert [go/uncontrolled-allocation-size #1](https://github.com/kahiteam/kahi/security/code-scanning/1) remains open because the analyzer requires a **compile-time constant** upper bound visible at the `make()` call site. The existing clamp `n = min(n, rb.size)` uses a runtime struct field, which CodeQL cannot verify statically.
+
+This feature adds constant upper bounds at both allocation points in `internal/logging/ringbuf.go`:
+
+1. `NewRingBuffer(size)` -- cap `size` to `maxRingBufSize` (1MB) before the initial `make([]byte, size)`
+2. `Read(n)` -- cap `n` to `maxReadAlloc` (64KB) before `make([]byte, n)`
+
+These constants are defense-in-depth guards. They do not change behavior for any caller using values within normal bounds (the largest configured ring buffer is 64KB, the largest API read is 64KB).
+
+**Acceptance Criteria:**
+
+- **Given** `NewRingBuffer(2_000_000)` is called
+  **When** the buffer is created
+  **Then** `size` is silently clamped to 1,048,576 (1MB)
+
+- **Given** `RingBuffer.Read(200_000)` is called
+  **When** the allocation occurs
+  **Then** `n` is clamped to 65,536 (64KB) before `make([]byte, n)`
+
+- **Given** the fix is merged to `main`
+  **When** CodeQL re-scans via `.github/workflows/security.yml`
+  **Then** alert #1 (`go/uncontrolled-allocation-size`) auto-closes
+
+- **Given** normal operation with default config (64KB ring buffers, API reads <= 64KB)
+  **When** any code path calls `NewRingBuffer` or `Read`
+  **Then** behavior is unchanged (values are already within bounds)
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| `NewRingBuffer(size)` with `size > 1MB` | Silently clamped to 1MB |
+| `NewRingBuffer(size)` with `size <= 0` | Clamped to 1 (minimum viable buffer) |
+| `Read(n)` with `n > 64KB` | Clamped to 64KB before further runtime clamps |
+
+**Edge Cases:**
+
+- The 1MB cap on `NewRingBuffer` is 16x the default ring buffer size (64KB), providing headroom for future config-driven sizing without requiring a code change
+- The 64KB cap on `Read` matches `maxReadLength` in `api.go`, forming a consistent defense-in-depth chain
+- Both constants are unexported package-level `const` values, not configurable at runtime
+- Existing tests pass without modification since they use buffers well within bounds
+
+**Dependencies:** SEC-001
 
 ---
 
