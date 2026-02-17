@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/kahiteam/kahi/security/advisories/new
+    about: Report security vulnerabilities through GitHub private vulnerability reporting.
+  - name: General discussion
+    url: https://github.com/kahiteam/kahi/discussions
+    about: Ask questions or start a discussion.
