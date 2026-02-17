@@ -78,14 +78,14 @@ cryptographic module for password hashing and TLS.
 
 ### Prebuilt binaries
 
-Download from [GitHub Releases](https://github.com/kahidev/kahi/releases).
+Download from [GitHub Releases](https://github.com/kahiteam/kahi/releases).
 Archives are available for linux/amd64, linux/arm64, darwin/amd64, and
 darwin/arm64. A FIPS variant (`kahi-fips`) is available for linux.
 
 ### go install
 
 ```sh
-go install github.com/kahidev/kahi/cmd/kahi@latest
+go install github.com/kahiteam/kahi/cmd/kahi@latest
 ```
 
 ### Build from source
@@ -93,7 +93,7 @@ go install github.com/kahidev/kahi/cmd/kahi@latest
 Requires Go 1.26.0+ and [Task](https://taskfile.dev).
 
 ```sh
-git clone https://github.com/kahidev/kahi.git
+git clone https://github.com/kahiteam/kahi.git
 cd kahi
 task build
 ```

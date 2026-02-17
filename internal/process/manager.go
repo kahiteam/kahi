@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kahidev/kahi/internal/api"
-	"github.com/kahidev/kahi/internal/config"
-	"github.com/kahidev/kahi/internal/events"
-	"github.com/kahidev/kahi/internal/logging"
+	"github.com/kahiteam/kahi/internal/api"
+	"github.com/kahiteam/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/events"
+	"github.com/kahiteam/kahi/internal/logging"
 )
 
 // Manager manages all processes and groups. It implements api.ProcessManager

@@ -1786,6 +1786,64 @@
       ],
       "passes": true,
       "dependencies": []
+    },
+    {
+      "id": "module-path-migration",
+      "category": "infrastructure",
+      "title": "Module Path Migration (kahidev to kahiteam)",
+      "description": "Rename Go module from github.com/kahidev/kahi to github.com/kahiteam/kahi and update all 68 references across 32 files. Includes go.mod, all Go imports, Taskfile ldflags, GoReleaser config, README, CLAUDE.md, and constitution.",
+      "testing_steps": [
+        "Verify go.mod declares module github.com/kahiteam/kahi",
+        "Run 'grep -r kahidev .' excluding .git and verify zero matches",
+        "Run 'go build ./cmd/kahi' and verify it succeeds with exit code 0",
+        "Run 'go vet ./...' and verify zero findings",
+        "Run 'task test' and verify all unit tests pass",
+        "Run 'task test-e2e' and verify all E2E tests pass (66 pass, 2 skip)",
+        "Verify Taskfile.yml ldflags reference github.com/kahiteam/kahi/internal/version",
+        "Verify .goreleaser.yml ldflags reference github.com/kahiteam/kahi/internal/version",
+        "Verify .goreleaser.yml release owner is kahiteam",
+        "Verify README.md URLs point to github.com/kahiteam/kahi",
+        "Verify CLAUDE.md repository field is github.com/kahiteam/kahi",
+        "Verify constitution.md contains canonical URL github.com/kahiteam/kahi"
+      ],
+      "passes": true,
+      "dependencies": []
+    },
+    {
+      "id": "repo-migration",
+      "category": "infrastructure",
+      "title": "Repository Migration to kahiteam Organization",
+      "description": "Push repository to github.com/kahiteam/kahi as canonical home with full commit history, branch protection, working CI, and release infrastructure.",
+      "testing_steps": [
+        "Verify repository exists at github.com/kahiteam/kahi via 'gh repo view kahiteam/kahi'",
+        "Verify default branch is main with full commit history",
+        "Verify GitHub Actions workflows run on the new repository",
+        "Verify 'go install github.com/kahiteam/kahi/cmd/kahi@latest' resolves (module proxy indexed)",
+        "Verify GitHub Topics include process-supervisor, go, posix, supervisord"
+      ],
+      "passes": false,
+      "dependencies": [
+        "module-path-migration"
+      ]
+    },
+    {
+      "id": "portfolio-landing-page",
+      "category": "style",
+      "title": "Portfolio Landing Page (schwichtgit/kahi)",
+      "description": "Convert schwichtgit/kahi into a minimal README-only landing page. Accurately describes Kahi as a process supervisor, author's role, and links to canonical repo at kahiteam/kahi.",
+      "testing_steps": [
+        "Verify schwichtgit/kahi contains only a README.md (no source code, no workflows, no Go files)",
+        "Verify README title identifies Kahi as a process supervisor",
+        "Verify README contains prominent link to https://github.com/kahiteam/kahi",
+        "Verify README describes author's role (architecture, implementation, DX/CI)",
+        "Verify README has 'What Kahi does' section accurate to the project",
+        "Verify README has 'Where to find the code' section with source, releases, and Go import path links",
+        "Verify README contains no emoji"
+      ],
+      "passes": false,
+      "dependencies": [
+        "repo-migration"
+      ]
     }
   ]
 }

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kahidev/kahi/internal/api"
-	"github.com/kahidev/kahi/internal/events"
+	"github.com/kahiteam/kahi/internal/api"
+	"github.com/kahiteam/kahi/internal/events"
 )
 
 // IntegrationDaemon is a real Kahi daemon started for integration testing.

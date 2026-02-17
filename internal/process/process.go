@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kahidev/kahi/internal/config"
-	"github.com/kahidev/kahi/internal/events"
+	"github.com/kahiteam/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/events"
 )
 
 // Process represents a managed child process.

@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kahidev/kahi/internal/config"
-	"github.com/kahidev/kahi/internal/events"
-	"github.com/kahidev/kahi/internal/logging"
-	"github.com/kahidev/kahi/internal/process"
+	"github.com/kahiteam/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/events"
+	"github.com/kahiteam/kahi/internal/logging"
+	"github.com/kahiteam/kahi/internal/process"
 )
 
 func testSupervisorWithMock(cfg *config.Config, spawner *process.MockSpawner) *Supervisor {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/kahidev/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/config"
 )
 
 // ParseRLimits extracts resource limits from a ProgramConfig.

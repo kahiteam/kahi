@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/kahidev/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/config"
 )
 
 // Result holds the output of a migration run.

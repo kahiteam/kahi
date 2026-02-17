@@ -13,10 +13,10 @@ vars:
     sh: go version | cut -d' ' -f3
   LDFLAGS: >-
     -s -w
-    -X github.com/kahidev/kahi/internal/version.Version={{.VERSION}}
-    -X github.com/kahidev/kahi/internal/version.Commit={{.COMMIT}}
-    -X github.com/kahidev/kahi/internal/version.Date={{.DATE}}
-    -X github.com/kahidev/kahi/internal/version.GoVersion={{.GO_VERSION}}
+    -X github.com/kahiteam/kahi/internal/version.Version={{.VERSION}}
+    -X github.com/kahiteam/kahi/internal/version.Commit={{.COMMIT}}
+    -X github.com/kahiteam/kahi/internal/version.Date={{.DATE}}
+    -X github.com/kahiteam/kahi/internal/version.GoVersion={{.GO_VERSION}}
 
 tasks:
   build:

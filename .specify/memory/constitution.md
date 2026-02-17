@@ -8,6 +8,7 @@ Once established, these principles do not change without explicit human approval
 
 **Project Name:** Kahi -- Lightweight process supervisor for modern infrastructure
 **One-Line Description:** A modern, lightweight process supervisor for POSIX systems, written in Go.
+**Canonical Repository:** github.com/kahiteam/kahi
 **Primary Language(s):** Go (1.26.0+)
 **Target Platform(s):** Linux (amd64, arm64), macOS (amd64, arm64)
 

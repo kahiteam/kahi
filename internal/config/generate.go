@@ -2,7 +2,7 @@ package config
 
 // DefaultConfigTOML is a complete, commented sample kahi.toml.
 const DefaultConfigTOML = `# Kahi configuration file
-# See https://github.com/kahidev/kahi for documentation.
+# See https://github.com/kahiteam/kahi for documentation.
 
 [supervisor]
 # logfile = ""                  # daemon log file path (default: stdout)

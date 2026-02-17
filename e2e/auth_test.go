@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kahidev/kahi/internal/ctl"
+	"github.com/kahiteam/kahi/internal/ctl"
 )
 
 // hashPassword uses the kahi binary to generate a bcrypt hash.

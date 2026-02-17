@@ -137,6 +137,66 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 ---
 
+### INFRA-007: Module Path Migration (kahidev -> kahiteam)
+
+**Description:** Rename the Go module from `github.com/kahidev/kahi` to `github.com/kahiteam/kahi` and update all references across the codebase. The `kahiteam` GitHub organization is the permanent home for this project.
+
+**Scope:** 68 occurrences across 32 files. The Go toolchain handles import rewrites automatically via `go.mod`; remaining references in build configs, documentation, and spec artifacts require manual update.
+
+**Acceptance Criteria:**
+
+- [ ] `go.mod` declares `module github.com/kahiteam/kahi`
+- [ ] All Go source files import from `github.com/kahiteam/kahi/...`
+- [ ] `Taskfile.yml` ldflags reference `github.com/kahiteam/kahi/internal/version`
+- [ ] `.goreleaser.yml` ldflags reference `github.com/kahiteam/kahi/internal/version`
+- [ ] `.goreleaser.yml` release owner is `kahiteam`
+- [ ] `README.md` URLs point to `github.com/kahiteam/kahi`
+- [ ] `CLAUDE.md` repository field is `github.com/kahiteam/kahi`
+- [ ] `constitution.md` Project Identity includes canonical URL `github.com/kahiteam/kahi`
+- [ ] `cmd/kahi/kahi.toml` comment URL points to `github.com/kahiteam/kahi`
+- [ ] `go build ./cmd/kahi` succeeds with the new module path
+- [ ] `go vet ./...` produces zero findings
+- [ ] All unit tests pass (`task test`)
+- [ ] All E2E tests pass (`task test-e2e`)
+- [ ] No occurrences of `kahidev` remain anywhere in the repository (verified via `grep -r`)
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| Import path mismatch after rename | `go build` fails with unresolved import; fix by running `go mod tidy` |
+| GoReleaser owner mismatch | Release upload fails; verify `.goreleaser.yml` owner field |
+| Stale go.sum entries | `go mod tidy` removes stale checksums |
+
+**Dependencies:** None
+
+---
+
+### INFRA-008: Repository Migration to kahiteam Organization
+
+**Description:** Push the repository to `github.com/kahiteam/kahi` as the canonical home. Configure the new repository with branch protection, CI workflows, and release infrastructure. This feature depends on INFRA-007 (module rename) being complete first.
+
+**Acceptance Criteria:**
+
+- [ ] Repository exists at `github.com/kahiteam/kahi` with full commit history
+- [ ] Default branch is `main` with branch protection enabled
+- [ ] All GitHub Actions workflows run successfully on the new repository
+- [ ] GoReleaser can publish releases to `kahiteam/kahi`
+- [ ] `go install github.com/kahiteam/kahi/cmd/kahi@latest` works
+- [ ] GitHub Topics set: `process-supervisor`, `go`, `posix`, `supervisord`
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| Push rejected (no permissions) | Verify org membership and repo create permissions |
+| CI fails on new repo | Check secrets, permissions, and workflow trigger conditions |
+| `go install` fails | Verify module proxy has indexed the new path; wait for proxy cache |
+
+**Dependencies:** INFRA-007
+
+---
+
 ## Functional Features
 
 ### FUNC-001: Process State Machine
@@ -2953,6 +3013,33 @@ None specific.
 | SVG contains embedded scripts | Rejected by GitHub CSP; use clean SVG without JavaScript |
 
 **Dependencies:** None
+
+---
+
+### STYLE-004: Portfolio Landing Page (schwichtgit/kahi)
+
+**Description:** After the codebase moves to `github.com/kahiteam/kahi`, convert `github.com/schwichtgit/kahi` into a minimal landing page repository. The README presents Kahi accurately as a process supervisor, describes the author's role, and directs visitors to the canonical repo.
+
+**Acceptance Criteria:**
+
+- [ ] `schwichtgit/kahi` repository contains only a `README.md` (no source code)
+- [ ] README title identifies Kahi as a process supervisor (not AI/automation hub)
+- [ ] README contains a prominent link to `https://github.com/kahiteam/kahi` as the canonical repo
+- [ ] README describes author's role: architecture, core implementation, DX and CI/CD
+- [ ] README includes a "What Kahi does" section accurate to the project (process supervision, config management, REST API, log capture, hot reload)
+- [ ] README includes a "Where to find the code" section with links to: source repo, releases, Go module import path
+- [ ] README includes contact/collaboration section linking to GitHub profile
+- [ ] No stale source code, CI workflows, or Go files remain in `schwichtgit/kahi`
+- [ ] README does not contain emoji (per constitution communication style)
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| Canonical repo URL is wrong | Visitors land on 404; verify link before publishing |
+| Old repo still has code | Confuses visitors; must be cleaned to README-only |
+
+**Dependencies:** INFRA-008
 
 ---
 

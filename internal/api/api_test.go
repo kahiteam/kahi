@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kahidev/kahi/internal/events"
+	"github.com/kahiteam/kahi/internal/events"
 	"golang.org/x/crypto/bcrypt"
 )
 

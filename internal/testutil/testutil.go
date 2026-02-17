@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kahidev/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/config"
 )
 
 // TempDir creates a temporary directory for testing and registers cleanup.

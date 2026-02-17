@@ -1,4 +1,4 @@
-module github.com/kahidev/kahi
+module github.com/kahiteam/kahi
 
 go 1.26.0
 

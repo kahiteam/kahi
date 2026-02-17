@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/kahidev/kahi/internal/api"
-	"github.com/kahidev/kahi/internal/ctl"
+	"github.com/kahiteam/kahi/internal/api"
+	"github.com/kahiteam/kahi/internal/ctl"
 )
 
 // --- Minimal mock implementations for integration tests ---

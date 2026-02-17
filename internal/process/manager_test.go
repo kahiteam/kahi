@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kahidev/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/config"
 )
 
 func TestManagerShutdownCh(t *testing.T) {

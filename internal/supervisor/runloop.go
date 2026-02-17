@@ -9,11 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kahidev/kahi/internal/config"
-	"github.com/kahidev/kahi/internal/events"
-	"github.com/kahidev/kahi/internal/logging"
-	"github.com/kahidev/kahi/internal/process"
-	"github.com/kahidev/kahi/internal/version"
+	"github.com/kahiteam/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/events"
+	"github.com/kahiteam/kahi/internal/logging"
+	"github.com/kahiteam/kahi/internal/process"
+	"github.com/kahiteam/kahi/internal/version"
 )
 
 // Supervisor is the main daemon run loop.

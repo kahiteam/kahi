@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/kahidev/kahi/internal/version"
+	"github.com/kahiteam/kahi/internal/version"
 	"github.com/spf13/cobra"
 )
 

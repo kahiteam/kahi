@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kahidev/kahi/internal/ctl"
+	"github.com/kahiteam/kahi/internal/ctl"
 )
 
 // kahiBinary is the path to the built kahi binary, set by TestMain.
@@ -33,7 +33,7 @@ func TestMain(m *testing.M) {
 	defer os.RemoveAll(tmpDir)
 
 	kahiBinary = filepath.Join(tmpDir, "kahi")
-	cmd := exec.Command("go", "build", "-race", "-o", kahiBinary, "github.com/kahidev/kahi/cmd/kahi")
+	cmd := exec.Command("go", "build", "-race", "-o", kahiBinary, "github.com/kahiteam/kahi/cmd/kahi")
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to build kahi binary: %v\n", err)

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Description:** Kahi -- lightweight process supervisor for modern infrastructure
 **Tech Stack:** Go 1.26.0, cobra, BurntSushi/toml, stdlib slog
-**Repository:** github.com/kahidev/kahi
+**Repository:** github.com/kahiteam/kahi
 
 ## Development Workflow
 

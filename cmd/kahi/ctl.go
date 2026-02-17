@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"strings"
 
-	"github.com/kahidev/kahi/internal/config"
-	"github.com/kahidev/kahi/internal/ctl"
+	"github.com/kahiteam/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/ctl"
 	"github.com/spf13/cobra"
 )
 

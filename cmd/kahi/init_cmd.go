@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kahidev/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/config"
 	"github.com/spf13/cobra"
 )
 

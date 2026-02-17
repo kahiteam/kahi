@@ -15,9 +15,9 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/kahidev/kahi/internal/version.Version={{.Version}}
-      - -X github.com/kahidev/kahi/internal/version.Commit={{.Commit}}
-      - -X github.com/kahidev/kahi/internal/version.Date={{.Date}}
+      - -X github.com/kahiteam/kahi/internal/version.Version={{.Version}}
+      - -X github.com/kahiteam/kahi/internal/version.Commit={{.Commit}}
+      - -X github.com/kahiteam/kahi/internal/version.Date={{.Date}}
 
   - id: kahi-fips
     main: ./cmd/kahi
@@ -32,10 +32,10 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/kahidev/kahi/internal/version.Version={{.Version}}
-      - -X github.com/kahidev/kahi/internal/version.Commit={{.Commit}}
-      - -X github.com/kahidev/kahi/internal/version.Date={{.Date}}
-      - -X github.com/kahidev/kahi/internal/version.FIPS=true
+      - -X github.com/kahiteam/kahi/internal/version.Version={{.Version}}
+      - -X github.com/kahiteam/kahi/internal/version.Commit={{.Commit}}
+      - -X github.com/kahiteam/kahi/internal/version.Date={{.Date}}
+      - -X github.com/kahiteam/kahi/internal/version.FIPS=true
 
 archives:
   - id: kahi
@@ -54,7 +54,7 @@ checksum:
 
 release:
   github:
-    owner: kahidev
+    owner: kahiteam
     name: kahi
   draft: false
   prerelease: auto

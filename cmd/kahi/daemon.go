@@ -6,10 +6,10 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/kahidev/kahi/internal/api"
-	"github.com/kahidev/kahi/internal/config"
-	"github.com/kahidev/kahi/internal/logging"
-	"github.com/kahidev/kahi/internal/supervisor"
+	"github.com/kahiteam/kahi/internal/api"
+	"github.com/kahiteam/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/logging"
+	"github.com/kahiteam/kahi/internal/supervisor"
 	"github.com/spf13/cobra"
 )
 

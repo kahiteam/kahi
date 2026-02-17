@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kahidev/kahi/internal/config"
-	"github.com/kahidev/kahi/internal/events"
+	"github.com/kahiteam/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/events"
 )
 
 func testLogger() *slog.Logger {

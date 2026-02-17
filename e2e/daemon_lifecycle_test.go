@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kahidev/kahi/internal/ctl"
+	"github.com/kahiteam/kahi/internal/ctl"
 )
 
 func TestDaemon_Health(t *testing.T) {
