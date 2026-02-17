@@ -2,6 +2,11 @@ package logging
 
 import "sync"
 
+const (
+	maxRingBufSize = 1 << 20 // 1MB upper bound for buffer creation
+	maxReadAlloc   = 1 << 16 // 64KB upper bound for read allocation
+)
+
 // RingBuffer is a fixed-size circular buffer for process output.
 type RingBuffer struct {
 	mu   sync.Mutex
@@ -12,7 +17,14 @@ type RingBuffer struct {
 }
 
 // NewRingBuffer creates a ring buffer with the given capacity.
+// Size is clamped to [1, maxRingBufSize].
 func NewRingBuffer(size int) *RingBuffer {
+	if size <= 0 {
+		size = 1
+	}
+	if size > maxRingBufSize {
+		size = maxRingBufSize
+	}
 	return &RingBuffer{
 		buf:  make([]byte, size),
 		size: size,
@@ -35,10 +47,14 @@ func (rb *RingBuffer) Write(p []byte) {
 
 // Read returns the last n bytes from the buffer.
 // If n exceeds available data, returns all available data.
+// n is clamped to maxReadAlloc before allocation.
 func (rb *RingBuffer) Read(n int) []byte {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 
+	if n > maxReadAlloc {
+		n = maxReadAlloc
+	}
 	if n > rb.size {
 		n = rb.size
 	}
