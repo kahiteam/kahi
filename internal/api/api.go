@@ -396,7 +396,11 @@ func (s *Server) handleReadLog(w http.ResponseWriter, r *http.Request) {
 	length := 1600
 	if l := r.URL.Query().Get("length"); l != "" {
 		if v, err := strconv.Atoi(l); err == nil && v > 0 {
-			length = min(v, maxReadLength)
+			if v > maxReadLength {
+				writeError(w, http.StatusBadRequest, "length exceeds maximum of 65536", "BAD_REQUEST")
+				return
+			}
+			length = v
 		}
 	}
 

@@ -2092,7 +2092,7 @@
         "Verify existing ringbuf_test.go and api_test.go tests pass after changes",
         "Verify CodeQL alert go/uncontrolled-allocation-size auto-closes after merge to main"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "api-input-bounds-validation"
       ]

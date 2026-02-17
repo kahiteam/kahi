@@ -47,14 +47,15 @@ func (rb *RingBuffer) Write(p []byte) {
 
 // Read returns the last n bytes from the buffer.
 // If n exceeds available data, returns all available data.
-// n is clamped to maxReadAlloc before allocation.
+// Returns nil if n is out of range [1, maxReadAlloc].
 func (rb *RingBuffer) Read(n int) []byte {
+	if n <= 0 || n > maxReadAlloc {
+		return nil
+	}
+
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 
-	if n > maxReadAlloc {
-		n = maxReadAlloc
-	}
 	if n > rb.size {
 		n = rb.size
 	}
@@ -71,7 +72,7 @@ func (rb *RingBuffer) Read(n int) []byte {
 		return nil
 	}
 
-	result := make([]byte, min(n, maxReadAlloc))
+	result := make([]byte, n)
 	start := rb.pos - n
 	if start < 0 {
 		start += rb.size
