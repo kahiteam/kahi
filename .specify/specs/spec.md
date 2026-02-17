@@ -2952,7 +2952,9 @@ None specific.
 
 ### TEST-003: End-to-End Test Infrastructure
 
-**Description:** E2E tests that exercise the full system including process management.
+**Description:** E2E tests that exercise the full system by building the real `kahi` binary, starting it as a subprocess, and communicating via `ctl.NewUnixClient`. All tests use `//go:build e2e` tags and run via `task test-e2e`.
+
+**Architecture:** True black-box testing. `TestMain` builds the binary to a temp directory. Each test creates an isolated temp directory for socket + config, polls for readiness (socket existence -> health endpoint -> process state), and cleans up via shutdown then kill-if-needed.
 
 **Acceptance Criteria:**
 
@@ -2965,6 +2967,138 @@ None specific.
 - [ ] E2E tests have a timeout to prevent hanging on failures
 
 **Dependencies:** TEST-002
+
+#### E2E Test Suite: 11 files, 56 tests, 9 domains
+
+| File | Coverage area | Tests |
+| --- | --- | --- |
+| `e2e/helpers_test.go` | TestMain (build binary), shared startDaemon/waitForState/getProcessInfo helpers | -- |
+| `e2e/daemon_lifecycle_test.go` | Startup, health, version, PID, readiness, shutdown, daemonize flag | 8 |
+| `e2e/process_ctl_test.go` | Start/stop/restart, status, signal, error paths (bad name, already running) | 15 |
+| `e2e/process_state_test.go` | State transitions: autorestart, backoff->fatal, expected/unexpected exit codes | 10 |
+| `e2e/group_ctl_test.go` | Group start/stop/restart, group:* syntax, priority ordering | 6 |
+| `e2e/config_reload_test.go` | SIGHUP reload, add/remove/change programs, reread preview | 6 |
+| `e2e/logging_test.go` | Tail stdout/stderr, tail -f (SSE), log rotation, ANSI stripping | 6 |
+| `e2e/stdin_attach_test.go` | WriteStdin, attach (if feasible in test) | 3 |
+| `e2e/env_test.go` | env passthrough, clean_environment, program-overrides-global, variable expansion | 5 |
+| `e2e/auth_test.go` | TCP mode with basic auth, rejected without creds | 3 |
+| `e2e/regression_test.go` | Ported supervisord regressions: Unicode tail, literal %, numprocs, redirect_stderr | 8 |
+
+#### Shared Helpers (`e2e/helpers_test.go`)
+
+- `startDaemon(t, config string) (*ctl.Client, func())` -- Writes config to temp dir, starts daemon subprocess, polls until healthy, returns client and cleanup function.
+- `waitForState(t, client, name, state string, timeout time.Duration)` -- Polls process state until condition met or test fails.
+- `getProcessInfo(t, client, name string) ProcessInfo` -- Fetches current process status via client.
+
+#### File-by-File Test Inventory
+
+**`e2e/daemon_lifecycle_test.go`** (8 tests):
+- `TestDaemon_Health` -- Verify health endpoint returns ok
+- `TestDaemon_Version` -- Verify version map contains expected keys
+- `TestDaemon_PID` -- Daemon PID is valid (> 1)
+- `TestDaemon_Ready` -- Ready endpoint returns after all autostart processes running
+- `TestDaemon_Shutdown` -- Clean shutdown exits with code 0
+- `TestDaemon_ShutdownTimeout` -- Processes killed after stopwaitsecs
+- `TestDaemon_Daemonize` -- With -d flag, parent exits, daemon continues
+- `TestDaemon_PIDFile` -- PID file created and contains correct PID
+
+**`e2e/process_ctl_test.go`** (15 tests):
+- `TestProcess_Start` -- Start a stopped process, verify RUNNING
+- `TestProcess_Stop` -- Stop a running process, verify STOPPED
+- `TestProcess_Restart` -- Restart produces new PID
+- `TestProcess_Status` -- Status shows all configured processes
+- `TestProcess_StatusWithOptions` -- Filter by name/group
+- `TestProcess_Signal` -- Send USR1, process survives
+- `TestProcess_SignalTerm` -- Send TERM, process stops
+- `TestProcess_StartAlreadyRunning` -- Returns appropriate error
+- `TestProcess_StopAlreadyStopped` -- Returns appropriate error
+- `TestProcess_StartBadName` -- Returns NOT_FOUND error
+- `TestProcess_StartFails` -- Command not found -> FATAL state
+- `TestProcess_StopWaitSecs` -- Process killed after timeout
+- `TestProcess_StopSignal` -- Custom stopsignal (SIGINT)
+- `TestProcess_StartRetries` -- Respects startretries count
+- `TestProcess_StartSecs` -- Process must survive startsecs to be RUNNING
+
+**`e2e/process_state_test.go`** (10 tests):
+- `TestState_AutorestartTrue` -- Always restarts after exit
+- `TestState_AutorestartFalse` -- Never restarts
+- `TestState_AutorestartUnexpected` -- Restarts only on unexpected exit codes
+- `TestState_BackoffToFatal` -- Exceeds startretries -> FATAL
+- `TestState_ExpectedExitCode` -- exitcodes=[0,2], exit 2 -> EXITED (expected)
+- `TestState_UnexpectedExitCode` -- exitcodes=[0], exit 1 -> EXITED (unexpected)
+- `TestState_KilledDuringBackoff` -- Stop during BACKOFF -> STOPPED
+- `TestState_ConcurrentStartStop` -- Rapid start/stop does not deadlock
+- `TestState_NumprocsExpansion` -- numprocs=3 creates program_00, program_01, program_02
+- `TestState_Priority` -- Higher priority processes start first
+
+**`e2e/group_ctl_test.go`** (6 tests):
+- `TestGroup_StartAll` -- Start group:* starts all members
+- `TestGroup_StopAll` -- Stop group:* stops all members
+- `TestGroup_RestartAll` -- Restart group:* restarts all members
+- `TestGroup_StartSingle` -- Start group:name starts one member
+- `TestGroup_PriorityOrder` -- Members start in priority order
+- `TestGroup_Heterogeneous` -- Group with mixed program configs
+
+**`e2e/config_reload_test.go`** (6 tests):
+- `TestReload_AddProgram` -- Add new program section, reload, process appears
+- `TestReload_RemoveProgram` -- Remove program section, reload, process stopped and removed
+- `TestReload_ChangeProgram` -- Change command, reload, process restarted with new command
+- `TestReload_Reread` -- Reread returns diff without applying
+- `TestReload_NoChange` -- Reload with no changes returns empty diff
+- `TestReload_InvalidConfig` -- Reload with bad config returns error, keeps running config
+
+**`e2e/logging_test.go`** (6 tests):
+- `TestLog_TailStdout` -- Tail returns recent stdout lines
+- `TestLog_TailStderr` -- Tail returns recent stderr lines
+- `TestLog_TailBytes` -- Tail with byte limit
+- `TestLog_TailFollow` -- Follow mode receives live output
+- `TestLog_Rotation` -- Log file rotated after size threshold
+- `TestLog_ANSIStrip` -- ANSI escape codes stripped from captured output
+
+**`e2e/stdin_attach_test.go`** (3 tests):
+- `TestStdin_Write` -- Write to process stdin, verify output
+- `TestStdin_WriteStopped` -- Write to stopped process returns error
+- `TestStdin_Attach` -- Attach bidirectional pipe (if feasible)
+
+**`e2e/env_test.go`** (5 tests):
+- `TestEnv_Passthrough` -- Parent env vars visible in child
+- `TestEnv_CleanEnvironment` -- Only configured vars visible
+- `TestEnv_ProgramOverridesGlobal` -- Program env overrides [supervisord] env
+- `TestEnv_ProgramNameExpansion` -- %(program_name)s and %(process_num)d in env values
+- `TestEnv_HereExpansion` -- %(here)s expands to config file directory
+
+**`e2e/auth_test.go`** (3 tests):
+- `TestAuth_TCPWithCreds` -- Connect with valid credentials succeeds
+- `TestAuth_TCPNoCreds` -- Connect without credentials returns 401
+- `TestAuth_TCPBadCreds` -- Connect with wrong credentials returns 401
+
+**`e2e/regression_test.go`** (8 tests, ported from supervisord issues):
+- `TestRegression_UnicodeTail` -- Tail output with Unicode characters
+- `TestRegression_InvalidUTF8` -- Process outputs invalid UTF-8 bytes
+- `TestRegression_LiteralPercent` -- Command containing literal % character
+- `TestRegression_KahiInit` -- `kahi init` generates valid config file
+- `TestRegression_HelpFlag` -- `kahi --help` exits 0
+- `TestRegression_PipedTail` -- Tail output piped through process
+- `TestRegression_NumprocsNames` -- numprocs naming convention matches spec
+- `TestRegression_RedirectStderr` -- redirect_stderr merges stderr into stdout log
+
+#### Supervisord E2E Coverage Mapping
+
+| supervisord E2E test | Kahi disposition |
+| --- | --- |
+| test_stdout_capturemode | Ported -> TestLog_TailStdout |
+| test_stderr_capturemode | Ported -> TestLog_TailStderr |
+| test_tail_follow | Ported -> TestLog_TailFollow |
+| test_unicode_stdout | Ported -> TestRegression_UnicodeTail |
+| test_start_stop | Ported -> TestProcess_Start, TestProcess_Stop |
+| test_restart | Ported -> TestProcess_Restart |
+| test_signal | Ported -> TestProcess_Signal |
+| test_autorestart | Ported -> TestState_AutorestartTrue |
+| test_environment | Ported -> TestEnv_Passthrough |
+| test_update (add/remove) | Ported -> TestReload_AddProgram, TestReload_RemoveProgram |
+| test_shutdown | Ported -> TestDaemon_Shutdown |
+| test_eventlistener_* (6 tests) | Deferred -- event listener pool not yet E2E-testable |
+| test_xmlrpc_* (5 tests) | Skipped -- Python XML-RPC specific, not applicable to REST API |
 
 ---
 

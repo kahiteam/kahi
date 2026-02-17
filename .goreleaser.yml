@@ -18,7 +18,6 @@ builds:
       - -X github.com/kahidev/kahi/internal/version.Version={{.Version}}
       - -X github.com/kahidev/kahi/internal/version.Commit={{.Commit}}
       - -X github.com/kahidev/kahi/internal/version.Date={{.Date}}
-      - -X github.com/kahidev/kahi/internal/version.GoVersion={{.Env.GOVERSION}}
 
   - id: kahi-fips
     main: ./cmd/kahi
@@ -36,17 +35,16 @@ builds:
       - -X github.com/kahidev/kahi/internal/version.Version={{.Version}}
       - -X github.com/kahidev/kahi/internal/version.Commit={{.Commit}}
       - -X github.com/kahidev/kahi/internal/version.Date={{.Date}}
-      - -X github.com/kahidev/kahi/internal/version.GoVersion={{.Env.GOVERSION}}
       - -X github.com/kahidev/kahi/internal/version.FIPS=true
 
 archives:
   - id: kahi
-    builds:
+    ids:
       - kahi
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
   - id: kahi-fips
-    builds:
+    ids:
       - kahi-fips
     name_template: "{{ .ProjectName }}-fips_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 

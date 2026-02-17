@@ -44,6 +44,10 @@ func newCtlClient() *ctl.Client {
 func resolveSocketFromConfig() string {
 	const defaultSocket = "/var/run/kahi.sock"
 
+	if env := os.Getenv("KAHI_SOCKET"); env != "" {
+		return env
+	}
+
 	cfgPath, err := config.Resolve(ctlConfig)
 	if err != nil {
 		return defaultSocket

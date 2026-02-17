@@ -76,7 +76,7 @@ func ValidateSocketPermissions(socketPath string) error {
 // Returns true in the parent (which should exit), false in the daemon child.
 func Daemonize(logger *slog.Logger) (bool, error) {
 	// First fork.
-	pid, _, errno := syscall.RawSyscall(syscall.SYS_FORK, 0, 0, 0)
+	pid, errno := sysFork()
 	if errno != 0 {
 		return false, fmt.Errorf("first fork failed: %v", errno)
 	}
@@ -91,7 +91,7 @@ func Daemonize(logger *slog.Logger) (bool, error) {
 	}
 
 	// Second fork.
-	pid, _, errno = syscall.RawSyscall(syscall.SYS_FORK, 0, 0, 0)
+	pid, errno = sysFork()
 	if errno != 0 {
 		return false, fmt.Errorf("second fork failed: %v", errno)
 	}
@@ -105,9 +105,9 @@ func Daemonize(logger *slog.Logger) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("cannot open /dev/null: %w", err)
 	}
-	_ = syscall.Dup2(int(devNull.Fd()), int(os.Stdin.Fd()))
-	_ = syscall.Dup2(int(devNull.Fd()), int(os.Stdout.Fd()))
-	_ = syscall.Dup2(int(devNull.Fd()), int(os.Stderr.Fd()))
+	_ = sysDup2(int(devNull.Fd()), int(os.Stdin.Fd()))
+	_ = sysDup2(int(devNull.Fd()), int(os.Stdout.Fd()))
+	_ = sysDup2(int(devNull.Fd()), int(os.Stderr.Fd()))
 	devNull.Close()
 
 	logger.Info("daemonized", "pid", os.Getpid())

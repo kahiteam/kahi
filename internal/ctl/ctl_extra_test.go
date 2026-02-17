@@ -8,9 +8,28 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// syncBuffer wraps bytes.Buffer with a mutex for concurrent read/write safety.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 func TestNewLineScannerBasic(t *testing.T) {
 	r := strings.NewReader("line1\nline2\nline3\n")
@@ -105,11 +124,22 @@ func TestAttachStreamsOutput(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	var stdout bytes.Buffer
+	// Use a synchronized buffer to avoid data race between the TailFollow
+	// goroutine writing and this goroutine reading.
+	var stdout syncBuffer
 	_ = c.Attach(ctx, "web", strings.NewReader("hello\n"), &stdout)
 
-	if !strings.Contains(stdout.String(), "output line") {
-		t.Fatalf("stdout = %q, want 'output line'", stdout.String())
+	// Poll for output since TailFollow runs in a separate goroutine.
+	deadline := time.After(time.Second)
+	for {
+		if strings.Contains(stdout.String(), "output line") {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("stdout = %q, want 'output line'", stdout.String())
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 }
 
