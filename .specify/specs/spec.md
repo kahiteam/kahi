@@ -3422,17 +3422,36 @@ GET /api/v1/processes/{name}/log/{stream}?length=N
 
 ### SEC-002: Static-Analysis-Visible Allocation Bounds (CWE-770)
 
-**Description:** SEC-001 added runtime clamps at the API handler and ring buffer, and PR #7 added package-level `const` guards (`maxRingBufSize`, `maxReadAlloc`) at both allocation points. However, CodeQL alert [go/uncontrolled-allocation-size #1](https://github.com/kahiteam/kahi/security/code-scanning/1) remains open because CodeQL's interprocedural taint tracker loses the constant bound when `n` is subsequently reassigned through non-constant struct fields (`rb.size`, `available`) between the guard and the `make()` call.
+**Description:** CodeQL alert [go/uncontrolled-allocation-size #1](https://github.com/kahiteam/kahi/security/code-scanning/1) flags `make([]byte, n)` in `RingBuffer.Read()` where `n` originates from the HTTP `?length=` query parameter. Prior attempts (PR #7: constant guards, PR #8: `min()` in `make()`) did not close the alert because:
 
-**Root Cause:** In `RingBuffer.Read()`, the guard `if n > maxReadAlloc { n = maxReadAlloc }` at line 55 is separated from `make([]byte, n)` at line 74 by reassignments through `rb.size` (line 58) and `available` (line 67). CodeQL treats these as new taint sources because they are non-constant, even though they can only decrease `n`. The constant bound is not the immediate dominator of the `make()` call in CodeQL's control flow graph.
+1. **Clamp patterns** (`if n > X { n = X }`) merge both branches at a phi node; CodeQL's `BarrierGuard` does not propagate sanitization through phi-node merges.
+2. **`min()` builtin** propagates taint (value flow model in `builtin.model.yml`), not a barrier.
 
-**Fix:** Place the constant bound directly in the `make()` expression using Go's built-in `min()`:
+**Root Cause:** CodeQL's `BarrierGuard` only recognizes relational comparisons (`<`, `<=`, `>`, `>=`) where the **unsafe branch terminates** (early return or panic). After such a guard, only the safe branch survives and the tainted value is sanitized on that branch.
+
+**Fix (two layers):**
+
+1. **Ring buffer (primary):** Replace the clamp in `Read()` with an early-return guard that terminates the unsafe branch:
 
 ```go
-result := make([]byte, min(n, maxReadAlloc))
+if n <= 0 || n > maxReadAlloc {
+    return nil
+}
 ```
 
-This makes the constant upper bound and the allocation a single atomic expression that CodeQL can statically verify. The early guard at line 55 becomes defense-in-depth.
+After this guard, `n` is proven `<= maxReadAlloc` on the only surviving branch. The `make([]byte, n)` call uses the sanitized value.
+
+2. **API handler (defense-in-depth):** Replace `min(v, maxReadLength)` in `handleReadLog()` with an explicit HTTP 400 that terminates the request:
+
+```go
+if v > maxReadLength {
+    writeError(w, http.StatusBadRequest, "length exceeds maximum of 65536", "BAD_REQUEST")
+    return
+}
+length = v
+```
+
+This validates user input at the system boundary and gives CodeQL a second cut point.
 
 **Acceptance Criteria:**
 
@@ -3441,33 +3460,38 @@ This makes the constant upper bound and the allocation a single atomic expressio
   **Then** `size` is silently clamped to 1,048,576 (1MB)
 
 - **Given** `RingBuffer.Read(200_000)` is called
-  **When** the allocation occurs
-  **Then** `n` is clamped to 65,536 (64KB) via `min(n, maxReadAlloc)` in the `make()` expression
+  **When** n exceeds `maxReadAlloc` (64KB)
+  **Then** `Read()` returns nil (early-return guard)
+
+- **Given** `GET /api/v1/processes/web/log/stdout?length=999999`
+  **When** length exceeds `maxReadLength` (64KB)
+  **Then** HTTP 400 is returned with error message
 
 - **Given** the fix is merged to `main`
   **When** CodeQL re-scans via `.github/workflows/security.yml`
   **Then** alert #1 (`go/uncontrolled-allocation-size`) auto-closes
 
-- **Given** normal operation with default config (64KB ring buffers, API reads <= 64KB)
-  **When** any code path calls `NewRingBuffer` or `Read`
+- **Given** normal operation with default config (API reads <= 64KB)
+  **When** any code path calls `Read()` with a valid length
   **Then** behavior is unchanged (values are already within bounds)
 
 **Error Handling:**
 
 | Scenario | Behavior |
-|---|---|
+| --- | --- |
 | `NewRingBuffer(size)` with `size > 1MB` | Silently clamped to 1MB |
 | `NewRingBuffer(size)` with `size <= 0` | Clamped to 1 (minimum viable buffer) |
-| `Read(n)` with `n > 64KB` | Clamped to 64KB via `min()` at `make()` site, plus early guard |
+| `Read(n)` with `n <= 0` or `n > 64KB` | Returns nil (early-return guard) |
+| `handleReadLog` with `length > 64KB` | HTTP 400 BAD_REQUEST |
 
 **Edge Cases:**
 
-- The 1MB cap on `NewRingBuffer` is 16x the default ring buffer size (64KB), providing headroom for future config-driven sizing without requiring a code change
-- The 64KB cap on `Read` matches `maxReadLength` in `api.go`, forming a consistent defense-in-depth chain
-- Both constants are unexported package-level `const` values, not configurable at runtime
-- The early `if n > maxReadAlloc` guard is retained as defense-in-depth; the `min()` in `make()` is the CodeQL-visible bound
-- CodeQL's `go/uncontrolled-allocation-size` query requires the constant bound to be the immediate dominator of the `make()` call -- intervening non-constant reassignments break taint sanitization
-- Existing tests pass without modification since they use buffers well within bounds
+- The API handler already ensures `length <= 64KB` for all HTTP paths, so `Read()` returning nil for `n > 64KB` is unreachable from the API; it guards against direct callers only
+- The 1MB cap on `NewRingBuffer` is 16x the default ring buffer size (64KB)
+- Both `maxRingBufSize` and `maxReadAlloc` are unexported package-level `const` values
+- CodeQL's `BarrierGuard` mechanism: relational comparison + branch termination = taint sanitization on the surviving branch
+- `min()` is NOT a barrier in CodeQL -- it has value-flow propagation that passes taint through
+- Existing tests pass without modification since they use values within bounds
 
 **Dependencies:** SEC-001
 
