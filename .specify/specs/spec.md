@@ -2933,6 +2933,29 @@ None specific.
 
 ---
 
+### STYLE-003: Project Branding and Logo
+
+**Description:** Project branding assets (SVG logo) stored in `assets/` directory and referenced from README.md. The logo is displayed at the top of the README for visual identity on GitHub and documentation sites.
+
+**Acceptance Criteria:**
+
+- [ ] SVG logo file exists at `assets/kahi_logo.svg`
+- [ ] README.md references the logo via `![Kahi](assets/kahi_logo.svg)`
+- [ ] Logo renders correctly on GitHub (visible in repo landing page)
+- [ ] No logo files exist at the repository root (assets live in `assets/`)
+- [ ] `assets/` directory is excluded from the Go build (no `.go` files)
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| Logo file missing | README displays broken image alt text "Kahi" |
+| SVG contains embedded scripts | Rejected by GitHub CSP; use clean SVG without JavaScript |
+
+**Dependencies:** None
+
+---
+
 ## Testing Features
 
 ### TEST-001: Unit Test Infrastructure
@@ -3132,6 +3155,32 @@ None specific.
 | test_shutdown | Ported -> TestDaemon_Shutdown |
 | test_eventlistener_* (6 tests) | Deferred -- event listener pool not yet E2E-testable |
 | test_xmlrpc_* (5 tests) | Skipped -- Python XML-RPC specific, not applicable to REST API |
+
+---
+
+### TEST-004: Test Output Formatting with gotestsum
+
+**Description:** Replace raw `go test -v` output with `gotestsum` for both local development and CI. Provides live progress counters (e.g., `12/68 PASS TestProcess_Start`), human-readable formatting, and JUnit XML output for GitHub Actions test summaries.
+
+**Acceptance Criteria:**
+
+- [ ] `gotestsum` is added to the setup task in Taskfile.yml
+- [ ] `task test-e2e` uses `gotestsum` with `--format testdox` for readable output
+- [ ] `task test` uses `gotestsum` with `--format testdox` for unit tests
+- [ ] CI integration workflow produces JUnit XML via `--junitfile results.xml`
+- [ ] GitHub Actions workflow uses a test reporter action to display results in PR checks
+- [ ] Local `task test` and `task test-e2e` show live progress (test name + pass/fail as each completes)
+- [ ] Failing tests show full output inline (not suppressed by formatting)
+
+**Error Handling:**
+
+| Scenario | Behavior |
+|---|---|
+| `gotestsum` not installed | `task setup` installs it; CI installs it in setup step |
+| JUnit XML write fails | CI step logs warning but does not fail the build |
+| Test reporter action fails | Non-blocking; test pass/fail still determined by gotestsum exit code |
+
+**Dependencies:** TEST-003
 
 ---
 

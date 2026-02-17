@@ -1751,6 +1751,39 @@
       "dependencies": [
         "integration-test-infrastructure"
       ]
+    },
+    {
+      "id": "test-output-formatting",
+      "category": "testing",
+      "title": "Test Output Formatting with gotestsum",
+      "description": "Replace raw go test output with gotestsum for live progress counters, human-readable formatting, and JUnit XML output for GitHub Actions test summaries.",
+      "testing_steps": [
+        "Verify gotestsum is listed in the setup task in Taskfile.yml",
+        "Run 'task test' and verify output uses testdox format showing test names with pass/fail status",
+        "Run 'task test-e2e' and verify output uses testdox format with live progress",
+        "Verify CI integration workflow produces JUnit XML via --junitfile flag",
+        "Verify GitHub Actions PR checks display test results summary from JUnit XML",
+        "Run a failing test locally and verify full error output is shown inline (not suppressed)",
+        "Verify gotestsum exit code matches go test exit code (non-zero on failure)"
+      ],
+      "passes": false,
+      "dependencies": [
+        "e2e-test-infrastructure"
+      ]
+    },
+    {
+      "id": "project-branding",
+      "category": "style",
+      "title": "Project Branding and Logo",
+      "description": "SVG logo stored in assets/ directory and displayed at the top of README.md for visual identity on GitHub.",
+      "testing_steps": [
+        "Verify assets/kahi_logo.svg exists and is a valid SVG file",
+        "Verify README.md contains an image reference to assets/kahi_logo.svg",
+        "Verify no logo files exist at the repository root (assets live in assets/)",
+        "Verify assets/ directory contains no .go files (excluded from Go build)"
+      ],
+      "passes": false,
+      "dependencies": []
     }
   ]
 }
