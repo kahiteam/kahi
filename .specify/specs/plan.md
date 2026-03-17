@@ -34,7 +34,7 @@ kahi/
 ├── Taskfile.yml               # Dev workflow (build, test, lint, coverage)
 ├── .goreleaser.yml            # Release config (cross-compile, FIPS, GitHub)
 ├── .golangci.yml              # Linter config
-├── go.mod                     # Module definition (Go 1.26.0)
+├── go.mod                     # Module definition (Go 1.26.1)
 ├── go.sum                     # Dependency checksums
 ├── kahi.example.toml          # Annotated sample config
 ├── Dockerfile                 # Multi-stage build (scratch base)
@@ -56,36 +56,36 @@ kahi/
 
 ### Backend
 
-| Component | Choice | Version | Rationale |
-| --- | --- | --- | --- |
-| Language | Go | 1.26.0+ | Constitution requirement. Static binary, cross-compilation, goroutines for process supervision. |
-| HTTP Server | net/http (stdlib) | 1.26.0 | Go 1.22+ enhanced routing (method+path patterns). No framework needed. |
-| Structured Logging | log/slog (stdlib) | 1.26.0 | Native structured logging with JSON/text handlers. Zero dependency. |
-| CLI Framework | spf13/cobra | latest | Subcommand routing, help generation, bash/zsh completion. |
-| TOML Parser | BurntSushi/toml | latest | De facto Go TOML library. Full TOML v1.0 support. |
-| Metrics | prometheus/client_golang | latest | Prometheus exposition format. Industry standard. |
-| Password Hashing | golang.org/x/crypto/bcrypt | latest | bcrypt not in stdlib. FIPS-compatible via GOFIPS140. |
-| Terminal I/O | golang.org/x/term | latest | Raw mode for `kahi ctl fg`. |
-| Process Exec | os/exec + syscall (stdlib) | 1.26.0 | Direct exec with SysProcAttr for setpgid, setuid, umask. |
-| Signal Handling | os/signal (stdlib) | 1.26.0 | signal.Notify for queued signal processing. |
+| Component          | Choice                     | Version | Rationale                                                                                       |
+| ------------------ | -------------------------- | ------- | ----------------------------------------------------------------------------------------------- |
+| Language           | Go                         | 1.26.1+ | Constitution requirement. Static binary, cross-compilation, goroutines for process supervision. |
+| HTTP Server        | net/http (stdlib)          | 1.26.1  | Go 1.22+ enhanced routing (method+path patterns). No framework needed.                          |
+| Structured Logging | log/slog (stdlib)          | 1.26.1  | Native structured logging with JSON/text handlers. Zero dependency.                             |
+| CLI Framework      | spf13/cobra                | latest  | Subcommand routing, help generation, bash/zsh completion.                                       |
+| TOML Parser        | BurntSushi/toml            | latest  | De facto Go TOML library. Full TOML v1.0 support.                                               |
+| Metrics            | prometheus/client_golang   | latest  | Prometheus exposition format. Industry standard.                                                |
+| Password Hashing   | golang.org/x/crypto/bcrypt | latest  | bcrypt not in stdlib. FIPS-compatible via GOFIPS140.                                            |
+| Terminal I/O       | golang.org/x/term          | latest  | Raw mode for `kahi ctl fg`.                                                                     |
+| Process Exec       | os/exec + syscall (stdlib) | 1.26.1  | Direct exec with SysProcAttr for setpgid, setuid, umask.                                        |
+| Signal Handling    | os/signal (stdlib)         | 1.26.1  | signal.Notify for queued signal processing.                                                     |
 
 ### Frontend (Web UI)
 
-| Component | Choice | Version | Rationale |
-| --- | --- | --- | --- |
-| Templates | html/template (stdlib) | 1.26.0 | Server-rendered HTML. No build step. |
-| Interactivity | Vanilla JavaScript | ES2020 | SSE streaming, auto-refresh. No framework. |
-| Styling | Custom CSS | N/A | ~200 lines. Responsive. No framework. |
-| Embedding | go:embed (stdlib) | 1.26.0 | Zero-dependency static file serving. ~50KB total. |
+| Component     | Choice                 | Version | Rationale                                         |
+| ------------- | ---------------------- | ------- | ------------------------------------------------- |
+| Templates     | html/template (stdlib) | 1.26.1  | Server-rendered HTML. No build step.              |
+| Interactivity | Vanilla JavaScript     | ES2020  | SSE streaming, auto-refresh. No framework.        |
+| Styling       | Custom CSS             | N/A     | ~200 lines. Responsive. No framework.             |
+| Embedding     | go:embed (stdlib)      | 1.26.1  | Zero-dependency static file serving. ~50KB total. |
 
 ### Data Storage
 
-| Component | Choice | Version | Rationale |
-| --- | --- | --- | --- |
-| Configuration | TOML files | v1.0 | Constitution requirement. No database. |
-| Process State | In-memory | N/A | State machine lives in process structs. No persistence needed. |
-| Log Buffer | In-memory ring buffer | N/A | Configurable per-process (default 1MB). For tailing without file logging. |
-| Process Logs | File or stdout | N/A | Container-first: JSON lines to stdout. Optional: file with rotation. |
+| Component     | Choice                | Version | Rationale                                                                 |
+| ------------- | --------------------- | ------- | ------------------------------------------------------------------------- |
+| Configuration | TOML files            | v1.0    | Constitution requirement. No database.                                    |
+| Process State | In-memory             | N/A     | State machine lives in process structs. No persistence needed.            |
+| Log Buffer    | In-memory ring buffer | N/A     | Configurable per-process (default 1MB). For tailing without file logging. |
+| Process Logs  | File or stdout        | N/A     | Container-first: JSON lines to stdout. Optional: file with rotation.      |
 
 ### API Design
 
@@ -133,11 +133,11 @@ GET    /metrics                                  # Prometheus metrics (no auth)
 
 ## Testing Strategy
 
-| Type | Framework | Coverage Target | Command | Build Tag |
-| --- | --- | --- | --- | --- |
-| Unit | go test + testify | 85% (combined) | `task test` | (none) |
+| Type        | Framework         | Coverage Target | Command                 | Build Tag                |
+| ----------- | ----------------- | --------------- | ----------------------- | ------------------------ |
+| Unit        | go test + testify | 85% (combined)  | `task test`             | (none)                   |
 | Integration | go test + testify | Included in 85% | `task test-integration` | `//go:build integration` |
-| E2E | go test + testify | N/A | `task test-e2e` | `//go:build e2e` |
+| E2E         | go test + testify | N/A             | `task test-e2e`         | `//go:build e2e`         |
 
 ### Coverage
 
@@ -149,12 +149,12 @@ GET    /metrics                                  # Prometheus metrics (no auth)
 
 Interfaces at OS boundaries enable testable code without real processes:
 
-| Boundary | Interface | Real Implementation | Mock Implementation |
-| --- | --- | --- | --- |
-| Process exec | `ProcessSpawner` | `os/exec.Command` + `syscall.SysProcAttr` | In-memory process simulation |
-| Filesystem | `FileSystem` | `os.OpenFile`, `os.Rename` | In-memory filesystem |
-| Time | `Clock` | `time.Now()`, `time.After()` | Controllable clock (advance manually) |
-| Syscall | `SyscallWrapper` | `syscall.Setpgid`, `syscall.Setuid` | No-op or recorded calls |
+| Boundary     | Interface        | Real Implementation                       | Mock Implementation                   |
+| ------------ | ---------------- | ----------------------------------------- | ------------------------------------- |
+| Process exec | `ProcessSpawner` | `os/exec.Command` + `syscall.SysProcAttr` | In-memory process simulation          |
+| Filesystem   | `FileSystem`     | `os.OpenFile`, `os.Rename`                | In-memory filesystem                  |
+| Time         | `Clock`          | `time.Now()`, `time.After()`              | Controllable clock (advance manually) |
+| Syscall      | `SyscallWrapper` | `syscall.Setpgid`, `syscall.Setuid`       | No-op or recorded calls               |
 
 ### Test Helpers (internal/testutil)
 
@@ -168,17 +168,17 @@ Interfaces at OS boundaries enable testable code without real processes:
 
 ## Deployment Architecture
 
-| Component | Platform | Rationale |
-| --- | --- | --- |
-| Binary distribution | GitHub Releases (via GoReleaser) | Tarballs for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64. FIPS variants. |
-| Container image | Multi-arch OCI (ghcr.io) | `FROM scratch`, USER 65534, ~10-15MB. Built via Docker buildx for linux/amd64 + linux/arm64. |
-| CI/CD | GitHub Actions | Standard for Go open source. Matrix builds for all target platforms. |
+| Component           | Platform                         | Rationale                                                                                    |
+| ------------------- | -------------------------------- | -------------------------------------------------------------------------------------------- |
+| Binary distribution | GitHub Releases (via GoReleaser) | Tarballs for linux/amd64, linux/arm64, darwin/amd64, darwin/arm64. FIPS variants.            |
+| Container image     | Multi-arch OCI (ghcr.io)         | `FROM scratch`, USER 65534, ~10-15MB. Built via Docker buildx for linux/amd64 + linux/arm64. |
+| CI/CD               | GitHub Actions                   | Standard for Go open source. Matrix builds for all target platforms.                         |
 
 ### Dockerfile
 
 ```dockerfile
 # Build stage
-FROM golang:1.26-bookworm AS builder
+FROM golang:1.26.1-bookworm AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -194,6 +194,7 @@ ENTRYPOINT ["/kahi", "daemon"]
 ```
 
 Notes:
+
 - CA certificates copied for webhook TLS verification
 - Binary stripped (`-s -w` ldflags) for smaller size
 - scratch base: no shell, no package manager, no attack surface
@@ -212,23 +213,24 @@ Installs the Task CLI only. Everything else is managed by Taskfile targets.
 
 ### Taskfile Targets
 
-| Target | Description |
-| --- | --- |
-| `task setup` | Install golangci-lint, goreleaser, download Go modules |
-| `task build` | Compile binary to `./bin/kahi` |
-| `task test` | Run unit tests with race detector |
-| `task test-integration` | Run integration tests (tag: integration) |
-| `task test-e2e` | Run E2E tests (tag: e2e) |
-| `task lint` | Run golangci-lint |
-| `task fmt` | Run gofmt, report changes |
-| `task vet` | Run go vet |
-| `task coverage` | Generate coverage report, fail if < 85% |
-| `task all` | Run fmt, vet, lint, test, build in sequence |
-| `task clean` | Remove build artifacts |
+| Target                  | Description                                            |
+| ----------------------- | ------------------------------------------------------ |
+| `task setup`            | Install golangci-lint, goreleaser, download Go modules |
+| `task build`            | Compile binary to `./bin/kahi`                         |
+| `task test`             | Run unit tests with race detector                      |
+| `task test-integration` | Run integration tests (tag: integration)               |
+| `task test-e2e`         | Run E2E tests (tag: e2e)                               |
+| `task lint`             | Run golangci-lint                                      |
+| `task fmt`              | Run gofmt, report changes                              |
+| `task vet`              | Run go vet                                             |
+| `task coverage`         | Generate coverage report, fail if < 85%                |
+| `task all`              | Run fmt, vet, lint, test, build in sequence            |
+| `task clean`            | Remove build artifacts                                 |
 
 ### Verification
 
 After `init.sh && task setup && task all`:
+
 - Binary exists at `./bin/kahi`
 - `./bin/kahi version` prints version info
 - All tests pass
@@ -359,6 +361,7 @@ After `init.sh && task setup && task all`:
 **Context:** supervisord passes a nearly empty environment to child processes. Container environments inject critical vars (PATH, HOME, HOSTNAME). The sanitization approach must work for both contexts.
 
 **Decision:** Two modes controlled by `clean_environment` (boolean, default false):
+
 - `false` (default): Inherit all parent environment vars. Kahi vars and `environment` config overrides are added on top.
 - `true`: Whitelist-only. Only Kahi vars (SUPERVISOR_ENABLED, etc.) and explicitly configured `environment` vars are passed.
 

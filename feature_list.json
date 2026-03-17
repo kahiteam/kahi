@@ -6,7 +6,7 @@
       "title": "Go Module and Project Structure",
       "description": "Initialize the Go module and establish the canonical directory layout for the Kahi project, including go.mod, cmd/kahi/main.go, and all internal packages.",
       "testing_steps": [
-        "Verify go.mod exists with module path github.com/<org>/kahi and minimum Go version 1.26.0",
+        "Verify go.mod exists with module path github.com/<org>/kahi and minimum Go version 1.26.1",
         "Verify cmd/kahi/main.go exists and contains a main function",
         "Verify internal/ directory contains subdirectories: config, process, supervisor, api, events, logging, ctl, migrate, fcgi",
         "Run 'go build ./cmd/kahi' and verify it produces a binary with exit code 0",
@@ -135,9 +135,7 @@
         "Write a unit test using a mock Clock to verify clock rollback during STARTING does not cause premature RUNNING transition"
       ],
       "passes": true,
-      "dependencies": [
-        "go-module-structure"
-      ]
+      "dependencies": ["go-module-structure"]
     },
     {
       "id": "process-start",
@@ -159,10 +157,7 @@
         "Write a unit test that attempts to start an already-running process and verifies the error message"
       ],
       "passes": true,
-      "dependencies": [
-        "process-state-machine",
-        "structured-logging"
-      ]
+      "dependencies": ["process-state-machine", "structured-logging"]
     },
     {
       "id": "process-stop",
@@ -182,10 +177,7 @@
         "Write a unit test that verifies a process exiting during signal send does not cause errors"
       ],
       "passes": true,
-      "dependencies": [
-        "process-state-machine",
-        "process-start"
-      ]
+      "dependencies": ["process-state-machine", "process-start"]
     },
     {
       "id": "autorestart",
@@ -205,10 +197,7 @@
         "Write a unit test that verifies autorestart does not apply during STARTING/BACKOFF phases before RUNNING is reached"
       ],
       "passes": true,
-      "dependencies": [
-        "process-state-machine",
-        "process-start"
-      ]
+      "dependencies": ["process-state-machine", "process-start"]
     },
     {
       "id": "backoff-retries",
@@ -224,10 +213,7 @@
         "Write a unit test using a mock Clock that verifies system clock rollback does not cause negative waits"
       ],
       "passes": true,
-      "dependencies": [
-        "process-state-machine",
-        "process-start"
-      ]
+      "dependencies": ["process-state-machine", "process-start"]
     },
     {
       "id": "process-reaping",
@@ -243,9 +229,7 @@
         "Write a unit test that verifies exit status includes both normal exit codes and signal-killed status"
       ],
       "passes": true,
-      "dependencies": [
-        "process-start"
-      ]
+      "dependencies": ["process-start"]
     },
     {
       "id": "numprocs-instances",
@@ -265,9 +249,7 @@
         "Write a unit test with numprocs=5 and verify all 5 processes are created with sequential numbering"
       ],
       "passes": true,
-      "dependencies": [
-        "process-start"
-      ]
+      "dependencies": ["process-start"]
     },
     {
       "id": "priority-ordering",
@@ -283,9 +265,7 @@
         "Write a unit test that verifies shutdown uses the same reverse-priority ordering"
       ],
       "passes": true,
-      "dependencies": [
-        "process-start"
-      ]
+      "dependencies": ["process-start"]
     },
     {
       "id": "homogeneous-groups",
@@ -300,9 +280,7 @@
         "Verify group name collisions between programs are caught at config validation time"
       ],
       "passes": true,
-      "dependencies": [
-        "numprocs-instances"
-      ]
+      "dependencies": ["numprocs-instances"]
     },
     {
       "id": "heterogeneous-groups",
@@ -318,9 +296,7 @@
         "Parse a config with an empty group (no programs) and verify it is rejected at config validation"
       ],
       "passes": true,
-      "dependencies": [
-        "homogeneous-groups"
-      ]
+      "dependencies": ["homogeneous-groups"]
     },
     {
       "id": "group-lifecycle",
@@ -336,10 +312,7 @@
         "Write a unit test that removes then re-adds a group and verifies config is re-read"
       ],
       "passes": true,
-      "dependencies": [
-        "homogeneous-groups",
-        "heterogeneous-groups"
-      ]
+      "dependencies": ["homogeneous-groups", "heterogeneous-groups"]
     },
     {
       "id": "toml-variable-expansion",
@@ -359,9 +332,7 @@
         "Parse a config with multiple variable references in a single value and verify all are expanded correctly"
       ],
       "passes": true,
-      "dependencies": [
-        "toml-config-parser"
-      ]
+      "dependencies": ["toml-config-parser"]
     },
     {
       "id": "config-include-system",
@@ -378,10 +349,7 @@
         "Verify included files can define programs but cannot override [supervisor] settings"
       ],
       "passes": true,
-      "dependencies": [
-        "toml-config-parser",
-        "toml-variable-expansion"
-      ]
+      "dependencies": ["toml-config-parser", "toml-variable-expansion"]
     },
     {
       "id": "config-hot-reload",
@@ -420,9 +388,7 @@
         "Write a test with a non-readable config file and verify exit with error message 'cannot read config: {path}: {error}'"
       ],
       "passes": true,
-      "dependencies": [
-        "toml-config-parser"
-      ]
+      "dependencies": ["toml-config-parser"]
     },
     {
       "id": "default-config-generation",
@@ -439,9 +405,7 @@
         "Verify the generated config includes commented-out sections for all configurable options"
       ],
       "passes": true,
-      "dependencies": [
-        "toml-config-parser"
-      ]
+      "dependencies": ["toml-config-parser"]
     },
     {
       "id": "daemon-log",
@@ -459,9 +423,7 @@
         "Change log level on config reload and verify the new level takes effect immediately"
       ],
       "passes": true,
-      "dependencies": [
-        "structured-logging"
-      ]
+      "dependencies": ["structured-logging"]
     },
     {
       "id": "process-output-capture",
@@ -478,10 +440,7 @@
         "Write a test that verifies large output bursts do not block the child process"
       ],
       "passes": true,
-      "dependencies": [
-        "process-start",
-        "structured-logging"
-      ]
+      "dependencies": ["process-start", "structured-logging"]
     },
     {
       "id": "log-rotation",
@@ -497,9 +456,7 @@
         "Write a test that simulates a rotation rename failure and verifies the daemon continues writing to the current file"
       ],
       "passes": true,
-      "dependencies": [
-        "process-output-capture"
-      ]
+      "dependencies": ["process-output-capture"]
     },
     {
       "id": "syslog-forwarding",
@@ -514,9 +471,7 @@
         "Verify syslog facility and priority are configurable with defaults of LOCAL0 and INFO"
       ],
       "passes": true,
-      "dependencies": [
-        "process-output-capture"
-      ]
+      "dependencies": ["process-output-capture"]
     },
     {
       "id": "ansi-escape-stripping",
@@ -530,9 +485,7 @@
         "Write a test that verifies partial escape sequences at buffer boundaries are handled correctly"
       ],
       "passes": true,
-      "dependencies": [
-        "process-output-capture"
-      ]
+      "dependencies": ["process-output-capture"]
     },
     {
       "id": "log-reopen-sigusr2",
@@ -547,9 +500,7 @@
         "Write a test that verifies SIGUSR2 during shutdown is ignored"
       ],
       "passes": true,
-      "dependencies": [
-        "process-output-capture"
-      ]
+      "dependencies": ["process-output-capture"]
     },
     {
       "id": "log-cleanup-startup",
@@ -564,9 +515,7 @@
         "Write a test that verifies cleanup happens before any processes are started"
       ],
       "passes": true,
-      "dependencies": [
-        "process-output-capture"
-      ]
+      "dependencies": ["process-output-capture"]
     },
     {
       "id": "unix-socket-server",
@@ -586,9 +535,7 @@
         "Write a test that verifies the socket is not cleaned up on SIGKILL and stale detection handles it on next start"
       ],
       "passes": true,
-      "dependencies": [
-        "cli-framework"
-      ]
+      "dependencies": ["cli-framework"]
     },
     {
       "id": "tcp-http-server",
@@ -604,9 +551,7 @@
         "Configure listen='0.0.0.0:9876' and verify a security warning is logged"
       ],
       "passes": true,
-      "dependencies": [
-        "unix-socket-server"
-      ]
+      "dependencies": ["unix-socket-server"]
     },
     {
       "id": "rest-api-endpoints",
@@ -653,9 +598,7 @@
         "Write a test that opens an SSE stream, sends data to the process, and verifies the data appears within 100ms latency"
       ],
       "passes": true,
-      "dependencies": [
-        "rest-api-endpoints"
-      ]
+      "dependencies": ["rest-api-endpoints"]
     },
     {
       "id": "http-basic-auth",
@@ -671,9 +614,7 @@
         "Verify kahi ctl sends credentials from config or command-line flags"
       ],
       "passes": true,
-      "dependencies": [
-        "tcp-http-server"
-      ]
+      "dependencies": ["tcp-http-server"]
     },
     {
       "id": "health-check-endpoint",
@@ -687,9 +628,7 @@
         "Verify /healthz response contains no process-level information"
       ],
       "passes": true,
-      "dependencies": [
-        "unix-socket-server"
-      ]
+      "dependencies": ["unix-socket-server"]
     },
     {
       "id": "readiness-check-endpoint",
@@ -707,9 +646,7 @@
         "Verify FATAL processes count as stabilized in the readiness check"
       ],
       "passes": true,
-      "dependencies": [
-        "health-check-endpoint"
-      ]
+      "dependencies": ["health-check-endpoint"]
     },
     {
       "id": "cli-process-control",
@@ -729,10 +666,7 @@
         "Run 'kahi ctl stop web:*' and verify all processes in the web group are stopped"
       ],
       "passes": true,
-      "dependencies": [
-        "rest-api-endpoints",
-        "cli-framework"
-      ]
+      "dependencies": ["rest-api-endpoints", "cli-framework"]
     },
     {
       "id": "cli-status-display",
@@ -749,9 +683,7 @@
         "Run 'kahi ctl status' with no processes configured and verify an empty table with headers is printed"
       ],
       "passes": true,
-      "dependencies": [
-        "cli-process-control"
-      ]
+      "dependencies": ["cli-process-control"]
     },
     {
       "id": "cli-log-tailing",
@@ -768,10 +700,7 @@
         "Verify tail reads from the ring buffer when no log file is configured"
       ],
       "passes": true,
-      "dependencies": [
-        "sse-streaming",
-        "cli-process-control"
-      ]
+      "dependencies": ["sse-streaming", "cli-process-control"]
     },
     {
       "id": "cli-foreground-attach",
@@ -787,9 +716,7 @@
         "Write a test that attempts two fg sessions on the same process and verifies the second is rejected"
       ],
       "passes": true,
-      "dependencies": [
-        "cli-process-control"
-      ]
+      "dependencies": ["cli-process-control"]
     },
     {
       "id": "cli-config-operations",
@@ -806,10 +733,7 @@
         "Run 'kahi ctl avail' and verify all configured programs are shown with active/available status"
       ],
       "passes": true,
-      "dependencies": [
-        "cli-process-control",
-        "config-hot-reload"
-      ]
+      "dependencies": ["cli-process-control", "config-hot-reload"]
     },
     {
       "id": "cli-daemon-operations",
@@ -826,9 +750,7 @@
         "Run 'kahi ctl shutdown' when daemon is not running and verify exit code 1 with connection error"
       ],
       "passes": true,
-      "dependencies": [
-        "cli-process-control"
-      ]
+      "dependencies": ["cli-process-control"]
     },
     {
       "id": "cli-tab-completion",
@@ -843,9 +765,7 @@
         "Verify completion for signals in 'kahi ctl signal <TAB>' lists valid signal names"
       ],
       "passes": true,
-      "dependencies": [
-        "cli-framework"
-      ]
+      "dependencies": ["cli-framework"]
     },
     {
       "id": "signal-shutdown",
@@ -862,10 +782,7 @@
         "Verify processes that do not stop within stopwaitsecs receive SIGKILL escalation"
       ],
       "passes": true,
-      "dependencies": [
-        "process-stop",
-        "priority-ordering"
-      ]
+      "dependencies": ["process-stop", "priority-ordering"]
     },
     {
       "id": "signal-sighup-reload",
@@ -880,9 +797,7 @@
         "Verify multiple rapid SIGHUPs are coalesced into a single reload"
       ],
       "passes": true,
-      "dependencies": [
-        "config-hot-reload"
-      ]
+      "dependencies": ["config-hot-reload"]
     },
     {
       "id": "signal-sigchld-reaping",
@@ -896,9 +811,7 @@
         "Verify multiple exits between polls are all collected in a single reaping loop"
       ],
       "passes": true,
-      "dependencies": [
-        "process-reaping"
-      ]
+      "dependencies": ["process-reaping"]
     },
     {
       "id": "signal-sigusr2-log-reopen",
@@ -913,9 +826,7 @@
         "Send SIGUSR2 during active log writing and verify no log entries are lost during rotation"
       ],
       "passes": true,
-      "dependencies": [
-        "log-reopen-sigusr2"
-      ]
+      "dependencies": ["log-reopen-sigusr2"]
     },
     {
       "id": "signal-queuing",
@@ -929,9 +840,7 @@
         "Verify signal processing always occurs in the main goroutine with no concurrent handlers"
       ],
       "passes": true,
-      "dependencies": [
-        "go-module-structure"
-      ]
+      "dependencies": ["go-module-structure"]
     },
     {
       "id": "child-process-isolation",
@@ -945,9 +854,7 @@
         "Verify process group isolation enables stop-as-group behavior for signaling entire child trees"
       ],
       "passes": true,
-      "dependencies": [
-        "process-start"
-      ]
+      "dependencies": ["process-start"]
     },
     {
       "id": "unprivileged-operation",
@@ -962,9 +869,7 @@
         "Configure a path not writable by the current user and verify exit with permission denied error"
       ],
       "passes": true,
-      "dependencies": [
-        "unix-socket-server"
-      ]
+      "dependencies": ["unix-socket-server"]
     },
     {
       "id": "privilege-dropping",
@@ -979,9 +884,7 @@
         "Verify privilege drop happens after socket creation but before processing requests"
       ],
       "passes": true,
-      "dependencies": [
-        "unprivileged-operation"
-      ]
+      "dependencies": ["unprivileged-operation"]
     },
     {
       "id": "per-process-user-switching",
@@ -995,9 +898,7 @@
         "Verify user switching sets uid, gid, and supplementary groups before exec"
       ],
       "passes": true,
-      "dependencies": [
-        "privilege-dropping"
-      ]
+      "dependencies": ["privilege-dropping"]
     },
     {
       "id": "process-umask",
@@ -1012,9 +913,7 @@
         "Verify umask is specified as a 4-digit octal string in config"
       ],
       "passes": true,
-      "dependencies": [
-        "process-start"
-      ]
+      "dependencies": ["process-start"]
     },
     {
       "id": "root-detection-warning",
@@ -1028,9 +927,7 @@
         "Verify the warning is logged once at startup and not repeated"
       ],
       "passes": true,
-      "dependencies": [
-        "structured-logging"
-      ]
+      "dependencies": ["structured-logging"]
     },
     {
       "id": "event-bus",
@@ -1050,9 +947,7 @@
         "Write a unit test that registers and unregisters subscribers concurrently from multiple goroutines and verifies no race conditions"
       ],
       "passes": true,
-      "dependencies": [
-        "go-module-structure"
-      ]
+      "dependencies": ["go-module-structure"]
     },
     {
       "id": "process-state-events",
@@ -1067,10 +962,7 @@
         "Write a test that verifies all 8 states have corresponding event types"
       ],
       "passes": true,
-      "dependencies": [
-        "event-bus",
-        "process-state-machine"
-      ]
+      "dependencies": ["event-bus", "process-state-machine"]
     },
     {
       "id": "process-log-events",
@@ -1084,10 +976,7 @@
         "Write a test that verifies stderr log events are emitted when stderr_events_enabled=true"
       ],
       "passes": true,
-      "dependencies": [
-        "event-bus",
-        "process-output-capture"
-      ]
+      "dependencies": ["event-bus", "process-output-capture"]
     },
     {
       "id": "supervisor-state-events",
@@ -1102,9 +991,7 @@
         "Verify no duplicate state change events are emitted for the same transition"
       ],
       "passes": true,
-      "dependencies": [
-        "event-bus"
-      ]
+      "dependencies": ["event-bus"]
     },
     {
       "id": "process-group-events",
@@ -1119,10 +1006,7 @@
         "Verify GROUP_REMOVED event is emitted when a group is removed during config reload"
       ],
       "passes": true,
-      "dependencies": [
-        "event-bus",
-        "group-lifecycle"
-      ]
+      "dependencies": ["event-bus", "group-lifecycle"]
     },
     {
       "id": "tick-events",
@@ -1138,9 +1022,7 @@
         "Verify monotonic time is used so clock drift does not cause missed ticks"
       ],
       "passes": true,
-      "dependencies": [
-        "event-bus"
-      ]
+      "dependencies": ["event-bus"]
     },
     {
       "id": "event-listener-pools",
@@ -1160,11 +1042,7 @@
         "Write a test that subscribes to multiple event types in a single listener config and verify all matching events are dispatched"
       ],
       "passes": true,
-      "dependencies": [
-        "event-bus",
-        "process-state-events",
-        "process-start"
-      ]
+      "dependencies": ["event-bus", "process-state-events", "process-start"]
     },
     {
       "id": "webhook-notifications",
@@ -1184,9 +1062,7 @@
         "Write a test using a mock HTTP server that verifies the POST body contains JSON with event type, process name, and timestamp"
       ],
       "passes": true,
-      "dependencies": [
-        "event-bus"
-      ]
+      "dependencies": ["event-bus"]
     },
     {
       "id": "webhook-templates",
@@ -1201,9 +1077,7 @@
         "Verify templates support variable substitution from event data"
       ],
       "passes": true,
-      "dependencies": [
-        "webhook-notifications"
-      ]
+      "dependencies": ["webhook-notifications"]
     },
     {
       "id": "webhook-env-expansion",
@@ -1218,10 +1092,7 @@
         "Verify webhook URLs and headers containing secrets are redacted in debug log output"
       ],
       "passes": true,
-      "dependencies": [
-        "webhook-notifications",
-        "toml-variable-expansion"
-      ]
+      "dependencies": ["webhook-notifications", "toml-variable-expansion"]
     },
     {
       "id": "webhook-tls-requirement",
@@ -1236,9 +1107,7 @@
         "Verify TLS certificate verification uses the system trust store"
       ],
       "passes": true,
-      "dependencies": [
-        "webhook-notifications"
-      ]
+      "dependencies": ["webhook-notifications"]
     },
     {
       "id": "prometheus-metrics-endpoint",
@@ -1253,9 +1122,7 @@
         "Configure metrics disabled and verify /metrics returns 404"
       ],
       "passes": true,
-      "dependencies": [
-        "tcp-http-server"
-      ]
+      "dependencies": ["tcp-http-server"]
     },
     {
       "id": "process-metrics",
@@ -1270,9 +1137,7 @@
         "Verify removed processes have their metrics cleaned up after retention period"
       ],
       "passes": true,
-      "dependencies": [
-        "prometheus-metrics-endpoint"
-      ]
+      "dependencies": ["prometheus-metrics-endpoint"]
     },
     {
       "id": "supervisor-metrics",
@@ -1287,9 +1152,7 @@
         "Verify kahi_info{version=...,go_version=...,fips=...} is a constant 1 gauge with build metadata labels"
       ],
       "passes": true,
-      "dependencies": [
-        "prometheus-metrics-endpoint"
-      ]
+      "dependencies": ["prometheus-metrics-endpoint"]
     },
     {
       "id": "foreground-mode",
@@ -1303,9 +1166,7 @@
         "Verify foreground mode is the default with no flag needed to enable it"
       ],
       "passes": true,
-      "dependencies": [
-        "cli-framework"
-      ]
+      "dependencies": ["cli-framework"]
     },
     {
       "id": "optional-daemonization",
@@ -1321,9 +1182,7 @@
         "Create a stale PID file (process not running) and start the daemon and verify it is overwritten with a warning"
       ],
       "passes": true,
-      "dependencies": [
-        "foreground-mode"
-      ]
+      "dependencies": ["foreground-mode"]
     },
     {
       "id": "pid1-zombie-reaping",
@@ -1337,9 +1196,7 @@
         "Verify the reaping loop runs as part of the main supervision tick, not as a separate goroutine"
       ],
       "passes": true,
-      "dependencies": [
-        "process-reaping"
-      ]
+      "dependencies": ["process-reaping"]
     },
     {
       "id": "graceful-shutdown",
@@ -1355,10 +1212,7 @@
         "Verify if total shutdown exceeds timeout, remaining processes are killed and daemon exits"
       ],
       "passes": true,
-      "dependencies": [
-        "process-stop",
-        "priority-ordering"
-      ]
+      "dependencies": ["process-stop", "priority-ordering"]
     },
     {
       "id": "working-directory",
@@ -1373,10 +1227,7 @@
         "Verify per-process directory supports variable expansion"
       ],
       "passes": true,
-      "dependencies": [
-        "process-start",
-        "toml-variable-expansion"
-      ]
+      "dependencies": ["process-start", "toml-variable-expansion"]
     },
     {
       "id": "resource-limits",
@@ -1391,9 +1242,7 @@
         "Verify rlimits are only raised when the current value is below the configured minimum"
       ],
       "passes": true,
-      "dependencies": [
-        "go-module-structure"
-      ]
+      "dependencies": ["go-module-structure"]
     },
     {
       "id": "config-migration-tool",
@@ -1413,9 +1262,7 @@
         "Verify comments from the original file are preserved as TOML comments where possible"
       ],
       "passes": true,
-      "dependencies": [
-        "toml-config-parser"
-      ]
+      "dependencies": ["toml-config-parser"]
     },
     {
       "id": "migration-ini-parser",
@@ -1432,9 +1279,7 @@
         "Verify boolean values (true/false, yes/no, on/off, 1/0) map to TOML booleans"
       ],
       "passes": true,
-      "dependencies": [
-        "go-module-structure"
-      ]
+      "dependencies": ["go-module-structure"]
     },
     {
       "id": "migration-option-mapping",
@@ -1450,9 +1295,7 @@
         "Verify signal names are normalized to uppercase"
       ],
       "passes": true,
-      "dependencies": [
-        "migration-ini-parser"
-      ]
+      "dependencies": ["migration-ini-parser"]
     },
     {
       "id": "migration-dry-run",
@@ -1467,9 +1310,7 @@
         "Run dry-run migration and verify the output is valid TOML that can be parsed without errors"
       ],
       "passes": true,
-      "dependencies": [
-        "config-migration-tool"
-      ]
+      "dependencies": ["config-migration-tool"]
     },
     {
       "id": "migration-validation",
@@ -1483,10 +1324,7 @@
         "Verify validation catches missing required fields that could not be inferred from supervisord config"
       ],
       "passes": true,
-      "dependencies": [
-        "config-migration-tool",
-        "toml-config-parser"
-      ]
+      "dependencies": ["config-migration-tool", "toml-config-parser"]
     },
     {
       "id": "fastcgi-program-definition",
@@ -1502,9 +1340,7 @@
         "Verify FastCGI programs support all standard program options (autorestart, numprocs, etc.)"
       ],
       "passes": true,
-      "dependencies": [
-        "process-start"
-      ]
+      "dependencies": ["process-start"]
     },
     {
       "id": "fastcgi-socket-management",
@@ -1520,9 +1356,7 @@
         "Verify the socket is re-created on process restart if it was cleaned up"
       ],
       "passes": true,
-      "dependencies": [
-        "fastcgi-program-definition"
-      ]
+      "dependencies": ["fastcgi-program-definition"]
     },
     {
       "id": "cli-health-check",
@@ -1557,10 +1391,7 @@
         "Write stdin to a process with a broken pipe and verify error message 'stdin pipe broken for {name}'"
       ],
       "passes": true,
-      "dependencies": [
-        "rest-api-endpoints",
-        "process-start"
-      ]
+      "dependencies": ["rest-api-endpoints", "process-start"]
     },
     {
       "id": "web-ui-status-page",
@@ -1577,9 +1408,7 @@
         "Verify HTML includes viewport meta tag and CSS media queries for responsive layout"
       ],
       "passes": true,
-      "dependencies": [
-        "rest-api-endpoints"
-      ]
+      "dependencies": ["rest-api-endpoints"]
     },
     {
       "id": "web-ui-log-viewer",
@@ -1596,10 +1425,7 @@
         "Verify a message is displayed when no log file is configured for the process"
       ],
       "passes": true,
-      "dependencies": [
-        "sse-streaming",
-        "web-ui-status-page"
-      ]
+      "dependencies": ["sse-streaming", "web-ui-status-page"]
     },
     {
       "id": "web-ui-embedded-assets",
@@ -1615,9 +1441,7 @@
         "Verify caching headers (ETag, Cache-Control) are set for static assets"
       ],
       "passes": true,
-      "dependencies": [
-        "web-ui-status-page"
-      ]
+      "dependencies": ["web-ui-status-page"]
     },
     {
       "id": "hash-password-subcommand",
@@ -1632,9 +1456,7 @@
         "Verify the password prompt suppresses echo for security"
       ],
       "passes": true,
-      "dependencies": [
-        "cli-framework"
-      ]
+      "dependencies": ["cli-framework"]
     },
     {
       "id": "process-output-ring-buffer",
@@ -1650,9 +1472,7 @@
         "Verify the ring buffer feeds SSE streaming when no log file exists"
       ],
       "passes": true,
-      "dependencies": [
-        "process-output-capture"
-      ]
+      "dependencies": ["process-output-capture"]
     },
     {
       "id": "web-ui-visual-design",
@@ -1667,9 +1487,7 @@
         "Verify no external URLs in CSS or JavaScript imports"
       ],
       "passes": true,
-      "dependencies": [
-        "web-ui-status-page"
-      ]
+      "dependencies": ["web-ui-status-page"]
     },
     {
       "id": "cli-output-formatting",
@@ -1684,9 +1502,7 @@
         "Run 'kahi ctl status --json' and verify machine-readable JSON output is returned"
       ],
       "passes": true,
-      "dependencies": [
-        "cli-status-display"
-      ]
+      "dependencies": ["cli-status-display"]
     },
     {
       "id": "unit-test-infrastructure",
@@ -1702,9 +1518,7 @@
         "Verify testify assertions (assert, require) are used consistently across tests"
       ],
       "passes": true,
-      "dependencies": [
-        "taskfile-workflow"
-      ]
+      "dependencies": ["taskfile-workflow"]
     },
     {
       "id": "integration-test-infrastructure",
@@ -1720,10 +1534,7 @@
         "Verify integration test temp directories are cleaned up via TempDir helper"
       ],
       "passes": true,
-      "dependencies": [
-        "unit-test-infrastructure",
-        "unix-socket-server"
-      ]
+      "dependencies": ["unit-test-infrastructure", "unix-socket-server"]
     },
     {
       "id": "e2e-test-infrastructure",
@@ -1748,9 +1559,7 @@
         "Run 'task test-e2e' and verify all 68 E2E tests pass or skip (66 pass, 2 skip) with race detector enabled"
       ],
       "passes": true,
-      "dependencies": [
-        "integration-test-infrastructure"
-      ]
+      "dependencies": ["integration-test-infrastructure"]
     },
     {
       "id": "test-output-formatting",
@@ -1769,9 +1578,7 @@
         "Verify JUnit XML files (*-results.xml) are listed in .gitignore"
       ],
       "passes": true,
-      "dependencies": [
-        "e2e-test-infrastructure"
-      ]
+      "dependencies": ["e2e-test-infrastructure"]
     },
     {
       "id": "project-branding",
@@ -1822,9 +1629,7 @@
         "Verify GitHub Topics include process-supervisor, go, posix, supervisord"
       ],
       "passes": true,
-      "dependencies": [
-        "module-path-migration"
-      ]
+      "dependencies": ["module-path-migration"]
     },
     {
       "id": "portfolio-landing-page",
@@ -1841,9 +1646,7 @@
         "Verify README contains no emoji"
       ],
       "passes": true,
-      "dependencies": [
-        "repo-migration"
-      ]
+      "dependencies": ["repo-migration"]
     },
     {
       "id": "semver-alpha-releases",
@@ -1894,9 +1697,7 @@
         "Verify archive naming follows kahi_VERSION_OS_ARCH pattern for all targets"
       ],
       "passes": true,
-      "dependencies": [
-        "fips-everywhere"
-      ]
+      "dependencies": ["fips-everywhere"]
     },
     {
       "id": "oci-multiarch-containers",
@@ -1915,10 +1716,7 @@
         "Verify built image runs as non-root (UID 65534)"
       ],
       "passes": true,
-      "dependencies": [
-        "fips-everywhere",
-        "extended-architectures"
-      ]
+      "dependencies": ["fips-everywhere", "extended-architectures"]
     },
     {
       "id": "release-pipeline-hardening",
@@ -1934,10 +1732,7 @@
         "Run 'goreleaser build --snapshot --clean' and verify it succeeds"
       ],
       "passes": true,
-      "dependencies": [
-        "semver-alpha-releases",
-        "fips-everywhere"
-      ]
+      "dependencies": ["semver-alpha-releases", "fips-everywhere"]
     },
     {
       "id": "oci-attestations",
@@ -1952,9 +1747,7 @@
         "Verify SLSA provenance attestation is at level 2 or higher"
       ],
       "passes": true,
-      "dependencies": [
-        "oci-multiarch-containers"
-      ]
+      "dependencies": ["oci-multiarch-containers"]
     },
     {
       "id": "security-policy",
@@ -2010,10 +1803,7 @@
         "Verify document contains no emoji or AI-isms"
       ],
       "passes": true,
-      "dependencies": [
-        "security-policy",
-        "code-of-conduct"
-      ]
+      "dependencies": ["security-policy", "code-of-conduct"]
     },
     {
       "id": "issue-templates",
@@ -2047,10 +1837,7 @@
         "Verify CodeQL alert go/uncontrolled-allocation-size no longer triggers on the modified code"
       ],
       "passes": true,
-      "dependencies": [
-        "process-output-ring-buffer",
-        "rest-api-endpoints"
-      ]
+      "dependencies": ["process-output-ring-buffer", "rest-api-endpoints"]
     },
     {
       "id": "pr-test-result-visibility",
@@ -2070,9 +1857,7 @@
         "Open a test PR and confirm test counts and coverage are visible on the PR page without clicking into job logs"
       ],
       "passes": true,
-      "dependencies": [
-        "taskfile-workflow"
-      ]
+      "dependencies": ["taskfile-workflow"]
     },
     {
       "id": "static-analysis-allocation-bounds",
@@ -2093,9 +1878,7 @@
         "Verify CodeQL alert go/uncontrolled-allocation-size auto-closes after merge to main"
       ],
       "passes": true,
-      "dependencies": [
-        "api-input-bounds-validation"
-      ]
+      "dependencies": ["api-input-bounds-validation"]
     }
   ]
 }

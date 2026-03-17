@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 **Description:** Kahi -- lightweight process supervisor for modern infrastructure
-**Tech Stack:** Go 1.26.0, cobra, BurntSushi/toml, stdlib slog
+**Tech Stack:** Go 1.26.1, cobra, BurntSushi/toml, stdlib slog
 **Repository:** github.com/kahiteam/kahi
 
 ## Feature Development Workflow
@@ -78,6 +78,7 @@ task build
 ## Architecture
 
 Single binary (`kahi`) with subcommand routing via cobra:
+
 - `cmd/kahi/` -- CLI entry point and subcommands
 - `internal/config/` -- TOML parsing, validation, defaults, search paths
 - `internal/process/` -- State machine, start/stop, reaping
@@ -105,6 +106,16 @@ Quality is enforced by the Claude Project Foundation hooks:
 - **Commit-msg:** Validates conventional commits, blocks AI-isms and emoji
 
 Coverage threshold: 85% (configured in constitution)
+
+## Pre-PR Verification
+
+Before opening any pull request, run the full local verification suite and confirm all checks pass:
+
+```bash
+task build && task test && task lint && task vet
+```
+
+Do not open a PR until all four pass. PR test plans must reflect tests that were actually executed.
 
 ## Git Commit Guidelines
 

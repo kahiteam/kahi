@@ -1,4 +1,5 @@
 ![Kahi](assets/kahi_logo.svg)
+
 # Kahi
 
 A modern process supervisor for POSIX systems, written in Go.
@@ -90,7 +91,7 @@ go install github.com/kahiteam/kahi/cmd/kahi@latest
 
 ### Build from source
 
-Requires Go 1.26.0+ and [Task](https://taskfile.dev).
+Requires Go 1.26.1+ and [Task](https://taskfile.dev).
 
 ```sh
 git clone https://github.com/kahiteam/kahi.git
@@ -104,7 +105,7 @@ The binary is written to `./bin/kahi`.
 
 ### Prerequisites
 
-- Go 1.26.0 or later
+- Go 1.26.1 or later
 - [Task](https://taskfile.dev) -- task runner
 - golangci-lint (optional, for linting)
 
@@ -112,18 +113,18 @@ Run `task setup` to install golangci-lint and goreleaser.
 
 ### Task targets
 
-| Target | Description |
-| --- | --- |
-| `task build` | Compile binary to `./bin/kahi` |
-| `task test` | Run unit tests with race detector |
-| `task lint` | Run golangci-lint |
-| `task vet` | Run `go vet` |
-| `task fmt` | Check formatting |
-| `task coverage` | Generate coverage report (threshold: 85%) |
-| `task all` | Run fmt, vet, lint, test, build in sequence |
-| `task clean` | Remove build artifacts |
-| `task test-integration` | Run integration tests |
-| `task test-e2e` | Run end-to-end tests |
+| Target                  | Description                                 |
+| ----------------------- | ------------------------------------------- |
+| `task build`            | Compile binary to `./bin/kahi`              |
+| `task test`             | Run unit tests with race detector           |
+| `task lint`             | Run golangci-lint                           |
+| `task vet`              | Run `go vet`                                |
+| `task fmt`              | Check formatting                            |
+| `task coverage`         | Generate coverage report (threshold: 85%)   |
+| `task all`              | Run fmt, vet, lint, test, build in sequence |
+| `task clean`            | Remove build artifacts                      |
+| `task test-integration` | Run integration tests                       |
+| `task test-e2e`         | Run end-to-end tests                        |
 
 ### Release builds
 
@@ -142,15 +143,15 @@ Tagged releases are published automatically via GitHub Actions.
 
 ### Top-level commands
 
-| Command | Description |
-| --- | --- |
-| `kahi daemon` | Run the supervisor daemon |
-| `kahi ctl` | Control a running daemon |
-| `kahi init` | Generate a sample `kahi.toml` |
-| `kahi migrate` | Convert `supervisord.conf` to `kahi.toml` |
-| `kahi version` | Print version, commit, build date, Go version, FIPS status |
-| `kahi hash-password` | Generate bcrypt password hash for config |
-| `kahi completion` | Generate shell completion scripts |
+| Command              | Description                                                |
+| -------------------- | ---------------------------------------------------------- |
+| `kahi daemon`        | Run the supervisor daemon                                  |
+| `kahi ctl`           | Control a running daemon                                   |
+| `kahi init`          | Generate a sample `kahi.toml`                              |
+| `kahi migrate`       | Convert `supervisord.conf` to `kahi.toml`                  |
+| `kahi version`       | Print version, commit, build date, Go version, FIPS status |
+| `kahi hash-password` | Generate bcrypt password hash for config                   |
+| `kahi completion`    | Generate shell completion scripts                          |
 
 ### daemon
 
@@ -158,12 +159,12 @@ Tagged releases are published automatically via GitHub Actions.
 kahi daemon [flags]
 ```
 
-| Flag | Description |
-| --- | --- |
-| `-c, --config` | Config file path (default: search order below) |
-| `-p, --pidfile` | PID file path |
-| `-d, --daemonize` | Run in background (double-fork) |
-| `-u, --user` | Drop privileges to user (`uid` or `uid:gid`) |
+| Flag              | Description                                    |
+| ----------------- | ---------------------------------------------- |
+| `-c, --config`    | Config file path (default: search order below) |
+| `-p, --pidfile`   | PID file path                                  |
+| `-d, --daemonize` | Run in background (double-fork)                |
+| `-u, --user`      | Drop privileges to user (`uid` or `uid:gid`)   |
 
 ### ctl
 
@@ -173,36 +174,36 @@ kahi ctl [command] [flags]
 
 **Connection flags** (apply to all subcommands):
 
-| Flag | Description |
-| --- | --- |
-| `-s, --socket` | Unix socket path (overrides config) |
-| `-c, --config` | Config file path (to resolve socket path) |
-| `--addr` | TCP address (`host:port`) |
-| `-u, --username` | HTTP Basic Auth username |
-| `-p, --password` | HTTP Basic Auth password |
+| Flag             | Description                               |
+| ---------------- | ----------------------------------------- |
+| `-s, --socket`   | Unix socket path (overrides config)       |
+| `-c, --config`   | Config file path (to resolve socket path) |
+| `--addr`         | TCP address (`host:port`)                 |
+| `-u, --username` | HTTP Basic Auth username                  |
+| `-p, --password` | HTTP Basic Auth password                  |
 
 **Subcommands:**
 
-| Subcommand | Arguments | Description |
-| --- | --- | --- |
-| `start` | `process...` | Start processes (supports `group:*` syntax) |
-| `stop` | `process...` | Stop processes |
-| `restart` | `process...` | Restart processes |
-| `status` | `[process...]` | Show process status (`--json`, `--no-color`) |
-| `signal` | `signal process` | Send a signal to a process |
-| `tail` | `process [stream]` | Tail process log output (`-f` to follow) |
-| `send` | `process data` | Write data to a process stdin |
-| `shutdown` | | Initiate daemon shutdown |
-| `reload` | | Reload daemon configuration |
-| `reread` | | Preview config changes without applying |
-| `update` | | Reload config and apply all changes |
-| `add` | `group` | Activate a new group from config |
-| `remove` | `group` | Stop and remove a group |
-| `attach` | `process` | Attach to a process (stdin/stdout) |
-| `health` | | Check daemon liveness |
-| `ready` | | Check daemon readiness (`--process` filter) |
-| `pid` | `[process]` | Show daemon or process PID |
-| `version` | | Show remote daemon version |
+| Subcommand | Arguments          | Description                                  |
+| ---------- | ------------------ | -------------------------------------------- |
+| `start`    | `process...`       | Start processes (supports `group:*` syntax)  |
+| `stop`     | `process...`       | Stop processes                               |
+| `restart`  | `process...`       | Restart processes                            |
+| `status`   | `[process...]`     | Show process status (`--json`, `--no-color`) |
+| `signal`   | `signal process`   | Send a signal to a process                   |
+| `tail`     | `process [stream]` | Tail process log output (`-f` to follow)     |
+| `send`     | `process data`     | Write data to a process stdin                |
+| `shutdown` |                    | Initiate daemon shutdown                     |
+| `reload`   |                    | Reload daemon configuration                  |
+| `reread`   |                    | Preview config changes without applying      |
+| `update`   |                    | Reload config and apply all changes          |
+| `add`      | `group`            | Activate a new group from config             |
+| `remove`   | `group`            | Stop and remove a group                      |
+| `attach`   | `process`          | Attach to a process (stdin/stdout)           |
+| `health`   |                    | Check daemon liveness                        |
+| `ready`    |                    | Check daemon readiness (`--process` filter)  |
+| `pid`      | `[process]`        | Show daemon or process PID                   |
+| `version`  |                    | Show remote daemon version                   |
 
 ### migrate
 
@@ -210,11 +211,11 @@ kahi ctl [command] [flags]
 kahi migrate <supervisord.conf> [flags]
 ```
 
-| Flag | Description |
-| --- | --- |
+| Flag           | Description                          |
+| -------------- | ------------------------------------ |
 | `-o, --output` | Write TOML to file instead of stdout |
-| `--force` | Overwrite existing output file |
-| `--dry-run` | Preview output without writing files |
+| `--force`      | Overwrite existing output file       |
+| `--dry-run`    | Preview output without writing files |
 
 ### Config search order
 
@@ -312,12 +313,12 @@ kahi init -o kahi.toml        # write to file
 
 Configuration values support these expansion patterns:
 
-| Pattern | Expands to |
-| --- | --- |
-| `%(here)s` | Directory containing the config file |
-| `%(program_name)s` | Program section name |
-| `%(process_num)d` | Process instance number (from numprocs) |
-| `${ENV_VAR}` | Environment variable value |
+| Pattern            | Expands to                              |
+| ------------------ | --------------------------------------- |
+| `%(here)s`         | Directory containing the config file    |
+| `%(program_name)s` | Program section name                    |
+| `%(process_num)d`  | Process instance number (from numprocs) |
+| `${ENV_VAR}`       | Environment variable value              |
 
 ### Config inclusion
 
