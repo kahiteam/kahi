@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 **Description:** Kahi -- lightweight process supervisor for modern infrastructure
-**Tech Stack:** Go 1.26.0, cobra, BurntSushi/toml, stdlib slog
+**Tech Stack:** Go 1.26.1, cobra, BurntSushi/toml, stdlib slog
 **Repository:** github.com/kahiteam/kahi
 
 ## Feature Development Workflow
@@ -78,6 +78,7 @@ task build
 ## Architecture
 
 Single binary (`kahi`) with subcommand routing via cobra:
+
 - `cmd/kahi/` -- CLI entry point and subcommands
 - `internal/config/` -- TOML parsing, validation, defaults, search paths
 - `internal/process/` -- State machine, start/stop, reaping

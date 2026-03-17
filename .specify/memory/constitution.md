@@ -9,7 +9,7 @@ Once established, these principles do not change without explicit human approval
 **Project Name:** Kahi -- Lightweight process supervisor for modern infrastructure
 **One-Line Description:** A modern, lightweight process supervisor for POSIX systems, written in Go.
 **Canonical Repository:** github.com/kahiteam/kahi
-**Primary Language(s):** Go (1.26.0+)
+**Primary Language(s):** Go (1.26.1+)
 **Target Platform(s):** Linux (amd64, arm64, arm/v7, riscv64, ppc64le, s390x), macOS (amd64, arm64)
 
 ## Non-Negotiable Principles
@@ -68,7 +68,7 @@ Once established, these principles do not change without explicit human approval
 3. REST/JSON API with SSE for streaming -- no gRPC in initial release, no XML-RPC compatibility
 4. Feature toggles via config -- all optional subsystems (HTTP API, metrics, web UI, events) enabled/disabled in kahi.toml, not at compile time
 5. No CGO -- pure Go for maximum cross-compilation simplicity
-6. Go 1.26.0 minimum -- use latest stdlib features (structured logging, enhanced HTTP routing)
+6. Go 1.26.1 minimum -- use latest stdlib features (structured logging, enhanced HTTP routing)
 7. FIPS 140 enforcing build via GOFIPS140=v1.0.0 -- all cryptographic operations use Go's FIPS-validated module
 
 ## Security Requirements

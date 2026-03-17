@@ -33,7 +33,7 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Acceptance Criteria:**
 
-- [ ] `go.mod` exists with module path `github.com/<org>/kahi` and Go 1.26.0 minimum
+- [ ] `go.mod` exists with module path `github.com/<org>/kahi` and Go 1.26.1 minimum
 - [ ] `cmd/kahi/main.go` exists as the single binary entry point
 - [ ] `internal/` directory contains packages: `config`, `process`, `supervisor`, `api`, `events`, `logging`, `ctl`, `migrate`, `fcgi`
 - [ ] `go build ./cmd/kahi` produces a working binary
@@ -162,11 +162,11 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
+| Scenario                          | Behavior                                                              |
+| --------------------------------- | --------------------------------------------------------------------- |
 | Import path mismatch after rename | `go build` fails with unresolved import; fix by running `go mod tidy` |
-| GoReleaser owner mismatch | Release upload fails; verify `.goreleaser.yml` owner field |
-| Stale go.sum entries | `go mod tidy` removes stale checksums |
+| GoReleaser owner mismatch         | Release upload fails; verify `.goreleaser.yml` owner field            |
+| Stale go.sum entries              | `go mod tidy` removes stale checksums                                 |
 
 **Dependencies:** None
 
@@ -187,11 +187,11 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
-| Push rejected (no permissions) | Verify org membership and repo create permissions |
-| CI fails on new repo | Check secrets, permissions, and workflow trigger conditions |
-| `go install` fails | Verify module proxy has indexed the new path; wait for proxy cache |
+| Scenario                       | Behavior                                                           |
+| ------------------------------ | ------------------------------------------------------------------ |
+| Push rejected (no permissions) | Verify org membership and repo create permissions                  |
+| CI fails on new repo           | Check secrets, permissions, and workflow trigger conditions        |
+| `go install` fails             | Verify module proxy has indexed the new path; wait for proxy cache |
 
 **Dependencies:** INFRA-007
 
@@ -213,10 +213,10 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
-| Tag without `v` prefix | GoReleaser rejects non-semver tags; push fails cleanly |
-| Duplicate tag | Git rejects duplicate tag push; no partial release |
+| Scenario                   | Behavior                                                      |
+| -------------------------- | ------------------------------------------------------------- |
+| Tag without `v` prefix     | GoReleaser rejects non-semver tags; push fails cleanly        |
+| Duplicate tag              | Git rejects duplicate tag push; no partial release            |
 | Changelog generation fails | GoReleaser falls back to commit list; release still publishes |
 
 **Dependencies:** None
@@ -239,10 +239,10 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
-| Go version does not support GOFIPS140 | Build fails at compile time with clear error |
-| FIPS module validation fails | Go runtime panics at startup; documented in README troubleshooting |
+| Scenario                              | Behavior                                                           |
+| ------------------------------------- | ------------------------------------------------------------------ |
+| Go version does not support GOFIPS140 | Build fails at compile time with clear error                       |
+| FIPS module validation fails          | Go runtime panics at startup; documented in README troubleshooting |
 
 **Dependencies:** None
 
@@ -254,16 +254,16 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Build matrix:**
 
-| GOOS | GOARCH | Description |
-|------|--------|-------------|
-| linux | amd64 | 64-bit x86 (Intel/AMD) |
-| linux | arm64 | 64-bit ARM (AArch64) |
-| linux | arm | 32-bit ARM v7 (Raspberry Pi, embedded) |
-| linux | riscv64 | 64-bit RISC-V |
-| linux | ppc64le | 64-bit PowerPC little-endian (IBM POWER) |
-| linux | s390x | 64-bit IBM System z (mainframes) |
-| darwin | amd64 | macOS Intel |
-| darwin | arm64 | macOS Apple Silicon |
+| GOOS   | GOARCH  | Description                              |
+| ------ | ------- | ---------------------------------------- |
+| linux  | amd64   | 64-bit x86 (Intel/AMD)                   |
+| linux  | arm64   | 64-bit ARM (AArch64)                     |
+| linux  | arm     | 32-bit ARM v7 (Raspberry Pi, embedded)   |
+| linux  | riscv64 | 64-bit RISC-V                            |
+| linux  | ppc64le | 64-bit PowerPC little-endian (IBM POWER) |
+| linux  | s390x   | 64-bit IBM System z (mainframes)         |
+| darwin | amd64   | macOS Intel                              |
+| darwin | arm64   | macOS Apple Silicon                      |
 
 **Acceptance Criteria:**
 
@@ -276,10 +276,10 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
-| GOFIPS140 not supported on an architecture | Build excluded for that target; documented in release notes |
-| Cross-compilation failure for exotic arch | CI fails; investigate Go version support for that GOOS/GOARCH |
+| Scenario                                   | Behavior                                                      |
+| ------------------------------------------ | ------------------------------------------------------------- |
+| GOFIPS140 not supported on an architecture | Build excluded for that target; documented in release notes   |
+| Cross-compilation failure for exotic arch  | CI fails; investigate Go version support for that GOOS/GOARCH |
 
 **Dependencies:** INFRA-010
 
@@ -318,12 +318,12 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
-| GHCR authentication fails | Release workflow fails at login step; GITHUB_TOKEN must have packages:write |
-| buildx not available | Setup step installs buildx; fails early if unavailable |
-| Architecture not supported by base image | `scratch` supports all architectures; no issue |
-| CA certificates missing | TLS connections fail; Dockerfile must copy certs from builder |
+| Scenario                                 | Behavior                                                                    |
+| ---------------------------------------- | --------------------------------------------------------------------------- |
+| GHCR authentication fails                | Release workflow fails at login step; GITHUB_TOKEN must have packages:write |
+| buildx not available                     | Setup step installs buildx; fails early if unavailable                      |
+| Architecture not supported by base image | `scratch` supports all architectures; no issue                              |
+| CA certificates missing                  | TLS connections fail; Dockerfile must copy certs from builder               |
 
 **Dependencies:** INFRA-010, INFRA-011
 
@@ -352,10 +352,10 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
-| GOVERSION env var not set | GoReleaser sets it to empty string; `kahi version` falls back to runtime detection |
-| Removed workflow still triggers | GitHub caches workflow files; merge to main clears stale workflows |
+| Scenario                        | Behavior                                                                           |
+| ------------------------------- | ---------------------------------------------------------------------------------- |
+| GOVERSION env var not set       | GoReleaser sets it to empty string; `kahi version` falls back to runtime detection |
+| Removed workflow still triggers | GitHub caches workflow files; merge to main clears stale workflows                 |
 
 **Dependencies:** INFRA-009, INFRA-010
 
@@ -396,10 +396,10 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
-| Reporter uses email instead of GitHub | Same SLA applies; maintainer creates private advisory manually |
-| Secret scanning false positive | Maintainer dismisses alert with reason; does not disable scanning |
+| Scenario                              | Behavior                                                          |
+| ------------------------------------- | ----------------------------------------------------------------- |
+| Reporter uses email instead of GitHub | Same SLA applies; maintainer creates private advisory manually    |
+| Secret scanning false positive        | Maintainer dismisses alert with reason; does not disable scanning |
 
 **Dependencies:** None
 
@@ -419,8 +419,8 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
+| Scenario                   | Behavior                                                  |
+| -------------------------- | --------------------------------------------------------- |
 | Conduct violation reported | Follow enforcement guidelines in the Contributor Covenant |
 
 **Dependencies:** None
@@ -446,10 +446,10 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
+| Scenario                               | Behavior                             |
+| -------------------------------------- | ------------------------------------ |
 | Contributor skips conventional commits | CI commit-standards job fails the PR |
-| Coverage drops below 85% | CI coverage check fails the PR |
+| Coverage drops below 85%               | CI coverage check fails the PR       |
 
 **Dependencies:** INFRA-015, INFRA-016
 
@@ -470,10 +470,10 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
+| Scenario                                               | Behavior                                                         |
+| ------------------------------------------------------ | ---------------------------------------------------------------- |
 | User needs to file an issue that doesn't fit templates | config.yml provides contact links (security policy, discussions) |
-| Template YAML is invalid | GitHub falls back to freeform; CI should lint templates |
+| Template YAML is invalid                               | GitHub falls back to freeform; CI should lint templates          |
 
 **Dependencies:** None
 
@@ -501,12 +501,12 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Scenario | Behavior |
-| --- | --- |
-| JUnit XML file missing (e.g., test step failed before producing output) | Summary step runs with `if: always()` and reports "no results file found" |
-| Coverage below threshold | Coverage status check posts as `failure` state with the percentage; the existing `task coverage` step also fails the job |
-| `dorny/test-reporter` fails to create check run | Job still succeeds (fail-on-error: false already set); summary tables provide fallback visibility |
-| No Go files changed (golang job skipped) | Summary job reports "skipped" for test results; no coverage status posted |
+| Scenario                                                                | Behavior                                                                                                                 |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| JUnit XML file missing (e.g., test step failed before producing output) | Summary step runs with `if: always()` and reports "no results file found"                                                |
+| Coverage below threshold                                                | Coverage status check posts as `failure` state with the percentage; the existing `task coverage` step also fails the job |
+| `dorny/test-reporter` fails to create check run                         | Job still succeeds (fail-on-error: false already set); summary tables provide fallback visibility                        |
+| No Go files changed (golang job skipped)                                | Summary job reports "skipped" for test results; no coverage status posted                                                |
 
 **Edge Cases:**
 
@@ -561,10 +561,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition                    | Expected Behavior                 | User-Facing Message                            |
+| ---------------------------------- | --------------------------------- | ---------------------------------------------- |
 | Invalid state transition attempted | Transition rejected, error logged | "cannot transition from {current} to {target}" |
-| State query for unknown process | Return error | "no such process: {name}" |
+| State query for unknown process    | Return error                      | "no such process: {name}"                      |
 
 **Edge Cases:**
 
@@ -608,12 +608,12 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Command binary not found | Process goes to FATAL, spawn error recorded | "spawn error: {command}: no such file" |
-| Command not executable | Process goes to FATAL | "spawn error: {command}: permission denied" |
-| Process already running | Reject start, return error | "process already started: {name}" |
-| Directory does not exist | Process goes to FATAL | "spawn error: directory {path} does not exist" |
+| Error Condition          | Expected Behavior                           | User-Facing Message                            |
+| ------------------------ | ------------------------------------------- | ---------------------------------------------- |
+| Command binary not found | Process goes to FATAL, spawn error recorded | "spawn error: {command}: no such file"         |
+| Command not executable   | Process goes to FATAL                       | "spawn error: {command}: permission denied"    |
+| Process already running  | Reject start, return error                  | "process already started: {name}"              |
+| Directory does not exist | Process goes to FATAL                       | "spawn error: directory {path} does not exist" |
 
 **Edge Cases:**
 
@@ -649,11 +649,11 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Process not running | Return error | "process not running: {name}" |
-| Signal send fails (ESRCH) | Log warning, treat as exited | "process {name} already gone" |
-| killasgroup=false with stopasgroup=true | Config validation error | "killasgroup cannot be false when stopasgroup is true" |
+| Error Condition                         | Expected Behavior            | User-Facing Message                                    |
+| --------------------------------------- | ---------------------------- | ------------------------------------------------------ |
+| Process not running                     | Return error                 | "process not running: {name}"                          |
+| Signal send fails (ESRCH)               | Log warning, treat as exited | "process {name} already gone"                          |
+| killasgroup=false with stopasgroup=true | Config validation error      | "killasgroup cannot be false when stopasgroup is true" |
 
 **Edge Cases:**
 
@@ -689,8 +689,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition                     | Expected Behavior       | User-Facing Message                              |
+| ----------------------------------- | ----------------------- | ------------------------------------------------ |
 | Invalid autorestart value in config | Config validation error | "autorestart must be true, false, or unexpected" |
 
 **Edge Cases:**
@@ -723,9 +723,9 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| startretries=0 | Process goes directly to FATAL on first failed start | "entered FATAL state, too many start retries" |
+| Error Condition | Expected Behavior                                    | User-Facing Message                           |
+| --------------- | ---------------------------------------------------- | --------------------------------------------- |
+| startretries=0  | Process goes directly to FATAL on first failed start | "entered FATAL state, too many start retries" |
 
 **Edge Cases:**
 
@@ -756,10 +756,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| waitpid returns unexpected PID | Log warning, ignore | "reaped unknown pid {pid}" |
-| waitpid returns ECHILD | Stop reaping loop | (internal, no user message) |
+| Error Condition                | Expected Behavior   | User-Facing Message         |
+| ------------------------------ | ------------------- | --------------------------- |
+| waitpid returns unexpected PID | Log warning, ignore | "reaped unknown pid {pid}"  |
+| waitpid returns ECHILD         | Stop reaping loop   | (internal, no user message) |
 
 **Edge Cases:**
 
@@ -791,9 +791,9 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| numprocs < 1 | Config validation error | "numprocs must be >= 1" |
+| Error Condition                                  | Expected Behavior       | User-Facing Message              |
+| ------------------------------------------------ | ----------------------- | -------------------------------- |
+| numprocs < 1                                     | Config validation error | "numprocs must be >= 1"          |
 | Duplicate process names after template expansion | Config validation error | "duplicate process name: {name}" |
 
 **Edge Cases:**
@@ -826,8 +826,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition        | Expected Behavior       | User-Facing Message                  |
+| ---------------------- | ----------------------- | ------------------------------------ |
 | Priority outside 0-999 | Config validation error | "priority must be between 0 and 999" |
 
 **Edge Cases:**
@@ -850,14 +850,14 @@ This feature adds two complementary mechanisms:
   **Then** a group named "web" exists containing processes web-0 and web-1
 
 - **Given** a group "web"
-  **When** "kahi ctl start web:*" is issued
+  **When** "kahi ctl start web:\*" is issued
   **Then** all processes in the web group are started
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Reference to nonexistent group | Return error | "no such group: {name}" |
+| Error Condition                | Expected Behavior | User-Facing Message     |
+| ------------------------------ | ----------------- | ----------------------- |
+| Reference to nonexistent group | Return error      | "no such group: {name}" |
 
 **Edge Cases:**
 
@@ -884,9 +884,9 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Group references nonexistent program | Config validation error | "group {name}: unknown program {prog}" |
+| Error Condition                           | Expected Behavior       | User-Facing Message                       |
+| ----------------------------------------- | ----------------------- | ----------------------------------------- |
+| Group references nonexistent program      | Config validation error | "group {name}: unknown program {prog}"    |
 | Program already in another explicit group | Config validation error | "program {prog} already in group {other}" |
 
 **Edge Cases:**
@@ -918,11 +918,11 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Add already-active group | Return error | "group already active: {name}" |
-| Remove group with running processes | Return error | "group {name} has running processes, stop first" |
-| Remove nonexistent group | Return error | "no such group: {name}" |
+| Error Condition                     | Expected Behavior | User-Facing Message                              |
+| ----------------------------------- | ----------------- | ------------------------------------------------ |
+| Add already-active group            | Return error      | "group already active: {name}"                   |
+| Remove group with running processes | Return error      | "group {name} has running processes, stop first" |
+| Remove nonexistent group            | Return error      | "no such group: {name}"                          |
 
 **Edge Cases:**
 
@@ -953,10 +953,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Undefined environment variable | Config error | "undefined environment variable: {name}" |
-| Unknown template variable | Config error | "unknown variable: {name}" |
+| Error Condition                | Expected Behavior | User-Facing Message                      |
+| ------------------------------ | ----------------- | ---------------------------------------- |
+| Undefined environment variable | Config error      | "undefined environment variable: {name}" |
+| Unknown template variable      | Config error      | "unknown variable: {name}"               |
 
 **Edge Cases:**
 
@@ -988,11 +988,11 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Included file has syntax error | Config load fails | "error in {file}: {parse_error}" |
-| Circular include | Config load fails | "circular include detected: {file}" |
-| Include glob matches no files | Warning logged | "include pattern matched no files: {pattern}" |
+| Error Condition                | Expected Behavior | User-Facing Message                           |
+| ------------------------------ | ----------------- | --------------------------------------------- |
+| Included file has syntax error | Config load fails | "error in {file}: {parse_error}"              |
+| Circular include               | Config load fails | "circular include detected: {file}"           |
+| Include glob matches no files  | Warning logged    | "include pattern matched no files: {pattern}" |
 
 **Edge Cases:**
 
@@ -1028,10 +1028,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Reloaded config has syntax error | Reload rejected, existing config retained | "config reload failed: {error}" |
-| Reloaded config has validation error | Reload rejected | "config reload failed: {validation_error}" |
+| Error Condition                      | Expected Behavior                         | User-Facing Message                        |
+| ------------------------------------ | ----------------------------------------- | ------------------------------------------ |
+| Reloaded config has syntax error     | Reload rejected, existing config retained | "config reload failed: {error}"            |
+| Reloaded config has validation error | Reload rejected                           | "config reload failed: {validation_error}" |
 
 **Edge Cases:**
 
@@ -1065,10 +1065,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| No config file found | Exit with error | "no config file found (searched: ./kahi.toml, /etc/kahi/kahi.toml, /etc/kahi.toml)" |
-| Config file not readable | Exit with error | "cannot read config: {path}: {error}" |
+| Error Condition          | Expected Behavior | User-Facing Message                                                                 |
+| ------------------------ | ----------------- | ----------------------------------------------------------------------------------- |
+| No config file found     | Exit with error   | "no config file found (searched: ./kahi.toml, /etc/kahi/kahi.toml, /etc/kahi.toml)" |
+| Config file not readable | Exit with error   | "cannot read config: {path}: {error}"                                               |
 
 **Edge Cases:**
 
@@ -1099,10 +1099,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition            | Expected Behavior   | User-Facing Message                                      |
+| -------------------------- | ------------------- | -------------------------------------------------------- |
 | Output file already exists | Refuse to overwrite | "file already exists: {path} (use --force to overwrite)" |
-| Output path not writable | Exit with error | "cannot write to {path}: {error}" |
+| Output path not writable   | Exit with error     | "cannot write to {path}: {error}"                        |
 
 **Edge Cases:**
 
@@ -1137,10 +1137,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Log file path not writable | Exit with error | "cannot open log file: {path}: {error}" |
-| Invalid log level | Config validation error | "invalid log level: {level}" |
+| Error Condition            | Expected Behavior       | User-Facing Message                     |
+| -------------------------- | ----------------------- | --------------------------------------- |
+| Log file path not writable | Exit with error         | "cannot open log file: {path}: {error}" |
+| Invalid log level          | Config validation error | "invalid log level: {level}"            |
 
 **Edge Cases:**
 
@@ -1171,10 +1171,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Log file path not writable | Process goes to FATAL | "cannot open log file for {name}: {error}" |
-| Pipe read error | Log warning, close pipe | "pipe read error for {name}: {error}" |
+| Error Condition            | Expected Behavior       | User-Facing Message                        |
+| -------------------------- | ----------------------- | ------------------------------------------ |
+| Log file path not writable | Process goes to FATAL   | "cannot open log file for {name}: {error}" |
+| Pipe read error            | Log warning, close pipe | "pipe read error for {name}: {error}"      |
 
 **Edge Cases:**
 
@@ -1206,8 +1206,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition       | Expected Behavior                           | User-Facing Message                       |
+| --------------------- | ------------------------------------------- | ----------------------------------------- |
 | Rotation rename fails | Log error, continue writing to current file | "log rotation failed for {name}: {error}" |
 
 **Edge Cases:**
@@ -1238,8 +1238,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition         | Expected Behavior                  | User-Facing Message                 |
+| ----------------------- | ---------------------------------- | ----------------------------------- |
 | Syslog connection fails | Log error, continue without syslog | "syslog connection failed: {error}" |
 
 **Edge Cases:**
@@ -1268,8 +1268,8 @@ This feature adds two complementary mechanisms:
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None            | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -1296,8 +1296,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition         | Expected Behavior                     | User-Facing Message                       |
+| ----------------------- | ------------------------------------- | ----------------------------------------- |
 | File cannot be reopened | Log error, continue without that file | "cannot reopen log file: {path}: {error}" |
 
 **Edge Cases:**
@@ -1325,8 +1325,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition          | Expected Behavior     | User-Facing Message                        |
+| ------------------------ | --------------------- | ------------------------------------------ |
 | Cannot delete stale file | Log warning, continue | "cannot remove stale log: {path}: {error}" |
 
 **Edge Cases:**
@@ -1358,10 +1358,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Cannot create socket (permission denied) | Exit with error | "cannot create socket: {path}: {error}" |
-| Socket path too long (>108 chars) | Exit with error | "socket path too long: {path}" |
+| Error Condition                          | Expected Behavior | User-Facing Message                     |
+| ---------------------------------------- | ----------------- | --------------------------------------- |
+| Cannot create socket (permission denied) | Exit with error   | "cannot create socket: {path}: {error}" |
+| Socket path too long (>108 chars)        | Exit with error   | "socket path too long: {path}"          |
 
 **Edge Cases:**
 
@@ -1393,9 +1393,9 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Port already in use | Exit with error | "cannot bind {address}: {error}" |
+| Error Condition        | Expected Behavior       | User-Facing Message                 |
+| ---------------------- | ----------------------- | ----------------------------------- |
+| Port already in use    | Exit with error         | "cannot bind {address}: {error}"    |
 | Listen address invalid | Config validation error | "invalid listen address: {address}" |
 
 **Edge Cases:**
@@ -1452,11 +1452,11 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Unknown process name | 404 with JSON error | `{"error": "no such process: web"}` |
-| Invalid signal name | 400 with JSON error | `{"error": "invalid signal: FOO"}` |
-| Method not allowed | 405 with JSON error | `{"error": "method not allowed"}` |
+| Error Condition          | Expected Behavior   | User-Facing Message                 |
+| ------------------------ | ------------------- | ----------------------------------- |
+| Unknown process name     | 404 with JSON error | `{"error": "no such process: web"}` |
+| Invalid signal name      | 400 with JSON error | `{"error": "invalid signal: FOO"}`  |
+| Method not allowed       | 405 with JSON error | `{"error": "method not allowed"}`   |
 | Server in shutdown state | 503 with JSON error | `{"error": "server shutting down"}` |
 
 **Edge Cases:**
@@ -1489,10 +1489,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Process not found | 404 before stream starts | `{"error": "no such process: web"}` |
-| Process not logging to file | 404 | `{"error": "no log file configured for web"}` |
+| Error Condition             | Expected Behavior        | User-Facing Message                           |
+| --------------------------- | ------------------------ | --------------------------------------------- |
+| Process not found           | 404 before stream starts | `{"error": "no such process: web"}`           |
+| Process not logging to file | 404                      | `{"error": "no log file configured for web"}` |
 
 **Edge Cases:**
 
@@ -1528,8 +1528,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition              | Expected Behavior       | User-Facing Message                                                     |
+| ---------------------------- | ----------------------- | ----------------------------------------------------------------------- |
 | Plaintext password in config | Config validation error | "password must be bcrypt-hashed (use 'kahi hash-password' to generate)" |
 
 **Edge Cases:**
@@ -1559,8 +1559,8 @@ This feature adds two complementary mechanisms:
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None specific | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None specific   | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -1595,9 +1595,9 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Unknown process in ?process= filter | 400 | `{"error": "unknown process: foo"}` |
+| Error Condition                     | Expected Behavior | User-Facing Message                 |
+| ----------------------------------- | ----------------- | ----------------------------------- |
+| Unknown process in ?process= filter | 400               | `{"error": "unknown process: foo"}` |
 
 **Edge Cases:**
 
@@ -1639,11 +1639,11 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Daemon not running | Exit code 1 | "cannot connect to kahi daemon (is it running?)" |
-| Process name not found | Exit code 1 | "no such process: {name}" |
-| Invalid signal | Exit code 1 | "invalid signal: {signal}" |
+| Error Condition        | Expected Behavior | User-Facing Message                              |
+| ---------------------- | ----------------- | ------------------------------------------------ |
+| Daemon not running     | Exit code 1       | "cannot connect to kahi daemon (is it running?)" |
+| Process name not found | Exit code 1       | "no such process: {name}"                        |
+| Invalid signal         | Exit code 1       | "invalid signal: {signal}"                       |
 
 **Edge Cases:**
 
@@ -1675,8 +1675,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition         | Expected Behavior | User-Facing Message        |
+| ----------------------- | ----------------- | -------------------------- |
 | No processes configured | Print empty table | (empty table with headers) |
 
 **Edge Cases:**
@@ -1709,10 +1709,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| No log file configured | Error message | "no log file configured for {name}" |
-| Process does not exist | Error message | "no such process: {name}" |
+| Error Condition        | Expected Behavior | User-Facing Message                 |
+| ---------------------- | ----------------- | ----------------------------------- |
+| No log file configured | Error message     | "no log file configured for {name}" |
+| Process does not exist | Error message     | "no such process: {name}"           |
 
 **Edge Cases:**
 
@@ -1741,10 +1741,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Process not running | Error | "process not running: {name}" |
-| Stdin not configured for process | Error | "process {name} does not accept stdin" |
+| Error Condition                  | Expected Behavior | User-Facing Message                    |
+| -------------------------------- | ----------------- | -------------------------------------- |
+| Process not running              | Error             | "process not running: {name}"          |
+| Stdin not configured for process | Error             | "process {name} does not accept stdin" |
 
 **Edge Cases:**
 
@@ -1784,9 +1784,9 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Config file has errors | Error message | "config error: {details}" |
+| Error Condition        | Expected Behavior | User-Facing Message       |
+| ---------------------- | ----------------- | ------------------------- |
+| Config file has errors | Error message     | "config error: {details}" |
 
 **Edge Cases:**
 
@@ -1824,9 +1824,9 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Daemon not running | Exit code 1 | "cannot connect to kahi daemon" |
+| Error Condition    | Expected Behavior | User-Facing Message             |
+| ------------------ | ----------------- | ------------------------------- |
+| Daemon not running | Exit code 1       | "cannot connect to kahi daemon" |
 
 **Edge Cases:**
 
@@ -1856,8 +1856,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition                      | Expected Behavior                     | User-Facing Message          |
+| ------------------------------------ | ------------------------------------- | ---------------------------- |
 | Daemon not running during completion | Fallback to static command completion | (no process names suggested) |
 
 **Edge Cases:**
@@ -1890,8 +1890,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition                          | Expected Behavior  | User-Facing Message    |
+| ---------------------------------------- | ------------------ | ---------------------- |
 | Process doesn't stop within stopwaitsecs | SIGKILL escalation | "force-killing {name}" |
 
 **Edge Cases:**
@@ -1920,8 +1920,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition    | Expected Behavior       | User-Facing Message             |
+| ------------------ | ----------------------- | ------------------------------- |
 | Config parse error | Log error, keep running | "SIGHUP reload failed: {error}" |
 
 **Edge Cases:**
@@ -1951,8 +1951,8 @@ This feature adds two complementary mechanisms:
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None specific | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None specific   | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -1975,8 +1975,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition   | Expected Behavior   | User-Facing Message             |
+| ----------------- | ------------------- | ------------------------------- |
 | File reopen fails | Log error, continue | "cannot reopen {path}: {error}" |
 
 **Edge Cases:**
@@ -2003,8 +2003,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition            | Expected Behavior               | User-Facing Message                     |
+| -------------------------- | ------------------------------- | --------------------------------------- |
 | Signal channel buffer full | Signal is dropped (Go behavior) | (none -- buffer should be large enough) |
 
 **Edge Cases:**
@@ -2032,9 +2032,9 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| setpgid fails | Log warning, process still starts | "setpgid failed for {name}: {error}" |
+| Error Condition | Expected Behavior                 | User-Facing Message                  |
+| --------------- | --------------------------------- | ------------------------------------ |
+| setpgid fails   | Log warning, process still starts | "setpgid failed for {name}: {error}" |
 
 **Edge Cases:**
 
@@ -2060,9 +2060,9 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Path not writable by current user | Exit with error | "cannot write to {path}: permission denied" |
+| Error Condition                   | Expected Behavior | User-Facing Message                         |
+| --------------------------------- | ----------------- | ------------------------------------------- |
+| Path not writable by current user | Exit with error   | "cannot write to {path}: permission denied" |
 
 **Edge Cases:**
 
@@ -2089,10 +2089,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Specified user does not exist | Exit with error | "user not found: {name}" |
-| setuid/setgid fails | Exit with error | "privilege drop failed: {error}" |
+| Error Condition               | Expected Behavior | User-Facing Message              |
+| ----------------------------- | ----------------- | -------------------------------- |
+| Specified user does not exist | Exit with error   | "user not found: {name}"         |
+| setuid/setgid fails           | Exit with error   | "privilege drop failed: {error}" |
 
 **Edge Cases:**
 
@@ -2119,9 +2119,9 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Specified user does not exist | Process goes to FATAL | "user not found: {name}" |
+| Error Condition                           | Expected Behavior               | User-Facing Message                                                         |
+| ----------------------------------------- | ------------------------------- | --------------------------------------------------------------------------- |
+| Specified user does not exist             | Process goes to FATAL           | "user not found: {name}"                                                    |
 | Running as non-root with per-process user | Warning logged, setting ignored | "user switching unavailable (not running as root), running as current user" |
 
 **Edge Cases:**
@@ -2148,8 +2148,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition     | Expected Behavior       | User-Facing Message      |
+| ------------------- | ----------------------- | ------------------------ |
 | Invalid umask value | Config validation error | "invalid umask: {value}" |
 
 **Edge Cases:**
@@ -2178,8 +2178,8 @@ This feature adds two complementary mechanisms:
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None            | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -2209,8 +2209,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition            | Expected Behavior                                                  | User-Facing Message               |
+| -------------------------- | ------------------------------------------------------------------ | --------------------------------- |
 | Subscriber callback panics | Panic recovered, logged as error, other subscribers still notified | "event subscriber panic: {error}" |
 
 **Edge Cases:**
@@ -2230,13 +2230,13 @@ This feature adds two complementary mechanisms:
 
 - **Given** the event system is enabled
   **When** a process transitions to any state
-  **Then** a PROCESS_STATE_{STATE} event is emitted with process name, group, from_state, pid (if applicable), and expected flag (for EXITED)
+  **Then** a PROCESS*STATE*{STATE} event is emitted with process name, group, from_state, pid (if applicable), and expected flag (for EXITED)
 
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None            | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -2264,8 +2264,8 @@ This feature adds two complementary mechanisms:
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None            | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -2293,8 +2293,8 @@ This feature adds two complementary mechanisms:
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None            | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -2321,8 +2321,8 @@ This feature adds two complementary mechanisms:
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None            | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -2353,8 +2353,8 @@ This feature adds two complementary mechanisms:
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None            | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -2390,11 +2390,11 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Listener crashes | Restart per autorestart policy | "event listener {name} exited unexpectedly" |
-| Buffer overflow | Oldest queued (not in-flight) event dropped, logged at WARN level | "event buffer overflow for {name}, dropping oldest event" |
-| Invalid result format | Log error, re-queue event | "invalid result from listener {name}: {data}" |
+| Error Condition       | Expected Behavior                                                 | User-Facing Message                                       |
+| --------------------- | ----------------------------------------------------------------- | --------------------------------------------------------- |
+| Listener crashes      | Restart per autorestart policy                                    | "event listener {name} exited unexpectedly"               |
+| Buffer overflow       | Oldest queued (not in-flight) event dropped, logged at WARN level | "event buffer overflow for {name}, dropping oldest event" |
+| Invalid result format | Log error, re-queue event                                         | "invalid result from listener {name}: {data}"             |
 
 **Edge Cases:**
 
@@ -2429,12 +2429,12 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition                  | Expected Behavior                                                                                                           | User-Facing Message                                    |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
 | Webhook POST fails (timeout/5xx) | Retry up to max_retries (default: 3) with exponential backoff: `delay = min(1s * 2^attempt, 60s)` + random jitter of +/-10% | "webhook delivery failed for {url}: {error}, retrying" |
-| All retries exhausted | Log error, move on | "webhook delivery failed permanently for {url}" |
-| Webhook URL unreachable | Circuit breaker opens after 5 consecutive failures | "webhook circuit breaker open for {url}" |
-| Circuit breaker open | Attempt one probe request every 5 minutes; if probe succeeds, reset failure counter and close breaker | "webhook circuit breaker closed for {url}" |
+| All retries exhausted            | Log error, move on                                                                                                          | "webhook delivery failed permanently for {url}"        |
+| Webhook URL unreachable          | Circuit breaker opens after 5 consecutive failures                                                                          | "webhook circuit breaker open for {url}"               |
+| Circuit breaker open             | Attempt one probe request every 5 minutes; if probe succeeds, reset failure counter and close breaker                       | "webhook circuit breaker closed for {url}"             |
 
 **Edge Cases:**
 
@@ -2469,8 +2469,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition       | Expected Behavior       | User-Facing Message                |
+| --------------------- | ----------------------- | ---------------------------------- |
 | Unknown template name | Config validation error | "unknown webhook template: {name}" |
 
 **Edge Cases:**
@@ -2498,9 +2498,9 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Undefined environment variable | Config error | "undefined environment variable in webhook config: {name}" |
+| Error Condition                | Expected Behavior | User-Facing Message                                        |
+| ------------------------------ | ----------------- | ---------------------------------------------------------- |
+| Undefined environment variable | Config error      | "undefined environment variable in webhook config: {name}" |
 
 **Edge Cases:**
 
@@ -2527,8 +2527,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition    | Expected Behavior       | User-Facing Message          |
+| ------------------ | ----------------------- | ---------------------------- |
 | Invalid URL format | Config validation error | "invalid webhook URL: {url}" |
 
 **Edge Cases:**
@@ -2562,15 +2562,15 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition  | Expected Behavior    | User-Facing Message                |
+| ---------------- | -------------------- | ---------------------------------- |
 | Metrics disabled | /metrics returns 404 | `{"error": "metrics not enabled"}` |
 
 **Edge Cases:**
 
 - Go runtime metrics (goroutines, memory, GC) included via default collectors
 - Metrics endpoint does not require authentication
-- Metric names follow Prometheus naming conventions (snake_case, _total for counters)
+- Metric names follow Prometheus naming conventions (snake_case, \_total for counters)
 
 **Dependencies:** FUNC-025
 
@@ -2597,8 +2597,8 @@ This feature adds two complementary mechanisms:
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None            | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -2627,8 +2627,8 @@ This feature adds two complementary mechanisms:
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None            | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -2655,8 +2655,8 @@ This feature adds two complementary mechanisms:
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None            | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -2687,10 +2687,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| PID file path not writable | Exit with error | "cannot write PID file: {path}: {error}" |
-| Another daemon already running (PID file exists with live process) | Exit with error | "another instance running (pid {pid})" |
+| Error Condition                                                    | Expected Behavior | User-Facing Message                      |
+| ------------------------------------------------------------------ | ----------------- | ---------------------------------------- |
+| PID file path not writable                                         | Exit with error   | "cannot write PID file: {path}: {error}" |
+| Another daemon already running (PID file exists with live process) | Exit with error   | "another instance running (pid {pid})"   |
 
 **Edge Cases:**
 
@@ -2718,8 +2718,8 @@ This feature adds two complementary mechanisms:
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None            | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -2750,8 +2750,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition                            | Expected Behavior                    | User-Facing Message               |
+| ------------------------------------------ | ------------------------------------ | --------------------------------- |
 | Process stuck (doesn't respond to SIGKILL) | Log error, exit anyway after timeout | "process {name} stuck, giving up" |
 
 **Edge Cases:**
@@ -2782,10 +2782,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Directory does not exist | Config validation error / FATAL for process | "directory does not exist: {path}" |
-| Directory not accessible | Config validation error / FATAL | "cannot access directory: {path}: {error}" |
+| Error Condition          | Expected Behavior                           | User-Facing Message                        |
+| ------------------------ | ------------------------------------------- | ------------------------------------------ |
+| Directory does not exist | Config validation error / FATAL for process | "directory does not exist: {path}"         |
+| Directory not accessible | Config validation error / FATAL             | "cannot access directory: {path}: {error}" |
 
 **Edge Cases:**
 
@@ -2816,9 +2816,9 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Cannot raise rlimit | Exit with error | "cannot set NOFILE to {n}: {error} (current soft={s}, hard={h})" |
+| Error Condition     | Expected Behavior | User-Facing Message                                              |
+| ------------------- | ----------------- | ---------------------------------------------------------------- |
+| Cannot raise rlimit | Exit with error   | "cannot set NOFILE to {n}: {error} (current soft={s}, hard={h})" |
 
 **Edge Cases:**
 
@@ -2849,11 +2849,11 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Input file not found | Exit with error | "file not found: {path}" |
-| Input file not valid INI | Exit with error | "parse error: {details}" |
-| Output file exists | Refuse unless --force | "output file exists: {path} (use --force)" |
+| Error Condition          | Expected Behavior     | User-Facing Message                        |
+| ------------------------ | --------------------- | ------------------------------------------ |
+| Input file not found     | Exit with error       | "file not found: {path}"                   |
+| Input file not valid INI | Exit with error       | "parse error: {details}"                   |
+| Output file exists       | Refuse unless --force | "output file exists: {path} (use --force)" |
 
 **Edge Cases:**
 
@@ -2886,10 +2886,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition      | Expected Behavior      | User-Facing Message                  |
+| -------------------- | ---------------------- | ------------------------------------ |
 | Malformed INI syntax | Error with line number | "parse error at line {n}: {details}" |
-| Unknown section type | Warning | "unknown section type: {section}" |
+| Unknown section type | Warning                | "unknown section type: {section}"    |
 
 **Edge Cases:**
 
@@ -2925,8 +2925,8 @@ This feature adds two complementary mechanisms:
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None            | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -2950,8 +2950,8 @@ This feature adds two complementary mechanisms:
 **Error Handling:**
 
 | Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| None | N/A | N/A |
+| --------------- | ----------------- | ------------------- |
+| None            | N/A               | N/A                 |
 
 **Edge Cases:**
 
@@ -2977,8 +2977,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition                   | Expected Behavior    | User-Facing Message                                 |
+| --------------------------------- | -------------------- | --------------------------------------------------- |
 | Generated config fails validation | Warning with details | "generated config has validation errors: {details}" |
 
 **Edge Cases:**
@@ -3009,9 +3009,9 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Missing socket config | Config validation error | "fcgi_program {name}: socket is required" |
+| Error Condition       | Expected Behavior       | User-Facing Message                            |
+| --------------------- | ----------------------- | ---------------------------------------------- |
+| Missing socket config | Config validation error | "fcgi_program {name}: socket is required"      |
 | Invalid socket format | Config validation error | "fcgi_program {name}: invalid socket: {value}" |
 
 **Edge Cases:**
@@ -3043,10 +3043,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition                    | Expected Behavior     | User-Facing Message                      |
+| ---------------------------------- | --------------------- | ---------------------------------------- |
 | Socket bind fails (address in use) | Process goes to FATAL | "cannot bind socket: {address}: {error}" |
-| Socket permission error | Process goes to FATAL | "cannot set socket permissions: {error}" |
+| Socket permission error            | Process goes to FATAL | "cannot set socket permissions: {error}" |
 
 **Edge Cases:**
 
@@ -3082,10 +3082,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Cannot connect to daemon | Exit code 1 | "cannot connect to kahi daemon" |
-| Processes not ready | Exit code 1 | "NOT READY: web (STARTING), api (BACKOFF)" |
+| Error Condition          | Expected Behavior | User-Facing Message                        |
+| ------------------------ | ----------------- | ------------------------------------------ |
+| Cannot connect to daemon | Exit code 1       | "cannot connect to kahi daemon"            |
+| Processes not ready      | Exit code 1       | "NOT READY: web (STARTING), api (BACKOFF)" |
 
 **Edge Cases:**
 
@@ -3112,11 +3112,11 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Process not running | Return error | "process not running: {name}" |
-| Process has no stdin | Return error | "process {name} does not accept stdin" |
-| Stdin pipe broken | Return error | "stdin pipe broken for {name}" |
+| Error Condition      | Expected Behavior | User-Facing Message                    |
+| -------------------- | ----------------- | -------------------------------------- |
+| Process not running  | Return error      | "process not running: {name}"          |
+| Process has no stdin | Return error      | "process {name} does not accept stdin" |
+| Stdin pipe broken    | Return error      | "stdin pipe broken for {name}"         |
 
 **Edge Cases:**
 
@@ -3143,8 +3143,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition        | Expected Behavior          | User-Facing Message                  |
+| ---------------------- | -------------------------- | ------------------------------------ |
 | API call fails from UI | Display error notification | "Failed to {action} {name}: {error}" |
 
 **Edge Cases:**
@@ -3173,10 +3173,10 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| No log file configured | Display message | "No log file configured for this process" |
-| SSE connection drops | Auto-reconnect | (reconnects silently) |
+| Error Condition        | Expected Behavior | User-Facing Message                       |
+| ---------------------- | ----------------- | ----------------------------------------- |
+| No log file configured | Display message   | "No log file configured for this process" |
+| SSE connection drops   | Auto-reconnect    | (reconnects silently)                     |
 
 **Edge Cases:**
 
@@ -3204,8 +3204,8 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
+| Error Condition             | Expected Behavior                         | User-Facing Message                           |
+| --------------------------- | ----------------------------------------- | --------------------------------------------- |
 | Custom static_dir not found | Fall back to embedded assets with warning | "static_dir not found, using embedded assets" |
 
 **Edge Cases:**
@@ -3234,9 +3234,9 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition | Expected Behavior | User-Facing Message |
-| --- | --- | --- |
-| Empty password | Error | "password cannot be empty" |
+| Error Condition | Expected Behavior | User-Facing Message        |
+| --------------- | ----------------- | -------------------------- |
+| Empty password  | Error             | "password cannot be empty" |
 
 **Edge Cases:**
 
@@ -3329,9 +3329,9 @@ None specific.
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
-| Logo file missing | README displays broken image alt text "Kahi" |
+| Scenario                      | Behavior                                                 |
+| ----------------------------- | -------------------------------------------------------- |
+| Logo file missing             | README displays broken image alt text "Kahi"             |
 | SVG contains embedded scripts | Rejected by GitHub CSP; use clean SVG without JavaScript |
 
 **Dependencies:** None
@@ -3356,10 +3356,10 @@ None specific.
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
+| Scenario                    | Behavior                                            |
+| --------------------------- | --------------------------------------------------- |
 | Canonical repo URL is wrong | Visitors land on 404; verify link before publishing |
-| Old repo still has code | Confuses visitors; must be cleaned to README-only |
+| Old repo still has code     | Confuses visitors; must be cleaned to README-only   |
 
 **Dependencies:** INFRA-008
 
@@ -3404,10 +3404,10 @@ GET /api/v1/processes/{name}/log/{stream}?length=N
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
-| `length` exceeds 64KB | Silently clamped to 64KB; no error returned |
-| `length` is negative or non-numeric | Ignored; default 1600 used (existing behavior) |
+| Scenario                              | Behavior                                              |
+| ------------------------------------- | ----------------------------------------------------- |
+| `length` exceeds 64KB                 | Silently clamped to 64KB; no error returned           |
+| `length` is negative or non-numeric   | Ignored; default 1600 used (existing behavior)        |
 | Ring buffer is smaller than requested | Returns available data (existing clamp at line 47-49) |
 
 **Edge Cases:**
@@ -3477,12 +3477,12 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Scenario | Behavior |
-| --- | --- |
-| `NewRingBuffer(size)` with `size > 1MB` | Silently clamped to 1MB |
-| `NewRingBuffer(size)` with `size <= 0` | Clamped to 1 (minimum viable buffer) |
-| `Read(n)` with `n <= 0` or `n > 64KB` | Returns nil (early-return guard) |
-| `handleReadLog` with `length > 64KB` | HTTP 400 BAD_REQUEST |
+| Scenario                                | Behavior                             |
+| --------------------------------------- | ------------------------------------ |
+| `NewRingBuffer(size)` with `size > 1MB` | Silently clamped to 1MB              |
+| `NewRingBuffer(size)` with `size <= 0`  | Clamped to 1 (minimum viable buffer) |
+| `Read(n)` with `n <= 0` or `n > 64KB`   | Returns nil (early-return guard)     |
+| `handleReadLog` with `length > 64KB`    | HTTP 400 BAD_REQUEST                 |
 
 **Edge Cases:**
 
@@ -3572,19 +3572,19 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 - `TestDaemon_Daemonize` -- Go runtime cannot safely fork after goroutines start; skipped with `t.Skip`
 - `TestAuth_TCPWithCreds` -- requires TCP port discovery not yet implemented; skipped with `t.Skip`
 
-| File | Coverage area | Tests |
-| --- | --- | --- |
-| `e2e/helpers_test.go` | TestMain (build binary), shared startDaemon/waitForState/getProcessInfo helpers | -- |
-| `e2e/daemon_lifecycle_test.go` | Startup, health, version, PID, readiness, shutdown, daemonize flag | 8 |
-| `e2e/process_ctl_test.go` | Start/stop/restart, status, signal, error paths (bad name, already running) | 15 |
-| `e2e/process_state_test.go` | State transitions: autorestart, backoff->fatal, expected/unexpected exit codes | 10 |
-| `e2e/group_ctl_test.go` | Group start/stop/restart, group:* syntax, priority ordering | 6 |
-| `e2e/config_reload_test.go` | SIGHUP reload, add/remove/change programs, reread preview | 6 |
-| `e2e/logging_test.go` | Tail stdout/stderr, tail -f (SSE), log rotation, ANSI stripping | 6 |
-| `e2e/stdin_attach_test.go` | WriteStdin, attach (if feasible in test) | 3 |
-| `e2e/env_test.go` | env passthrough, clean_environment, program-overrides-global, variable expansion | 5 |
-| `e2e/auth_test.go` | TCP mode with basic auth, rejected without creds | 3 |
-| `e2e/regression_test.go` | Ported supervisord regressions: Unicode tail, literal %, numprocs, redirect_stderr | 8 |
+| File                           | Coverage area                                                                      | Tests |
+| ------------------------------ | ---------------------------------------------------------------------------------- | ----- |
+| `e2e/helpers_test.go`          | TestMain (build binary), shared startDaemon/waitForState/getProcessInfo helpers    | --    |
+| `e2e/daemon_lifecycle_test.go` | Startup, health, version, PID, readiness, shutdown, daemonize flag                 | 8     |
+| `e2e/process_ctl_test.go`      | Start/stop/restart, status, signal, error paths (bad name, already running)        | 15    |
+| `e2e/process_state_test.go`    | State transitions: autorestart, backoff->fatal, expected/unexpected exit codes     | 10    |
+| `e2e/group_ctl_test.go`        | Group start/stop/restart, group:\* syntax, priority ordering                       | 6     |
+| `e2e/config_reload_test.go`    | SIGHUP reload, add/remove/change programs, reread preview                          | 6     |
+| `e2e/logging_test.go`          | Tail stdout/stderr, tail -f (SSE), log rotation, ANSI stripping                    | 6     |
+| `e2e/stdin_attach_test.go`     | WriteStdin, attach (if feasible in test)                                           | 3     |
+| `e2e/env_test.go`              | env passthrough, clean_environment, program-overrides-global, variable expansion   | 5     |
+| `e2e/auth_test.go`             | TCP mode with basic auth, rejected without creds                                   | 3     |
+| `e2e/regression_test.go`       | Ported supervisord regressions: Unicode tail, literal %, numprocs, redirect_stderr | 8     |
 
 #### Shared Helpers (`e2e/helpers_test.go`)
 
@@ -3595,6 +3595,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 #### File-by-File Test Inventory
 
 **`e2e/daemon_lifecycle_test.go`** (8 tests):
+
 - `TestDaemon_Health` -- Verify health endpoint returns ok
 - `TestDaemon_Version` -- Verify version map contains expected keys
 - `TestDaemon_PID` -- Daemon PID is valid (> 1)
@@ -3605,6 +3606,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 - `TestDaemon_PIDFile` -- PID file created and contains correct PID
 
 **`e2e/process_ctl_test.go`** (15 tests):
+
 - `TestProcess_Start` -- Start a stopped process, verify RUNNING
 - `TestProcess_Stop` -- Stop a running process, verify STOPPED
 - `TestProcess_Restart` -- Restart produces new PID
@@ -3622,6 +3624,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 - `TestProcess_StartSecs` -- Process must survive startsecs to be RUNNING
 
 **`e2e/process_state_test.go`** (10 tests):
+
 - `TestState_AutorestartTrue` -- Always restarts after exit
 - `TestState_AutorestartFalse` -- Never restarts
 - `TestState_AutorestartUnexpected` -- Restarts only on unexpected exit codes
@@ -3634,14 +3637,16 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 - `TestState_Priority` -- Higher priority processes start first
 
 **`e2e/group_ctl_test.go`** (6 tests):
-- `TestGroup_StartAll` -- Start group:* starts all members
-- `TestGroup_StopAll` -- Stop group:* stops all members
-- `TestGroup_RestartAll` -- Restart group:* restarts all members
+
+- `TestGroup_StartAll` -- Start group:\* starts all members
+- `TestGroup_StopAll` -- Stop group:\* stops all members
+- `TestGroup_RestartAll` -- Restart group:\* restarts all members
 - `TestGroup_StartSingle` -- Start group:name starts one member
 - `TestGroup_PriorityOrder` -- Members start in priority order
 - `TestGroup_Heterogeneous` -- Group with mixed program configs
 
 **`e2e/config_reload_test.go`** (6 tests):
+
 - `TestReload_AddProgram` -- Add new program section, reload, process appears
 - `TestReload_RemoveProgram` -- Remove program section, reload, process stopped and removed
 - `TestReload_ChangeProgram` -- Change command, reload, process restarted with new command
@@ -3650,6 +3655,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 - `TestReload_InvalidConfig` -- Reload with bad config returns error, keeps running config
 
 **`e2e/logging_test.go`** (6 tests):
+
 - `TestLog_TailStdout` -- Tail returns recent stdout lines
 - `TestLog_TailStderr` -- Tail returns recent stderr lines
 - `TestLog_TailBytes` -- Tail with byte limit
@@ -3658,11 +3664,13 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 - `TestLog_ANSIStrip` -- ANSI escape codes stripped from captured output
 
 **`e2e/stdin_attach_test.go`** (3 tests):
+
 - `TestStdin_Write` -- Write to process stdin, verify output
 - `TestStdin_WriteStopped` -- Write to stopped process returns error
 - `TestStdin_Attach` -- Attach bidirectional pipe (if feasible)
 
 **`e2e/env_test.go`** (5 tests):
+
 - `TestEnv_Passthrough` -- Parent env vars visible in child
 - `TestEnv_CleanEnvironment` -- Only configured vars visible
 - `TestEnv_ProgramOverridesGlobal` -- Program env overrides [supervisord] env
@@ -3670,11 +3678,13 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 - `TestEnv_HereExpansion` -- %(here)s expands to config file directory
 
 **`e2e/auth_test.go`** (3 tests):
+
 - `TestAuth_TCPWithCreds` -- Connect with valid credentials succeeds
 - `TestAuth_TCPNoCreds` -- Connect without credentials returns 401
 - `TestAuth_TCPBadCreds` -- Connect with wrong credentials returns 401
 
 **`e2e/regression_test.go`** (8 tests, ported from supervisord issues):
+
 - `TestRegression_UnicodeTail` -- Tail output with Unicode characters
 - `TestRegression_InvalidUTF8` -- Process outputs invalid UTF-8 bytes
 - `TestRegression_LiteralPercent` -- Command containing literal % character
@@ -3686,21 +3696,21 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 #### Supervisord E2E Coverage Mapping
 
-| supervisord E2E test | Kahi disposition |
-| --- | --- |
-| test_stdout_capturemode | Ported -> TestLog_TailStdout |
-| test_stderr_capturemode | Ported -> TestLog_TailStderr |
-| test_tail_follow | Ported -> TestLog_TailFollow |
-| test_unicode_stdout | Ported -> TestRegression_UnicodeTail |
-| test_start_stop | Ported -> TestProcess_Start, TestProcess_Stop |
-| test_restart | Ported -> TestProcess_Restart |
-| test_signal | Ported -> TestProcess_Signal |
-| test_autorestart | Ported -> TestState_AutorestartTrue |
-| test_environment | Ported -> TestEnv_Passthrough |
-| test_update (add/remove) | Ported -> TestReload_AddProgram, TestReload_RemoveProgram |
-| test_shutdown | Ported -> TestDaemon_Shutdown |
-| test_eventlistener_* (6 tests) | Deferred -- event listener pool not yet E2E-testable |
-| test_xmlrpc_* (5 tests) | Skipped -- Python XML-RPC specific, not applicable to REST API |
+| supervisord E2E test            | Kahi disposition                                               |
+| ------------------------------- | -------------------------------------------------------------- |
+| test_stdout_capturemode         | Ported -> TestLog_TailStdout                                   |
+| test_stderr_capturemode         | Ported -> TestLog_TailStderr                                   |
+| test_tail_follow                | Ported -> TestLog_TailFollow                                   |
+| test_unicode_stdout             | Ported -> TestRegression_UnicodeTail                           |
+| test_start_stop                 | Ported -> TestProcess_Start, TestProcess_Stop                  |
+| test_restart                    | Ported -> TestProcess_Restart                                  |
+| test_signal                     | Ported -> TestProcess_Signal                                   |
+| test_autorestart                | Ported -> TestState_AutorestartTrue                            |
+| test_environment                | Ported -> TestEnv_Passthrough                                  |
+| test_update (add/remove)        | Ported -> TestReload_AddProgram, TestReload_RemoveProgram      |
+| test_shutdown                   | Ported -> TestDaemon_Shutdown                                  |
+| test*eventlistener*\* (6 tests) | Deferred -- event listener pool not yet E2E-testable           |
+| test*xmlrpc*\* (5 tests)        | Skipped -- Python XML-RPC specific, not applicable to REST API |
 
 ---
 
@@ -3724,10 +3734,10 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Scenario | Behavior |
-|---|---|
-| `gotestsum` not installed | `task setup` installs it; CI installs it in setup step |
-| JUnit XML write fails | CI step logs warning but does not fail the build |
+| Scenario                   | Behavior                                                             |
+| -------------------------- | -------------------------------------------------------------------- |
+| `gotestsum` not installed  | `task setup` installs it; CI installs it in setup step               |
+| JUnit XML write fails      | CI step logs warning but does not fail the build                     |
 | Test reporter action fails | Non-blocking; test pass/fail still determined by gotestsum exit code |
 
 **Dependencies:** TEST-003
@@ -3761,5 +3771,5 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 - Linux: amd64, arm64 (kernel 4.18+)
 - macOS: amd64, arm64 (12.0+)
-- Go: 1.26.0+
+- Go: 1.26.1+
 - Static binary, no shared library dependencies
