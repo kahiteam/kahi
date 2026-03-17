@@ -50,6 +50,12 @@ Once established, these principles do not change without explicit human approval
 - No Co-Authored-By trailers
 - Subject line maximum: 72 characters
 
+### Pre-PR Verification
+
+- Before opening a pull request, run the full verification suite locally: `task build`, `task test`, `task lint`, `task vet`
+- All checks must pass before the PR is created -- do not defer verification to CI
+- PR test plans must reflect tests that were actually executed, not aspirational checklists
+
 ### Branching Workflow
 
 - All changes reach `main` via pull request only -- no direct commits to `main`, locally or on origin

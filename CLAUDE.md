@@ -107,6 +107,16 @@ Quality is enforced by the Claude Project Foundation hooks:
 
 Coverage threshold: 85% (configured in constitution)
 
+## Pre-PR Verification
+
+Before opening any pull request, run the full local verification suite and confirm all checks pass:
+
+```bash
+task build && task test && task lint && task vet
+```
+
+Do not open a PR until all four pass. PR test plans must reflect tests that were actually executed.
+
 ## Git Commit Guidelines
 
 - Format: Conventional Commits (`feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert`)
