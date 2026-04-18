@@ -6,7 +6,7 @@
       "title": "Go Module and Project Structure",
       "description": "Initialize the Go module and establish the canonical directory layout for the Kahi project, including go.mod, cmd/kahi/main.go, and all internal packages.",
       "testing_steps": [
-        "Verify go.mod exists with module path github.com/<org>/kahi and minimum Go version 1.26.1",
+        "Verify go.mod exists with module path github.com/<org>/kahi and minimum Go version 1.26.2",
         "Verify cmd/kahi/main.go exists and contains a main function",
         "Verify internal/ directory contains subdirectories: config, process, supervisor, api, events, logging, ctl, migrate, fcgi",
         "Run 'go build ./cmd/kahi' and verify it produces a binary with exit code 0",

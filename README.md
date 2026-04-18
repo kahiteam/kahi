@@ -91,7 +91,7 @@ go install github.com/kahiteam/kahi/cmd/kahi@latest
 
 ### Build from source
 
-Requires Go 1.26.1+ and [Task](https://taskfile.dev).
+Requires Go 1.26.2+ and [Task](https://taskfile.dev).
 
 ```sh
 git clone https://github.com/kahiteam/kahi.git
@@ -105,7 +105,7 @@ The binary is written to `./bin/kahi`.
 
 ### Prerequisites
 
-- Go 1.26.1 or later
+- Go 1.26.2 or later
 - [Task](https://taskfile.dev) -- task runner
 - golangci-lint (optional, for linting)
 
