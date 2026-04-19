@@ -116,10 +116,10 @@ func TestConfigReloadCounters(t *testing.T) {
 
 func TestBuildInfo(t *testing.T) {
 	c := New()
-	c.SetBuildInfo("1.0.0", "go1.26.1", "true")
+	c.SetBuildInfo("1.0.0", "go1.26.2", "true")
 
 	body := scrape(t, c)
-	if !strings.Contains(body, `kahi_info{fips="true",go_version="go1.26.1",version="1.0.0"} 1`) {
+	if !strings.Contains(body, `kahi_info{fips="true",go_version="go1.26.2",version="1.0.0"} 1`) {
 		t.Fatalf("expected build info metric, got:\n%s", body)
 	}
 }

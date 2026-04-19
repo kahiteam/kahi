@@ -33,7 +33,7 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Acceptance Criteria:**
 
-- [ ] `go.mod` exists with module path `github.com/<org>/kahi` and Go 1.26.1 minimum
+- [ ] `go.mod` exists with module path `github.com/<org>/kahi` and Go 1.26.2 minimum
 - [ ] `cmd/kahi/main.go` exists as the single binary entry point
 - [ ] `internal/` directory contains packages: `config`, `process`, `supervisor`, `api`, `events`, `logging`, `ctl`, `migrate`, `fcgi`
 - [ ] `go build ./cmd/kahi` produces a working binary
@@ -3771,5 +3771,5 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 - Linux: amd64, arm64 (kernel 4.18+)
 - macOS: amd64, arm64 (12.0+)
-- Go: 1.26.1+
+- Go: 1.26.2+
 - Static binary, no shared library dependencies

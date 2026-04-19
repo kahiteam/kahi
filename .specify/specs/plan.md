@@ -34,7 +34,7 @@ kahi/
 ├── Taskfile.yml               # Dev workflow (build, test, lint, coverage)
 ├── .goreleaser.yml            # Release config (cross-compile, FIPS, GitHub)
 ├── .golangci.yml              # Linter config
-├── go.mod                     # Module definition (Go 1.26.1)
+├── go.mod                     # Module definition (Go 1.26.2)
 ├── go.sum                     # Dependency checksums
 ├── kahi.example.toml          # Annotated sample config
 ├── Dockerfile                 # Multi-stage build (scratch base)
@@ -58,25 +58,25 @@ kahi/
 
 | Component          | Choice                     | Version | Rationale                                                                                       |
 | ------------------ | -------------------------- | ------- | ----------------------------------------------------------------------------------------------- |
-| Language           | Go                         | 1.26.1+ | Constitution requirement. Static binary, cross-compilation, goroutines for process supervision. |
-| HTTP Server        | net/http (stdlib)          | 1.26.1  | Go 1.22+ enhanced routing (method+path patterns). No framework needed.                          |
-| Structured Logging | log/slog (stdlib)          | 1.26.1  | Native structured logging with JSON/text handlers. Zero dependency.                             |
+| Language           | Go                         | 1.26.2+ | Constitution requirement. Static binary, cross-compilation, goroutines for process supervision. |
+| HTTP Server        | net/http (stdlib)          | 1.26.2  | Go 1.22+ enhanced routing (method+path patterns). No framework needed.                          |
+| Structured Logging | log/slog (stdlib)          | 1.26.2  | Native structured logging with JSON/text handlers. Zero dependency.                             |
 | CLI Framework      | spf13/cobra                | latest  | Subcommand routing, help generation, bash/zsh completion.                                       |
 | TOML Parser        | BurntSushi/toml            | latest  | De facto Go TOML library. Full TOML v1.0 support.                                               |
 | Metrics            | prometheus/client_golang   | latest  | Prometheus exposition format. Industry standard.                                                |
 | Password Hashing   | golang.org/x/crypto/bcrypt | latest  | bcrypt not in stdlib. FIPS-compatible via GOFIPS140.                                            |
 | Terminal I/O       | golang.org/x/term          | latest  | Raw mode for `kahi ctl fg`.                                                                     |
-| Process Exec       | os/exec + syscall (stdlib) | 1.26.1  | Direct exec with SysProcAttr for setpgid, setuid, umask.                                        |
-| Signal Handling    | os/signal (stdlib)         | 1.26.1  | signal.Notify for queued signal processing.                                                     |
+| Process Exec       | os/exec + syscall (stdlib) | 1.26.2  | Direct exec with SysProcAttr for setpgid, setuid, umask.                                        |
+| Signal Handling    | os/signal (stdlib)         | 1.26.2  | signal.Notify for queued signal processing.                                                     |
 
 ### Frontend (Web UI)
 
 | Component     | Choice                 | Version | Rationale                                         |
 | ------------- | ---------------------- | ------- | ------------------------------------------------- |
-| Templates     | html/template (stdlib) | 1.26.1  | Server-rendered HTML. No build step.              |
+| Templates     | html/template (stdlib) | 1.26.2  | Server-rendered HTML. No build step.              |
 | Interactivity | Vanilla JavaScript     | ES2020  | SSE streaming, auto-refresh. No framework.        |
 | Styling       | Custom CSS             | N/A     | ~200 lines. Responsive. No framework.             |
-| Embedding     | go:embed (stdlib)      | 1.26.1  | Zero-dependency static file serving. ~50KB total. |
+| Embedding     | go:embed (stdlib)      | 1.26.2  | Zero-dependency static file serving. ~50KB total. |
 
 ### Data Storage
 
@@ -178,7 +178,7 @@ Interfaces at OS boundaries enable testable code without real processes:
 
 ```dockerfile
 # Build stage
-FROM golang:1.26.1-bookworm AS builder
+FROM golang:1.26.2-bookworm AS builder
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
