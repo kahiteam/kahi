@@ -1,6 +1,6 @@
 # Verifying Releases
 
-Every Kahi release is signed with [Sigstore cosign](https://docs.sigstore.dev/) in keyless mode. GoReleaser archives, `checksums.txt`, and per-archive CycloneDX SBOMs each have a matching `.sigstore.json` bundle (single-file Sigstore bundle containing signature, certificate, and Rekor inclusion proof). Container images on `ghcr.io/kahiteam/kahi` are signed by digest and carry a CycloneDX SBOM attestation and a SLSA provenance attestation.
+Every Kahi container release is signed with [Sigstore cosign](https://docs.sigstore.dev/) in keyless mode. The container image on `ghcr.io/kahiteam/kahi` is signed by digest and carries a CycloneDX SBOM attestation and a SLSA build-provenance attestation. GoReleaser archives, `checksums.txt`, and per-archive CycloneDX SBOMs published on the GitHub Release each ship with a matching `.sigstore.json` bundle (single-file Sigstore bundle containing signature, Fulcio certificate, and Rekor inclusion proof).
 
 Keyless signing means no long-lived keys exist at any point. A short-lived certificate is issued by [Fulcio](https://docs.sigstore.dev/fulcio/overview/) for the GitHub Actions OIDC token used by the release workflow, and the signature is recorded in the [Rekor](https://docs.sigstore.dev/rekor/overview/) transparency log. Verification checks that the signature came from the Kahi release workflow running against a specific tag ref.
 
@@ -106,10 +106,15 @@ cosign verify-blob \
 cyclonedx-cli validate --input-file kahi_${VERSION}_linux_amd64.tar.gz.cdx.json
 ```
 
-For the container image SBOM, download it from the registry:
+For the container image SBOM, download the attestation (legacy `cosign download sbom` is deprecated because our SBOM is attached as an in-toto attestation, not a separate OCI artifact):
 
 ```bash
-cosign download sbom ghcr.io/kahiteam/kahi:${VERSION} > image-sbom.cdx.json
+cosign download attestation \
+  --predicate-type=https://cyclonedx.org/bom \
+  ghcr.io/kahiteam/kahi:${VERSION} \
+  | jq -r '.payload | @base64d | fromjson | .predicate' \
+  > image-sbom.cdx.json
+
 cyclonedx-cli validate --input-file image-sbom.cdx.json
 ```
 
@@ -117,7 +122,7 @@ To convert a CycloneDX SBOM to SPDX:
 
 ```bash
 cyclonedx-cli convert \
-  --input-file kahi_${VERSION}_linux_amd64.cdx.json \
+  --input-file kahi_${VERSION}_linux_amd64.tar.gz.cdx.json \
   --output-format spdxjson
 ```
 
