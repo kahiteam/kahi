@@ -117,24 +117,22 @@ jobs:
         working-directory: /tmp/release-assets
         run: |
           shopt -s nullglob
-          sigs=(*.sig)
-          if [ ${#sigs[@]} -eq 0 ]; then
-            echo "::error::no .sig files found in draft release"
+          bundles=(*.sigstore.json)
+          if [ ${#bundles[@]} -eq 0 ]; then
+            echo "::error::no .sigstore.json bundles found in draft release"
             exit 1
           fi
-          for sig in "${sigs[@]}"; do
-            blob="${sig%.sig}"
-            cert="${blob}.pem"
-            if [ ! -f "$blob" ] || [ ! -f "$cert" ]; then
-              echo "::error::missing blob or cert for $sig"
+          for bundle in "${bundles[@]}"; do
+            blob="${bundle%.sigstore.json}"
+            if [ ! -f "$blob" ]; then
+              echo "::error::missing blob for $bundle"
               exit 1
             fi
             echo "verifying $blob"
             cosign verify-blob \
               --certificate-identity "$IDENTITY" \
               --certificate-oidc-issuer "$ISSUER" \
-              --signature "$sig" \
-              --certificate "$cert" \
+              --bundle "$bundle" \
               "$blob"
           done
       - name: Verify container image signature

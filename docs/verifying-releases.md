@@ -1,12 +1,12 @@
 # Verifying Releases
 
-Every Kahi release is signed with [Sigstore cosign](https://docs.sigstore.dev/) in keyless mode. GoReleaser archives, `checksums.txt`, and per-archive CycloneDX SBOMs each have a matching `.sig` and `.pem`. Container images on `ghcr.io/kahiteam/kahi` are signed by digest and carry a CycloneDX SBOM attestation and a SLSA provenance attestation.
+Every Kahi release is signed with [Sigstore cosign](https://docs.sigstore.dev/) in keyless mode. GoReleaser archives, `checksums.txt`, and per-archive CycloneDX SBOMs each have a matching `.sigstore.json` bundle (single-file Sigstore bundle containing signature, certificate, and Rekor inclusion proof). Container images on `ghcr.io/kahiteam/kahi` are signed by digest and carry a CycloneDX SBOM attestation and a SLSA provenance attestation.
 
 Keyless signing means no long-lived keys exist at any point. A short-lived certificate is issued by [Fulcio](https://docs.sigstore.dev/fulcio/overview/) for the GitHub Actions OIDC token used by the release workflow, and the signature is recorded in the [Rekor](https://docs.sigstore.dev/rekor/overview/) transparency log. Verification checks that the signature came from the Kahi release workflow running against a specific tag ref.
 
 ## Prerequisites
 
-- [cosign](https://docs.sigstore.dev/cosign/installation/) v2.x or later
+- [cosign](https://docs.sigstore.dev/cosign/installation/) v3.0.0 or later (required for `--bundle` verification of the single-file Sigstore bundle)
 - [cyclonedx-cli](https://github.com/CycloneDX/cyclonedx-cli) (optional, for SBOM validation)
 
 ## Identity and issuer
@@ -31,7 +31,7 @@ ISSUER="https://token.actions.githubusercontent.com"
 
 ## Verifying an archive
 
-Download the archive together with its matching `.sig` and `.pem` from the release assets, then:
+Download the archive together with its matching `.sigstore.json` bundle from the release assets, then:
 
 ```bash
 ASSET=kahi_${VERSION}_linux_amd64.tar.gz
@@ -39,12 +39,13 @@ ASSET=kahi_${VERSION}_linux_amd64.tar.gz
 cosign verify-blob \
   --certificate-identity "${IDENTITY}" \
   --certificate-oidc-issuer "${ISSUER}" \
-  --signature "${ASSET}.sig" \
-  --certificate "${ASSET}.pem" \
+  --bundle "${ASSET}.sigstore.json" \
   "${ASSET}"
 ```
 
 `Verified OK` indicates success. Any other output, or a non-zero exit, means the archive should be treated as untrusted.
+
+The `.sigstore.json` file is a single Sigstore bundle containing the signature, the Fulcio-issued certificate, and the Rekor transparency-log inclusion proof. Because the proof is embedded, you can verify offline by adding `--offline` to the command above.
 
 ## Verifying checksums.txt
 
@@ -52,8 +53,7 @@ cosign verify-blob \
 cosign verify-blob \
   --certificate-identity "${IDENTITY}" \
   --certificate-oidc-issuer "${ISSUER}" \
-  --signature checksums.txt.sig \
-  --certificate checksums.txt.pem \
+  --bundle checksums.txt.sigstore.json \
   checksums.txt
 ```
 
@@ -84,7 +84,7 @@ Verify the SLSA provenance attestation:
 
 ```bash
 cosign verify-attestation \
-  --type slsaprovenance \
+  --type slsaprovenance1 \
   --certificate-identity "${IDENTITY}" \
   --certificate-oidc-issuer "${ISSUER}" \
   ghcr.io/kahiteam/kahi:${VERSION}
@@ -94,10 +94,16 @@ All three should succeed for a properly published release. The release workflow 
 
 ## Consuming the SBOM
 
-Each archive has a matching CycloneDX 1.5 JSON SBOM at `<archive>.cdx.json`. Its signature is verified with the same `cosign verify-blob` flow as the archive itself; once verified, validate the structure:
+Each archive has a matching CycloneDX 1.5 JSON SBOM at `<archive>.cdx.json`, with its own `<archive>.cdx.json.sigstore.json` bundle. Verify the SBOM with the same `cosign verify-blob --bundle` flow as the archive itself; once verified, validate the structure:
 
 ```bash
-cyclonedx-cli validate --input-file kahi_${VERSION}_linux_amd64.cdx.json
+cosign verify-blob \
+  --certificate-identity "${IDENTITY}" \
+  --certificate-oidc-issuer "${ISSUER}" \
+  --bundle kahi_${VERSION}_linux_amd64.tar.gz.cdx.json.sigstore.json \
+  kahi_${VERSION}_linux_amd64.tar.gz.cdx.json
+
+cyclonedx-cli validate --input-file kahi_${VERSION}_linux_amd64.tar.gz.cdx.json
 ```
 
 For the container image SBOM, download it from the registry:

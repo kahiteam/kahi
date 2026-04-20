@@ -332,7 +332,7 @@ Glob patterns are supported. Circular includes are detected and rejected.
 
 ## Verifying releases
 
-Release artifacts and container images are signed with cosign (keyless OIDC) and ship with CycloneDX SBOMs. The identity is pinned to the tag ref `refs/tags/<tag>` from `github.com/kahiteam/kahi`. See [docs/verifying-releases.md](docs/verifying-releases.md) for the full verification commands for archives, checksums, and container images.
+Release artifacts and container images are signed with cosign (keyless OIDC) and ship with CycloneDX SBOMs. Each archive, `checksums.txt`, and per-archive SBOM is paired with a single-file Sigstore bundle (`<artifact>.sigstore.json`) containing the signature, Fulcio certificate, and Rekor inclusion proof. The identity is pinned to the tag ref `refs/tags/<tag>` from `github.com/kahiteam/kahi`. Verification requires cosign v3.0.0 or later. See [docs/verifying-releases.md](docs/verifying-releases.md) for the full verification commands for archives, checksums, and container images.
 
 ## License
 
