@@ -330,6 +330,10 @@ include = ["/etc/kahi/conf.d/*.toml"]
 
 Glob patterns are supported. Circular includes are detected and rejected.
 
+## Verifying releases
+
+Release artifacts and container images are signed with cosign (keyless OIDC) and ship with CycloneDX SBOMs. The identity is pinned to the tag ref `refs/tags/<tag>` from `github.com/kahiteam/kahi`. See [docs/verifying-releases.md](docs/verifying-releases.md) for the full verification commands for archives, checksums, and container images.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

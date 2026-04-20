@@ -98,3 +98,4 @@ release:
   draft: true
   prerelease: auto
   name_template: "{{.ProjectName}} v{{.Version}}"
+  footer: "{{ .Env.KAHI_RELEASE_FOOTER }}"
