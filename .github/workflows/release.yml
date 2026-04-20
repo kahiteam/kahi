@@ -27,6 +27,13 @@ jobs:
       - uses: anchore/sbom-action/download-syft@v0
       - name: Set Go version env
         run: echo "GOVERSION=$(go env GOVERSION)" >> "$GITHUB_ENV"
+      - name: Load release notes footer
+        run: |
+          {
+            echo "KAHI_RELEASE_FOOTER<<KAHI_EOF"
+            cat .goreleaser/release-footer.md
+            echo "KAHI_EOF"
+          } >> "$GITHUB_ENV"
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
