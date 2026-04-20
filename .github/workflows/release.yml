@@ -9,6 +9,7 @@ permissions:
   contents: write
   packages: write
   id-token: write
+  attestations: write
 
 env:
   COSIGN_YES: 'true'
@@ -79,6 +80,12 @@ jobs:
           sbom: true
       - name: Sign image by digest
         run: cosign sign --yes "ghcr.io/kahiteam/kahi@${{ steps.build.outputs.digest }}"
+      - name: Attest SLSA build provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ghcr.io/kahiteam/kahi
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
       - name: Generate image SBOM
         run: syft "ghcr.io/kahiteam/kahi@${{ steps.build.outputs.digest }}" -o cyclonedx-json=/tmp/image-sbom.cdx.json
       - name: Attest image SBOM
@@ -140,7 +147,7 @@ jobs:
       - name: Verify container SLSA provenance attestation
         run: |
           cosign verify-attestation \
-            --type slsaprovenance \
+            --type slsaprovenance1 \
             --certificate-identity "$IDENTITY" \
             --certificate-oidc-issuer "$ISSUER" \
             "$IMAGE"
