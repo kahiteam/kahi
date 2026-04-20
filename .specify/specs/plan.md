@@ -431,3 +431,96 @@ CodeQL's `BarrierGuard` recognizes only relational comparisons (`<`, `<=`, `>`, 
 - API handler returns HTTP 400 for `length > 64KB` instead of silently clamping. Explicit validation at the boundary.
 - Pattern applies to any future `make()` call where the size flows from user input: use early-return guards, not clamps or `min()`.
 - Go's `min()`/`max()` builtins are NOT CodeQL barriers as of CodeQL 2.24.1.
+
+---
+
+### ADR-009: Keyless Cosign Signing via GitHub OIDC
+
+**Date:** 2026-04-20
+**Status:** Accepted
+
+**Context:** Release artifacts need tamper-evidence and verifiable provenance. Managing PGP or cosign key pairs in CI is error-prone: keys must be rotated, can leak via secret exposure, and require a secure place to live. The constitution favors zero long-lived secrets.
+
+**Decision:** Use Sigstore keyless signing via GitHub Actions OIDC for all release artifacts (GoReleaser archives, `checksums.txt`, container images) and attestations. Signing identity is the GitHub workflow path pinned to a tag ref. Transparency is provided by Rekor. No long-lived keys exist at any point.
+
+**Alternatives Considered:**
+
+1. **Managed cosign key pair (`COSIGN_PRIVATE_KEY` in repo secrets):** Requires rotation, risk of leakage, must be stored somewhere. Rejected.
+2. **PGP key signing (`gpg --sign`):** Requires key management, hardware tokens for safety, higher operational burden. Rejected.
+3. **Notary v2 / OCI 1.1 referrers only (no cosign):** Supported in modern registries, but cosign remains the broader ecosystem standard (kubectl, tekton-chains, kyverno). Used together with cosign -- see ADR-011.
+
+**Consequences:**
+
+- `release.yml` requires `permissions: id-token: write`.
+- Verification requires `cosign >= 2.x` and network access to Rekor + Fulcio.
+- Identity is pinned to the tag ref (`refs/tags/<tag>`); deleting and recreating a tag invalidates identity verification.
+- Supply-chain attacks against the signing path require compromising the GitHub OIDC issuer, not theft of a key at rest.
+
+---
+
+### ADR-010: CycloneDX 1.5 via syft for SBOMs
+
+**Date:** 2026-04-20
+**Status:** Accepted
+
+**Context:** CycloneDX (OWASP) and SPDX (Linux Foundation) are the two mainstream SBOM formats. The ecosystem is split. CycloneDX has strong OWASP tooling, trivy/grype native support, and broader vendor adoption in enterprise pipelines.
+
+**Decision:** Produce SBOMs in CycloneDX 1.5 JSON using syft. Attach per-archive SBOM as GitHub Release asset (SEC-004) and as a cosign attestation with `--type cyclonedx` on the container image (SEC-006). Single format; no dual emission.
+
+**Alternatives Considered:**
+
+1. **SPDX 2.3 via syft (syft default):** Broader LF tooling, but lower vendor penetration in the current pipeline targets. Rejected per user directive.
+2. **Dual emission (SPDX + CycloneDX):** Doubles artifact count and release-asset noise; most consumers only want one. Rejected.
+3. **go.mod-derived SBOM (`go list -m -json`):** Only Go-level view, misses filesystem and layer data for the container image. Rejected as primary source.
+
+**Consequences:**
+
+- Consumers using SPDX-only tooling convert with `cyclonedx-cli convert --output-format spdxjson`.
+- Cosign attestation predicate type URI is `https://cyclonedx.org/bom`.
+- CycloneDX 1.5 is current as of 2026; upgrade path to 1.6+ is additive.
+
+---
+
+### ADR-011: Two-Layer Signing -- BuildKit Attestations + Cosign
+
+**Date:** 2026-04-20
+**Status:** Accepted
+
+**Context:** Modern container supply chain uses BuildKit-native SBOM/provenance attestations (OCI 1.1 referrers) and cosign signatures (Sigstore standard). They are complementary. BuildKit attestations are discoverable via registry APIs and are the path for `docker buildx imagetools inspect`; cosign attestations are discoverable via `cosign tree` and `cosign verify-attestation`.
+
+**Decision:** Use both. `docker/build-push-action@v7` emits `sbom: true, provenance: mode=max` BuildKit attestations in-band. A subsequent step signs the image digest with `cosign sign`, and a further step attaches a CycloneDX SBOM predicate via `cosign attest`. Sign by digest, not by tag.
+
+**Alternatives Considered:**
+
+1. **BuildKit-only attestations, no cosign:** Loses the cosign verify workflow and certificate-identity guarantees; loses interop with Sigstore-native consumers.
+2. **Cosign-only, no BuildKit attestations:** Loses OCI 1.1 referrer interop with non-cosign tooling (e.g. `docker buildx imagetools inspect --format attestation`).
+3. **Sign by tag, not digest:** Tags are mutable; a retag would invalidate the signature. Rejected.
+
+**Consequences:**
+
+- Images are signed by digest (`ghcr.io/kahiteam/kahi@sha256:...`); verify commands accept either tag or digest.
+- Two signing paths means two possible failure points; both are gated by the verify-signatures job (ADR-012).
+- Registry storage is slightly larger (BuildKit attestation manifests + cosign signature manifests).
+
+---
+
+### ADR-012: Verify-Signatures Gate Before Release Publication
+
+**Date:** 2026-04-20
+**Status:** Accepted
+
+**Context:** Signing failures can be missed in CI logs. Without an explicit verification gate, a release can be "published" with missing, malformed, or wrong-identity signatures. Once a tag is public, consumers may have already pulled the artifact. Per user directive, any CI failure in SBOM/signing/attestation must fail the release as a whole; no partial publication is acceptable.
+
+**Decision:** A dedicated `verify-signatures` job with `needs: [goreleaser, docker]` re-verifies every signature and attestation produced. Any failure aborts the release workflow. GitHub Release creation (and, if later added, semver tag family promotion such as `latest`) runs only after `verify-signatures` succeeds. Earlier failures in sign/sbom/attest steps already fail the release; the gate is the final defense-in-depth check, not the only one.
+
+**Alternatives Considered:**
+
+1. **Trust cosign/goreleaser exit codes only:** A false-positive exit in the signing step would publish unsigned artifacts. Rejected.
+2. **Post-publish periodic verify (nightly cron):** Too late; consumers have already pulled. Useful for long-term drift detection, not for release gating.
+3. **Separate workflow triggered by Release event:** Same latency issue as (2), and decouples verification from publication.
+
+**Consequences:**
+
+- Release runtime increases by ~30-60 seconds for the verify job.
+- A verify failure requires manual cleanup (delete partial GitHub Release, leave signed images orphaned in GHCR) -- acceptable trade-off versus publishing unverified artifacts.
+- `verify-signatures` is a hard gate. No bypass flag. If verify tooling has a bug, the fix is to patch the tooling, not skip the check.
