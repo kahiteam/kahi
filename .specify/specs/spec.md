@@ -361,17 +361,11 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 ---
 
-### INFRA-014: OCI 1.1 Attestations (Future Work)
+### INFRA-014: OCI 1.1 Attestations (Superseded)
 
-**Description:** Add OCI 1.1 supply chain attestations to container images. Includes cosign signing, SBOM generation (SPDX or CycloneDX), and provenance metadata. Planned for post-v1.0 stable release.
+**Status:** Superseded by SEC-003, SEC-004, SEC-005, SEC-006, SEC-007, SEC-008.
 
-**Acceptance Criteria:**
-
-- [ ] Container images are signed with cosign (keyless, via GitHub OIDC)
-- [ ] SBOM attached to container images (SPDX format)
-- [ ] SLSA provenance attestation at level 2 or higher
-- [ ] `cosign verify ghcr.io/kahiteam/kahi:latest` succeeds
-- [ ] SBOM retrievable via `cosign download sbom ghcr.io/kahiteam/kahi:latest`
+Supply-chain signing and SBOM work is now tracked concretely under the Security Features section. See SEC-005 (container signing), SEC-006 (container SBOM + provenance attestations), SEC-003 (GoReleaser archive signing), SEC-004 (GoReleaser CycloneDX SBOM), SEC-007 (verify gate), SEC-008 (verification docs).
 
 **Dependencies:** INFRA-012
 
@@ -3494,6 +3488,161 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 - Existing tests pass without modification since they use values within bounds
 
 **Dependencies:** SEC-001
+
+---
+
+### SEC-003: Keyless Cosign Signing of GoReleaser Artifacts
+
+**Description:** Sign every GoReleaser-produced archive and the `checksums.txt` file using Sigstore cosign in keyless mode via GitHub Actions OIDC. Signatures are recorded in the Rekor transparency log; no long-lived private key material exists. Verification uses cosign with the release workflow certificate identity pinned to the tag ref.
+
+**Acceptance Criteria:**
+
+- [ ] `.goreleaser.yml` has a `signs:` block with `cmd: cosign`, `artifacts: all`, `--yes`, `--output-certificate`, `--output-signature`
+- [ ] Every archive in the release (e.g. `kahi_v0.1.0_linux_amd64.tar.gz`) has a matching `.sig` and `.pem` asset attached to the GitHub Release
+- [ ] `checksums.txt` has a matching `.sig` and `.pem` produced by the same keyless cosign invocation
+- [ ] `release.yml` permissions include `id-token: write` alongside `contents: write` and `packages: write`
+- [ ] `release.yml` installs `sigstore/cosign-installer@v3` before the goreleaser step
+- [ ] `COSIGN_YES: 'true'` is set in the workflow env
+- [ ] `cosign verify-blob --certificate-identity "https://github.com/kahiteam/kahi/.github/workflows/release.yml@refs/tags/<tag>" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" --signature <sig> --certificate <cert> <archive>` succeeds for every archive
+- [ ] Same verification succeeds for `checksums.txt`
+- [ ] `goreleaser release --snapshot --skip=publish,sign` still succeeds locally for developer smoke tests
+
+**Error Handling:**
+
+| Scenario                                    | Behavior                                                        |
+| ------------------------------------------- | --------------------------------------------------------------- |
+| `id-token: write` permission missing        | cosign OIDC exchange fails; job fails; release is not published |
+| Rekor transparency log unreachable          | cosign retries; timeout fails the job (no silent skip)          |
+| cosign binary missing                       | cosign-installer step fails; job fails before goreleaser runs   |
+
+**Dependencies:** INFRA-003, INFRA-013
+
+---
+
+### SEC-004: CycloneDX SBOM Generation for GoReleaser Artifacts
+
+**Description:** Generate a CycloneDX 1.5 SBOM for every GoReleaser archive using syft. SBOMs are attached to the GitHub Release as assets and are covered by the cosign `signs: all` block from SEC-003, so every SBOM is itself signed. Downstream consumers can feed the SBOM into trivy, grype, or any CycloneDX-aware scanner.
+
+**Acceptance Criteria:**
+
+- [ ] `.goreleaser.yml` has an `sboms:` block invoking syft with `cyclonedx-json` output
+- [ ] Every archive has a matching `*.cdx.json` SBOM asset attached to the GitHub Release
+- [ ] The SBOM lists the Go module `github.com/kahiteam/kahi` as the primary component and all direct and indirect dependencies from `go.mod`
+- [ ] The SBOM CycloneDX `specVersion` is `1.5` or later
+- [ ] syft is installed via `anchore/sbom-action/download-syft@v0` before the goreleaser step runs
+- [ ] `cyclonedx-cli validate --input-file kahi_<version>_linux_amd64.cdx.json` exits 0 on the produced SBOM
+- [ ] Each `.cdx.json` has a matching `.sig` and `.pem` produced by the SEC-003 signs block
+
+**Error Handling:**
+
+| Scenario                                 | Behavior                                                    |
+| ---------------------------------------- | ----------------------------------------------------------- |
+| syft binary missing                      | sbom-action step fails; job fails before goreleaser runs    |
+| `go.mod` unreadable (invalid checkout)   | syft produces empty SBOM; goreleaser aborts on empty artifact |
+| SBOM generation slower than archive build| GoReleaser serializes SBOM generation per archive; no race  |
+
+**Dependencies:** INFRA-003, SEC-003
+
+---
+
+### SEC-005: Keyless Cosign Signing of Container Images
+
+**Description:** Sign the multi-arch container manifest published to `ghcr.io/kahiteam/kahi` using cosign keyless mode with GitHub Actions OIDC. The signature is bound to the image digest (not the tag) so retagging or mutation does not invalidate verification. Cosign records the entry in Rekor and uploads the signature reference to GHCR.
+
+**Acceptance Criteria:**
+
+- [ ] `release.yml` Docker job has a step that runs `cosign sign --yes ghcr.io/kahiteam/kahi@${{ steps.build.outputs.digest }}` after `docker/build-push-action`
+- [ ] The signing step runs exactly once per release (digest-based, not per-tag)
+- [ ] `release.yml` Docker job permissions include `id-token: write` in addition to `packages: write`
+- [ ] `docker/build-push-action@v7` has `provenance: mode=max` and `sbom: true` (was `provenance: false, sbom: false`)
+- [ ] `cosign verify --certificate-identity "https://github.com/kahiteam/kahi/.github/workflows/release.yml@refs/tags/<tag>" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" ghcr.io/kahiteam/kahi:<tag>` succeeds
+- [ ] Same verification succeeds against `ghcr.io/kahiteam/kahi@sha256:<digest>`
+- [ ] `cosign tree ghcr.io/kahiteam/kahi:<tag>` lists the signature under the `Signatures` section
+- [ ] Releases prior to this feature (v0.1.0-alpha.1..v0.1.0-alpha.6) are unaffected
+
+**Error Handling:**
+
+| Scenario                                         | Behavior                                       |
+| ------------------------------------------------ | ---------------------------------------------- |
+| Registry login missing                           | cosign sign fails; release job fails           |
+| Digest output not exported by build-push-action  | signing step fails fast with a clear error     |
+| `id-token: write` permission missing             | OIDC exchange fails; release job fails         |
+
+**Dependencies:** INFRA-012, SEC-003
+
+---
+
+### SEC-006: Container SBOM and Provenance Attestations
+
+**Description:** Attach both a CycloneDX SBOM and a SLSA provenance attestation to the container image. BuildKit-native in-band attestations are produced via `docker/build-push-action@v7` (`sbom: true, provenance: mode=max`, discoverable via OCI 1.1 referrers). Additionally, a cosign attestation of the CycloneDX SBOM is attached so that `cosign download sbom` and `cosign verify-attestation --type cyclonedx` work as expected.
+
+**Acceptance Criteria:**
+
+- [ ] `docker/build-push-action@v7` has `sbom: true` and `provenance: mode=max`
+- [ ] After the image is pushed, a step runs `syft ghcr.io/kahiteam/kahi@<digest> -o cyclonedx-json > image-sbom.cdx.json`
+- [ ] A step runs `cosign attest --yes --predicate image-sbom.cdx.json --type cyclonedx ghcr.io/kahiteam/kahi@<digest>`
+- [ ] `cosign download sbom ghcr.io/kahiteam/kahi:<tag>` returns a valid CycloneDX JSON document
+- [ ] `cosign verify-attestation --type cyclonedx --certificate-identity "https://github.com/kahiteam/kahi/.github/workflows/release.yml@refs/tags/<tag>" --certificate-oidc-issuer "https://token.actions.githubusercontent.com" ghcr.io/kahiteam/kahi:<tag>` succeeds
+- [ ] `cosign verify-attestation --type slsaprovenance ...` succeeds against the BuildKit-produced provenance
+- [ ] The SBOM covers all image layers and packages, not only the Go module
+
+**Error Handling:**
+
+| Scenario                                  | Behavior                                                              |
+| ----------------------------------------- | --------------------------------------------------------------------- |
+| BuildKit too old for `provenance: mode=max` | docker/build-push-action fails with a clear error; upgrade required |
+| syft unable to scan the image             | step fails; attestation not uploaded; release fails                   |
+| `cosign attest` fails mid-run             | release job fails; verify-signatures and release-notes are not run    |
+
+**Dependencies:** SEC-005
+
+---
+
+### SEC-007: Release Verify-Signatures Gate Job
+
+**Description:** A dedicated `verify-signatures` job runs after `goreleaser` and the Docker publish job, re-verifying every signature and attestation just produced. Any failure aborts the release workflow before GitHub Release creation. Any CI failure in SBOM generation, signing, or attestation causes the whole release to fail; partial publication is never acceptable.
+
+**Acceptance Criteria:**
+
+- [ ] `release.yml` has a `verify-signatures` job with `needs: [goreleaser, docker]`
+- [ ] `verify-signatures` downloads every GoReleaser artifact plus its `.sig` and `.pem` and runs `cosign verify-blob` with the tag-pinned certificate identity
+- [ ] `verify-signatures` verifies the container image signature with `cosign verify`
+- [ ] `verify-signatures` verifies both the CycloneDX attestation (`--type cyclonedx`) and the SLSA provenance attestation (`--type slsaprovenance`) with `cosign verify-attestation`
+- [ ] GitHub Release creation (if separated into its own job) runs only with `needs: verify-signatures`
+- [ ] Any verification failure causes the workflow run status to be `failure`; release assets and container tags are not promoted (no `latest` tag applied if verify fails)
+- [ ] The verify script sources its expected identity from `refs/tags/${GITHUB_REF_NAME}`; no branch-based fallback
+- [ ] Any prior job failure (sign, sbom, attest) also blocks the release — the gate is not the only safeguard
+
+**Error Handling:**
+
+| Scenario                                       | Behavior                                                       |
+| ---------------------------------------------- | -------------------------------------------------------------- |
+| One artifact signature missing                 | verify-blob fails; job fails; release fails                    |
+| Certificate identity does not match tag workflow | verify fails; job fails; release fails                       |
+| Rekor transparency log entry missing           | verify fails; job fails; release fails (no bypass flag)        |
+| Upstream SBOM/sign job failed                  | verify-signatures is skipped; release job already failed earlier |
+
+**Dependencies:** SEC-003, SEC-004, SEC-005, SEC-006
+
+---
+
+### SEC-008: Release Verification Documentation
+
+**Description:** A `docs/verifying-releases.md` document describes how downstream consumers verify release artifacts and container images. Includes cosign install, the certificate identity and OIDC issuer for the current release process, step-by-step verify commands for archives, checksums, and container images, and SBOM consumption examples with cyclonedx-cli. Auto-generated release notes embed a copy-pasteable verify command block so every GitHub Release is self-documenting.
+
+**Acceptance Criteria:**
+
+- [ ] `docs/verifying-releases.md` exists at repo root
+- [ ] Document explains the keyless cosign model (Fulcio, Rekor, OIDC) in 1-2 paragraphs
+- [ ] Document includes copy-pasteable `cosign verify-blob` commands for archive and checksums verification
+- [ ] Document includes copy-pasteable `cosign verify` and `cosign verify-attestation` commands for container images
+- [ ] Document includes a `cyclonedx-cli validate` example for SBOM consumption
+- [ ] Document states the expected certificate identity format: `https://github.com/kahiteam/kahi/.github/workflows/release.yml@refs/tags/<tag>`
+- [ ] Document states the expected OIDC issuer: `https://token.actions.githubusercontent.com`
+- [ ] README.md has a "Verifying releases" section that links to `docs/verifying-releases.md`
+- [ ] Auto-generated release notes include a verify command example block (mirrors the ai-resume pattern)
+
+**Dependencies:** SEC-003, SEC-005, SEC-006, SEC-007
 
 ---
 
