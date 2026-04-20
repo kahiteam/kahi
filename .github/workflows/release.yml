@@ -37,6 +37,8 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     needs: goreleaser
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v6
       - uses: docker/setup-qemu-action@v4
@@ -74,3 +76,66 @@ jobs:
         run: syft "ghcr.io/kahiteam/kahi@${{ steps.build.outputs.digest }}" -o cyclonedx-json=/tmp/image-sbom.cdx.json
       - name: Attest image SBOM
         run: cosign attest --yes --type cyclonedx --predicate /tmp/image-sbom.cdx.json "ghcr.io/kahiteam/kahi@${{ steps.build.outputs.digest }}"
+
+  verify-signatures:
+    runs-on: ubuntu-latest
+    needs: [goreleaser, docker]
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/tags/${{ github.ref_name }}
+      ISSUER: https://token.actions.githubusercontent.com
+      IMAGE: ghcr.io/kahiteam/kahi@${{ needs.docker.outputs.digest }}
+    steps:
+      - uses: sigstore/cosign-installer@v3
+      - name: Download draft release assets
+        run: |
+          mkdir -p /tmp/release-assets
+          gh release download "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --dir /tmp/release-assets
+      - name: Verify blob signatures
+        working-directory: /tmp/release-assets
+        run: |
+          shopt -s nullglob
+          sigs=(*.sig)
+          if [ ${#sigs[@]} -eq 0 ]; then
+            echo "::error::no .sig files found in draft release"
+            exit 1
+          fi
+          for sig in "${sigs[@]}"; do
+            blob="${sig%.sig}"
+            cert="${blob}.pem"
+            if [ ! -f "$blob" ] || [ ! -f "$cert" ]; then
+              echo "::error::missing blob or cert for $sig"
+              exit 1
+            fi
+            echo "verifying $blob"
+            cosign verify-blob \
+              --certificate-identity "$IDENTITY" \
+              --certificate-oidc-issuer "$ISSUER" \
+              --signature "$sig" \
+              --certificate "$cert" \
+              "$blob"
+          done
+      - name: Verify container image signature
+        run: |
+          cosign verify \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" \
+            "$IMAGE"
+      - name: Verify container CycloneDX attestation
+        run: |
+          cosign verify-attestation \
+            --type cyclonedx \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" \
+            "$IMAGE"
+      - name: Verify container SLSA provenance attestation
+        run: |
+          cosign verify-attestation \
+            --type slsaprovenance \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer "$ISSUER" \
+            "$IMAGE"
+      - name: Promote draft release
+        run: gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
