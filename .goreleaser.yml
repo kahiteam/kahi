@@ -49,7 +49,7 @@ archives:
 
 checksum:
   name_template: "checksums.txt"
-  algorithm: sha256
+  algorithm: sha512
 
 sboms:
   - id: archive

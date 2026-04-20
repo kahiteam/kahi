@@ -57,7 +57,7 @@ cosign verify-blob \
   checksums.txt
 ```
 
-Once `checksums.txt` itself is verified, you can use it to verify individual archives with `sha256sum -c checksums.txt` without re-running cosign on each one.
+Once `checksums.txt` itself is verified, you can use it to verify individual archives with `sha512sum -c checksums.txt` without re-running cosign on each one.
 
 ## Verifying the container image
 
