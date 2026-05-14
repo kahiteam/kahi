@@ -23,7 +23,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26.2'
+          go-version: '1.26.3'
       - uses: sigstore/cosign-installer@v4.1.2
         with:
           cosign-release: 'v3.0.6'
