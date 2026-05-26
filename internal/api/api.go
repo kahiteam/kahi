@@ -478,7 +478,7 @@ func (s *Server) handleStreamLog(w http.ResponseWriter, r *http.Request) {
 // "event:"/"data:" prefixes in (untrusted) process output are carried as literal
 // data and cannot inject additional SSE frames. See SEC-013.
 func writeSSEData(w io.Writer, data string) {
-	for _, line := range strings.Split(data, "\n") {
+	for line := range strings.SplitSeq(data, "\n") {
 		fmt.Fprintf(w, "data: %s\n", line)
 	}
 	fmt.Fprint(w, "\n")
@@ -566,7 +566,7 @@ func (s *Server) handleEventStream(w http.ResponseWriter, r *http.Request) {
 	var typeFilter map[events.EventType]bool
 	if typesParam != "" {
 		typeFilter = make(map[events.EventType]bool)
-		for _, t := range strings.Split(typesParam, ",") {
+		for t := range strings.SplitSeq(typesParam, ",") {
 			typeFilter[events.EventType(strings.TrimSpace(t))] = true
 		}
 	}

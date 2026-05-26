@@ -20,7 +20,7 @@ func TestWriteSSEDataFramesEachLine(t *testing.T) {
 
 	// The injected "event:" text must appear only as data, never as an SSE
 	// event field at the start of a line.
-	for _, line := range strings.Split(buf.String(), "\n") {
+	for line := range strings.SplitSeq(buf.String(), "\n") {
 		if strings.HasPrefix(line, "event:") {
 			t.Fatalf("injected text started an SSE event field: %q", line)
 		}

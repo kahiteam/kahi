@@ -333,7 +333,7 @@ func (c *Client) TailFollow(ctx context.Context, name, stream string, w io.Write
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
 			// Extract data lines from SSE.
-			for _, line := range strings.Split(string(buf[:n]), "\n") {
+			for line := range strings.SplitSeq(string(buf[:n]), "\n") {
 				if strings.HasPrefix(line, "data: ") {
 					fmt.Fprintln(w, line[6:])
 				}
