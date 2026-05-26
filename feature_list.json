@@ -1357,7 +1357,8 @@
         "Write a test that stops all FastCGI processes and verifies the socket is closed and cleaned up when reference count reaches 0",
         "Write a test that simulates a socket bind failure and verifies the process goes to FATAL",
         "Verify Unix sockets support configurable owner and mode (socket_owner, socket_mode)",
-        "Verify the socket is re-created on process restart if it was cleaned up"
+        "Verify the socket is re-created on process restart if it was cleaned up",
+        "Regression (SEC-011): assert a Unix socket opened without socket_mode is chmod-ed to 0700, and that an explicit socket_mode is still honored"
       ],
       "passes": true,
       "dependencies": ["fastcgi-program-definition"]
