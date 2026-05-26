@@ -8,8 +8,16 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 )
+
+// logFileOpenFlags are the flags used to open process and daemon log files.
+// O_NOFOLLOW refuses to open the file when its final path component is a
+// symlink, so a symlink planted at the log path cannot redirect (a possibly
+// privileged) daemon's log writes to an attacker-chosen file. It constrains
+// only the final component; symlinked parent directories still resolve.
+const logFileOpenFlags = os.O_CREATE | os.O_WRONLY | os.O_APPEND | syscall.O_NOFOLLOW
 
 // CaptureConfig configures process output capture.
 type CaptureConfig struct {
@@ -40,7 +48,7 @@ func NewCaptureWriter(cfg CaptureConfig) (*CaptureWriter, error) {
 	}
 
 	if cfg.Logfile != "" {
-		f, err := os.OpenFile(cfg.Logfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		f, err := os.OpenFile(cfg.Logfile, logFileOpenFlags, 0644)
 		if err != nil {
 			return nil, fmt.Errorf("cannot open log file: %s: %w", cfg.Logfile, err)
 		}
@@ -121,7 +129,7 @@ func (cw *CaptureWriter) rotateIfNeeded() {
 	cw.file.Close()
 	_ = rotateFile(cw.config.Logfile, cw.config.Backups)
 	// Reopen a fresh file.
-	f, err := os.OpenFile(cw.config.Logfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(cw.config.Logfile, logFileOpenFlags, 0644)
 	if err != nil {
 		cw.file = nil
 		return
@@ -139,7 +147,7 @@ func (cw *CaptureWriter) Reopen() error {
 	}
 
 	cw.file.Close()
-	f, err := os.OpenFile(cw.config.Logfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(cw.config.Logfile, logFileOpenFlags, 0644)
 	if err != nil {
 		return fmt.Errorf("cannot reopen log file: %s: %w", cw.config.Logfile, err)
 	}

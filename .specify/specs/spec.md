@@ -3746,6 +3746,64 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 ---
 
+### SEC-012: Log Files Refuse To Follow Symlinks
+
+**Description:** Process and daemon log files must be opened with `O_NOFOLLOW` so a symlink planted at the configured log path cannot redirect writes to an attacker-chosen file. The 2026-05-26 security review (issue #39) noted the log opens used `O_CREATE|O_WRONLY|O_APPEND` without `O_NOFOLLOW`; if logs are placed in a directory writable by a less-trusted user, that user could pre-create a symlink and have the (possibly root) daemon append log output to a sensitive file. This is defense-in-depth: it requires a misconfigured log directory to exploit, but the guard is cheap and removes the failure mode.
+
+**Acceptance Criteria:**
+
+- **Given** a configured log path whose final component is a symlink
+  **When** the capture writer or daemon logger opens it
+  **Then** the open fails (ELOOP) and the error is surfaced, verified in the `task test` QA gate by a test that points a logfile at a symlink and asserts the open errors
+
+- **Given** a normal (non-symlink) log path
+  **When** the log file is opened
+  **Then** it is created/appended as before; existing logging behavior is unchanged
+
+**Error Handling:**
+
+| Error Condition                  | Expected Behavior                         | User-Facing Message                       |
+| -------------------------------- | ----------------------------------------- | ----------------------------------------- |
+| Log path final component is link | Open fails; process to FATAL / daemon err | "cannot open log file: {path}: {error}"   |
+
+**Edge Cases:**
+
+- `O_NOFOLLOW` affects only the final path component; a symlinked parent directory is still resolved normally
+- Applies to all log opens: process stdout/stderr capture and the daemon log file
+
+**Dependencies:** FUNC-018
+
+---
+
+### SEC-013: SSE Log Stream Framing Is Injection-Safe
+
+**Description:** The log SSE endpoint must encode process output so it cannot inject SSE frames. The 2026-05-26 review (issue #39) found the log stream wrote raw output with `fmt.Fprintf(w, "data: %s\n\n", data)`; output containing newlines or `event:`/`data:` prefixes could desynchronize the SSE stream. Impact is benign (the web client ignores unknown event types and renders via `createTextNode`, so no XSS), but the framing must be correct. Each output line is emitted as its own `data:` field so embedded newlines and field prefixes are carried as literal data.
+
+**Acceptance Criteria:**
+
+- **Given** process output containing newlines and a line such as `event: injected`
+  **When** it is streamed over the log SSE endpoint
+  **Then** every line is emitted as a `data:` field (the injected text is delivered as literal data, not parsed as a new SSE event), verified by a test on the SSE writer
+
+- **Given** ordinary single-line output
+  **When** it is streamed
+  **Then** the client receives the same content as before; the consuming web UI behavior is unchanged
+
+**Error Handling:**
+
+| Error Condition         | Expected Behavior        | User-Facing Message |
+| ----------------------- | ------------------------ | ------------------- |
+| n/a (output formatting) | Output framed per SSE spec | n/a               |
+
+**Edge Cases:**
+
+- A blank line in output is framed as a bare `data:` line (empty field), never as the blank line that ends an SSE event; e.g. output `line1\n\nline3` is written as `data: line1` / `data:` / `data: line3` followed by one terminating blank line
+- Scope is the log SSE endpoint only; the event stream endpoint (`/api/v1/events/stream`) already JSON-encodes its payload and is unaffected
+
+**Dependencies:** FUNC-027
+
+---
+
 ## Testing Features
 
 ### TEST-001: Unit Test Infrastructure

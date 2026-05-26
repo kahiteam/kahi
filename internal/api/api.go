@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -466,10 +467,21 @@ func (s *Server) handleStreamLog(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case data := <-ch:
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			writeSSEData(w, data)
 			flusher.Flush()
 		}
 	}
+}
+
+// writeSSEData writes data as one SSE "data:" field per line, ended by a single
+// blank line. Emitting each line separately means embedded newlines or
+// "event:"/"data:" prefixes in (untrusted) process output are carried as literal
+// data and cannot inject additional SSE frames. See SEC-013.
+func writeSSEData(w io.Writer, data string) {
+	for _, line := range strings.Split(data, "\n") {
+		fmt.Fprintf(w, "data: %s\n", line)
+	}
+	fmt.Fprint(w, "\n")
 }
 
 func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {

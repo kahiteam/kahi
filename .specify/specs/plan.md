@@ -568,3 +568,25 @@ CodeQL's `BarrierGuard` recognizes only relational comparisons (`<`, `<=`, `>`, 
 
 - FastCGI Unix sockets default to owner-only access. Operators who intentionally need a group- or world-accessible socket must set `socket_mode` explicitly. This is a behavior change for configs that relied on the permissive default.
 - A negligible window exists between Listen and Chmod; the immediate chmod closes it in practice, matching the daemon control socket approach.
+
+### ADR-015: Log Symlink Hardening and Injection-Safe SSE Framing
+
+**Date:** 2026-05-26
+**Status:** Accepted
+
+**Context:** Two defense-in-depth items from the 2026-05-26 security review (issue #39). (1) Process and daemon log files were opened with `O_CREATE|O_WRONLY|O_APPEND` but no `O_NOFOLLOW`; if logs sit in a directory writable by a less-trusted user, that user could plant a symlink and redirect a privileged daemon's log writes to a sensitive file. (2) The log SSE endpoint wrote raw process output via `fmt.Fprintf(w, "data: %s\n\n", data)`, so output with newlines or `event:`/`data:` prefixes could inject SSE frames -- benign in impact (the web client ignores unknown event types and renders via `createTextNode`, so no XSS) but incorrect framing.
+
+**Decision:**
+
+- All log opens use `O_NOFOLLOW` (centralized in a single `logFileOpenFlags` constant). Opening a log path whose final component is a symlink fails rather than following it. `O_NOFOLLOW` constrains only the final component, so symlinked parent directories continue to work.
+- The log SSE writer emits each output line as its own `data:` field. Embedded newlines and `event:`/`data:` prefixes are carried as literal data and cannot start a new SSE event. The event-stream endpoint already JSON-encodes its payload and is unchanged.
+
+**Alternatives Considered:**
+
+1. **Resolve and validate the log path with EvalSymlinks instead of O_NOFOLLOW:** Rejected -- TOCTOU between check and open; `O_NOFOLLOW` is atomic at open time.
+2. **JSON-encode the SSE log payload like the event stream:** Rejected -- changes the client contract for the log viewer; per-line `data:` framing is the standard SSE mechanism and keeps the client unchanged.
+
+**Consequences:**
+
+- A log file that is intentionally a symlink will no longer open; operators must point the log at a real path. This is the intended hardening.
+- Log SSE output is correctly framed; no behavior change for the web UI, which appends its own newline and renders text nodes.

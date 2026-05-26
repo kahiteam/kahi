@@ -73,7 +73,7 @@ func DaemonLogger(level, format, logfile string) (*slog.Logger, func(), error) {
 	var cleanup func()
 
 	if logfile != "" {
-		f, err := os.OpenFile(logfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		f, err := os.OpenFile(logfile, logFileOpenFlags, 0644)
 		if err != nil {
 			return nil, nil, fmt.Errorf("cannot open log file: %s: %w", logfile, err)
 		}
