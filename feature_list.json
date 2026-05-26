@@ -437,7 +437,8 @@
         "Write a test that verifies a non-writable log file path causes the process to go to FATAL",
         "Write a test that verifies output is line-buffered when forwarding to container stdout",
         "Write a test that verifies pipe is closed on process exit and remaining buffered data is flushed",
-        "Write a test that verifies large output bursts do not block the child process"
+        "Write a test that verifies large output bursts do not block the child process",
+        "Regression (SEC-012): point a logfile at a symlink and assert the open fails (O_NOFOLLOW), so a planted symlink cannot redirect log writes"
       ],
       "passes": true,
       "dependencies": ["process-start", "structured-logging"]
@@ -595,7 +596,8 @@
         "Verify multiple clients can stream the same log simultaneously",
         "Verify SSE streams from the in-memory ring buffer when no log file is configured",
         "Make a GET request to /api/v1/processes/web/log/stderr/stream and verify stderr output is streamed as SSE events",
-        "Write a test that opens an SSE stream, sends data to the process, and verifies the data appears within 100ms latency"
+        "Write a test that opens an SSE stream, sends data to the process, and verifies the data appears within 100ms latency",
+        "Regression (SEC-013): stream process output containing a newline and an 'event:' prefix and assert each line is emitted as its own data field (no injected SSE frame)"
       ],
       "passes": true,
       "dependencies": ["rest-api-endpoints"]
