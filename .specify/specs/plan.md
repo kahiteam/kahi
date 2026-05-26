@@ -549,3 +549,22 @@ CodeQL's `BarrierGuard` recognizes only relational comparisons (`<`, `<=`, `>`, 
 - Misconfigured `user` settings now surface as a startup/spawn failure instead of a silent privilege escalation. This is a behavior change: configurations that previously "worked" by ignoring `user` will now fail loudly. This is intended.
 - Children no longer inherit the supervisor's supplementary groups after a drop.
 - A small syscall-seam abstraction is added to the privilege path to keep it unit-testable; this is wired into the `task test` QA gate so the wiring cannot silently regress.
+
+### ADR-014: Secure-by-Default FastCGI Socket Permissions
+
+**Date:** 2026-05-26
+**Status:** Accepted
+
+**Context:** The 2026-05-26 security review found `fcgi.Socket.Open` applied `chmod` to a Unix-domain socket only when `socket_mode` was explicitly configured. With `socket_mode` unset, the socket kept the umask-dependent default (often 0755, world-accessible), so any local user could connect to the FastCGI socket and speak the protocol to the backend it fronts. The constitution already requires a 0700 default for sockets, but the FastCGI path did not honor it.
+
+**Decision:** `Open` always applies a mode to Unix sockets. When `socket_mode` is unset (0) it defaults to 0700; an explicit `socket_mode` is honored as-is. A chmod failure closes the listener and returns an error so a socket is never left in service with permissions wider than intended. TCP sockets are unchanged; their exposure is governed by the bind address.
+
+**Alternatives Considered:**
+
+1. **Keep skipping chmod when socket_mode is unset:** Rejected -- this is the vulnerability.
+2. **Set a process-global umask around net.Listen:** Rejected -- umask is process-wide and races with other goroutines creating files; an explicit chmod is deterministic.
+
+**Consequences:**
+
+- FastCGI Unix sockets default to owner-only access. Operators who intentionally need a group- or world-accessible socket must set `socket_mode` explicitly. This is a behavior change for configs that relied on the permissive default.
+- A negligible window exists between Listen and Chmod; the immediate chmod closes it in practice, matching the daemon control socket approach.

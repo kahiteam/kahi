@@ -3713,6 +3713,39 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 ---
 
+### SEC-011: FastCGI Unix Socket Secure Default Permissions
+
+**Description:** A FastCGI Unix-domain socket must never be left at the umask-dependent default permission (commonly world-accessible). The 2026-05-26 security review found `Socket.Open` chmod-ed the socket only when `socket_mode` was explicitly set; with `socket_mode` omitted, any local user could connect to the socket and speak FastCGI to the backend it fronts. The constitution already mandates a default socket mode of 0700; this requirement enforces it on the FastCGI path.
+
+**Acceptance Criteria:**
+
+- **Given** a FastCGI Unix socket configured without `socket_mode`
+  **When** the socket is opened
+  **Then** the socket file is chmod-ed to 0700, verified in the `task test` QA gate by a test asserting the on-disk file mode
+
+- **Given** a FastCGI Unix socket configured with an explicit `socket_mode`
+  **When** the socket is opened
+  **Then** the configured mode is applied, verified by an automated test
+
+- **Given** the chmod fails
+  **When** the socket is opened
+  **Then** Open returns an error and the listener is closed; no socket is left in service with wider-than-intended permissions
+
+**Error Handling:**
+
+| Error Condition       | Expected Behavior                   | User-Facing Message                            |
+| --------------------- | ----------------------------------- | ---------------------------------------------- |
+| chmod on socket fails | Open returns error, listener closed | "cannot chmod FastCGI socket: {path}: {error}" |
+
+**Edge Cases:**
+
+- Default mode 0700 matches the daemon control socket default in the constitution
+- TCP FastCGI sockets are unaffected; their exposure is governed by the bind address
+
+**Dependencies:** FUNC-075
+
+---
+
 ## Testing Features
 
 ### TEST-001: Unit Test Infrastructure

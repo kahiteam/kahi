@@ -8,6 +8,14 @@ import (
 	"sync"
 )
 
+// defaultSocketMode is applied to Unix sockets when no socket_mode is
+// configured. Owner-only access prevents other local users from connecting to
+// the FastCGI socket; operators may widen it explicitly via socket_mode.
+const defaultSocketMode os.FileMode = 0700
+
+// chmodSocket is a seam over os.Chmod so the fail-closed path is testable.
+var chmodSocket = os.Chmod
+
 // Protocol specifies the FastCGI socket protocol.
 type Protocol string
 
@@ -58,11 +66,18 @@ func (s *Socket) Open() (*os.File, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cannot create FastCGI socket: %s: %w", s.config.SocketPath, err)
 		}
-		if s.config.SocketMode != 0 {
-			if err := os.Chmod(s.config.SocketPath, s.config.SocketMode); err != nil {
-				ln.Close()
-				return nil, fmt.Errorf("cannot chmod FastCGI socket: %s: %w", s.config.SocketPath, err)
-			}
+		// Always enforce a mode. An unset socket_mode would otherwise leave the
+		// socket at the umask-dependent default (often world-accessible), letting
+		// any local user connect. Default to owner-only; honor an explicit mode.
+		// A chmod failure closes the listener so no socket is left in service with
+		// wider-than-intended permissions.
+		mode := s.config.SocketMode
+		if mode == 0 {
+			mode = defaultSocketMode
+		}
+		if err := chmodSocket(s.config.SocketPath, mode); err != nil {
+			ln.Close()
+			return nil, fmt.Errorf("cannot chmod FastCGI socket: %s: %w", s.config.SocketPath, err)
 		}
 	case ProtocolTCP:
 		ln, err = net.Listen("tcp", s.config.SocketPath)
