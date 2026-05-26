@@ -148,6 +148,10 @@ func (p *Process) startLocked() error {
 	return p.spawnLocked()
 }
 
+// geteuid reports the effective user ID. It is a package var so tests can
+// exercise the root and non-root credential paths without elevated privileges.
+var geteuid = os.Geteuid
+
 // spawnLocked does the actual spawn without state transitions.
 // Called by startLocked (after RequestStart) and retryAfterBackoff (after RetryFromBackoff).
 func (p *Process) spawnLocked() error {
@@ -167,22 +171,27 @@ func (p *Process) spawnLocked() error {
 		spawnCfg.RLimits = rlimits
 	}
 
+	// Apply per-process credential switching (uid/gid). Switching credentials
+	// requires root: when not running as root the setting is ignored with a
+	// warning and the child runs as the current user (it cannot escalate). When
+	// running as root, the resolved credential is attached to the spawn so the
+	// child runs as the configured user -- a configured user is never silently
+	// started with the supervisor's privileges. An unparseable user fails closed.
+	if p.config.User != "" {
+		if geteuid() == 0 {
+			attr, err := BuildSysProcAttr(p.config.User)
+			if err != nil {
+				return p.failSpawnLocked(fmt.Errorf("cannot apply user %q: %w", p.config.User, err))
+			}
+			spawnCfg.SysProcAttr = attr
+		} else {
+			p.logger.Warn("user switching unavailable (not running as root), running as current user", "user", p.config.User)
+		}
+	}
+
 	spawned, err := p.spawner.Spawn(spawnCfg)
 	if err != nil {
-		p.logger.Error("spawn failed", "error", err)
-		// Transition to backoff or fatal.
-		newState, fErr := p.sm.ProcessExitedEarly()
-		if fErr != nil {
-			p.logger.Error("state transition failed", "error", fErr)
-		}
-		p.publishStateLocked(p.sm.State())
-
-		// If in backoff, schedule a retry (HandleExit won't fire since no child was created).
-		if newState == Backoff {
-			go p.retryAfterBackoff(p.stopCh)
-		}
-
-		return fmt.Errorf("process %s: spawn failed: %w", p.name, err)
+		return p.failSpawnLocked(err)
 	}
 
 	p.spawned = spawned
@@ -219,6 +228,26 @@ func (p *Process) spawnLocked() error {
 	}
 
 	return nil
+}
+
+// failSpawnLocked records a failed spawn attempt: it logs, advances the state
+// machine (to BACKOFF or FATAL), publishes the new state, schedules a retry if
+// the process entered BACKOFF, and returns a wrapped error. No child exists for
+// this attempt, so HandleExit will not fire for it.
+func (p *Process) failSpawnLocked(err error) error {
+	p.logger.Error("spawn failed", "error", err)
+	newState, fErr := p.sm.ProcessExitedEarly()
+	if fErr != nil {
+		p.logger.Error("state transition failed", "error", fErr)
+	}
+	p.publishStateLocked(p.sm.State())
+
+	// If in backoff, schedule a retry (HandleExit won't fire since no child was created).
+	if newState == Backoff {
+		go p.retryAfterBackoff(p.stopCh)
+	}
+
+	return fmt.Errorf("process %s: spawn failed: %w", p.name, err)
 }
 
 func (p *Process) watchStart(stopCh <-chan struct{}) {

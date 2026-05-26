@@ -524,3 +524,28 @@ CodeQL's `BarrierGuard` recognizes only relational comparisons (`<`, `<=`, `>`, 
 - Release runtime increases by ~30-60 seconds for the verify job.
 - A verify failure requires manual cleanup (delete partial GitHub Release, leave signed images orphaned in GHCR) -- acceptable trade-off versus publishing unverified artifacts.
 - `verify-signatures` is a hard gate. No bypass flag. If verify tooling has a bug, the fix is to patch the tooling, not skip the check.
+
+### ADR-013: Fail-Closed Runtime Privilege Drop
+
+**Date:** 2026-05-26
+**Status:** Accepted
+
+**Context:** A full-codebase security review on 2026-05-26 found two gaps between the privilege-handling spec (FUNC-045, FUNC-046) and the implementation. (1) Per-process `user` was resolved into a credential but never attached to the spawned child, so a configured low-privilege user was silently ignored and children ran with the supervisor's inherited privileges (root). (2) `DropPrivileges` set the primary gid and uid but never called `setgroups`, leaving root's supplementary groups (e.g. `docker`, root-equivalent) active after the drop and inherited by children. Both are privilege-escalation exposures: an operator who explicitly configured isolation did not get it, with no error.
+
+**Decision:** Privilege handling is fail-closed.
+
+- The spawn path attaches the resolved credential to `SysProcAttr.Credential` whenever `user` is configured. If the credential cannot be built or applied, the process does not start; it goes to FATAL. Silent fallback to inherited privileges is forbidden.
+- `DropPrivileges` calls `setgroups` (resetting supplementary groups to the target gid) before `setgid` before `setuid`. A `setgroups` failure aborts startup rather than continuing with a partial drop.
+- The syscall sequence in the daemon drop is made testable via an injectable seam so the ordering and the supplementary-group reset are asserted by unit tests that run as a non-root CI user (the seam records calls; real syscalls run only when privileged).
+
+**Alternatives Considered:**
+
+1. **Log a warning and continue when the credential cannot be applied:** Rejected. A warning in a log is not a security boundary; the operator asked for isolation and must get it or a hard failure.
+2. **Skip setgroups when the daemon has no supplementary groups:** Rejected. The daemon cannot assume its launch environment; an unconditional reset is cheap and removes the failure mode entirely.
+3. **Integration-test the drop by running the suite as root:** Rejected as the primary mechanism. CI does not run privileged; the injectable seam gives deterministic assertions without root, with an optional root-gated integration test on top.
+
+**Consequences:**
+
+- Misconfigured `user` settings now surface as a startup/spawn failure instead of a silent privilege escalation. This is a behavior change: configurations that previously "worked" by ignoring `user` will now fail loudly. This is intended.
+- Children no longer inherit the supervisor's supplementary groups after a drop.
+- A small syscall-seam abstraction is added to the privilege path to keep it unit-testable; this is wired into the `task test` QA gate so the wiring cannot silently regress.

@@ -8,6 +8,14 @@ import (
 	"syscall"
 )
 
+// Syscall seams for the privilege drop, overridable in tests so the call
+// ordering and supplementary-group reset can be asserted without root.
+var (
+	setgroups = syscall.Setgroups
+	setgid    = syscall.Setgid
+	setuid    = syscall.Setuid
+)
+
 // WritePIDFile writes the current process PID to the given path.
 func WritePIDFile(path string) error {
 	if path == "" {
@@ -125,10 +133,18 @@ func DropPrivileges(user string, logger *slog.Logger) error {
 		return fmt.Errorf("cannot resolve user %q: %w", user, err)
 	}
 
-	if err := syscall.Setgid(gid); err != nil {
+	// Reset supplementary groups before changing gid/uid so the dropped process
+	// does not retain the launching user's group memberships (e.g. docker, wheel,
+	// which can be root-equivalent). Order matters: setgroups, then setgid, then
+	// setuid -- once uid is dropped the process can no longer call setgroups. Any
+	// failure aborts rather than leaving privileges partially dropped.
+	if err := setgroups([]int{gid}); err != nil {
+		return fmt.Errorf("setgroups failed: %w", err)
+	}
+	if err := setgid(gid); err != nil {
 		return fmt.Errorf("setgid(%d) failed: %w", gid, err)
 	}
-	if err := syscall.Setuid(uid); err != nil {
+	if err := setuid(uid); err != nil {
 		return fmt.Errorf("setuid(%d) failed: %w", uid, err)
 	}
 
