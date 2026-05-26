@@ -881,7 +881,9 @@
         "Start as non-root with user config and verify the setting is ignored with a warning logged",
         "Configure a nonexistent user and verify exit with 'user not found' error",
         "Verify supplementary groups are computed from /etc/group",
-        "Verify privilege drop happens after socket creation but before processing requests"
+        "Verify privilege drop happens after socket creation but before processing requests",
+        "Regression (SEC-010): assert the privilege-drop path invokes setgroups to reset supplementary groups before setgid before setuid, verified via the injectable syscall seam without requiring root",
+        "Regression (SEC-010): assert a setgroups failure aborts startup rather than continuing with a partial privilege drop"
       ],
       "passes": true,
       "dependencies": ["unprivileged-operation"]
@@ -895,7 +897,9 @@
         "Configure user='www-data' on a process, run Kahi as root, and verify the child runs as www-data uid/gid",
         "Configure user on a process, run Kahi as non-root, and verify a warning is logged and the setting is ignored",
         "Configure a nonexistent user on a process and verify it goes to FATAL with 'user not found' error",
-        "Verify user switching sets uid, gid, and supplementary groups before exec"
+        "Verify user switching sets uid, gid, and supplementary groups before exec",
+        "Regression (SEC-009): assert that a configured process user results in SysProcAttr.Credential being attached to the spawn config (guards the wiring from silently regressing)",
+        "Regression (SEC-009): assert that when a configured user's credential cannot be applied the spawn fails closed and the child does not start with the supervisor's privileges"
       ],
       "passes": true,
       "dependencies": ["privilege-dropping"]

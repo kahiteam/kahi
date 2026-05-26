@@ -3646,6 +3646,73 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 ---
 
+### SEC-009: Per-Process Credential Switching Is Enforced
+
+**Description:** The per-process `user` setting specified in FUNC-046 must be applied to the actual spawned child process, not merely parsed. A security review on 2026-05-26 found the configured uid/gid was resolved but never set on the child (the credential `SysProcAttr` was never attached during spawn), so children silently ran with the supervisor's inherited privileges. This requirement makes the behavior fail-closed and adds a regression gate.
+
+**Acceptance Criteria:**
+
+- **Given** Kahi runs as root and a process has `user = "www-data"`
+  **When** the process is spawned
+  **Then** the child's `SysProcAttr.Credential` is set to the resolved uid/gid before exec, verified in the `task test` QA gate by a non-root regression test asserting the resolved credential is attached to the spawn config; a root-gated integration test (skipped when not privileged) additionally asserts the spawned child's effective uid/gid
+
+- **Given** a process specifies `user` but the credential cannot be applied (resolution failure, or running as a uid that cannot setuid the target)
+  **When** the process is spawned
+  **Then** the spawn fails and the process goes to FATAL; the child MUST NOT start with the supervisor's privileges
+
+- **Given** the regression test suite
+  **When** `task test` runs in the QA gate
+  **Then** a test asserts that a configured `user` results in a credential being attached to the spawn config (preventing silent regression of the wiring)
+
+**Error Handling:**
+
+| Error Condition                                 | Expected Behavior     | User-Facing Message                          |
+| ----------------------------------------------- | --------------------- | -------------------------------------------- |
+| Configured user cannot be resolved              | Process goes to FATAL | "user not found: {name}"                     |
+| Credential cannot be applied at spawn (fail)    | Process goes to FATAL | "cannot apply user {name}: {error}"          |
+
+**Edge Cases:**
+
+- The credential is attached to the spawn configuration, never dropped on the floor when `user` is non-empty
+- Resource limits and umask, already wired, remain applied alongside the credential
+
+**Dependencies:** FUNC-046
+
+---
+
+### SEC-010: Supplementary Groups Reset on Privilege Drop
+
+**Description:** When the daemon drops privileges (FUNC-045), it must reset supplementary group memberships, not just set the primary gid and uid. The 2026-05-26 review found `DropPrivileges` called `setgid`/`setuid` but never `setgroups`, leaving root's supplementary groups (e.g. `docker`, `wheel`) active after the drop and inherited by children. This requirement enforces an explicit `setgroups` step.
+
+**Acceptance Criteria:**
+
+- **Given** Kahi runs as root with supplementary groups and `user = "kahi"` in config
+  **When** the privilege drop runs
+  **Then** `setgroups` is called to reset supplementary groups to the target gid before `setuid`, in the order setgroups -> setgid -> setuid
+
+- **Given** the `setgroups` call fails
+  **When** the privilege drop runs
+  **Then** startup aborts with an error; privileges MUST NOT be partially dropped
+
+- **Given** the regression test suite
+  **When** `task test` runs in the QA gate
+  **Then** a test asserts the privilege-drop path invokes the supplementary-group reset (verified via an injectable syscall seam, since the test process is not root)
+
+**Error Handling:**
+
+| Error Condition    | Expected Behavior | User-Facing Message               |
+| ------------------ | ----------------- | --------------------------------- |
+| setgroups fails    | Exit with error   | "setgroups failed: {error}"       |
+
+**Edge Cases:**
+
+- Call order is setgroups, then setgid, then setuid; reversing leaves a window of residual privilege
+- The reset list contains the target gid only
+
+**Dependencies:** FUNC-045
+
+---
+
 ## Testing Features
 
 ### TEST-001: Unit Test Infrastructure
