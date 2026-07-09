@@ -83,12 +83,29 @@ func TestSpawnAppliesNofileRLimit(t *testing.T) {
 
 // SEC-021: a configured NPROC limit must take effect in the spawned child.
 func TestSpawnAppliesNprocRLimit(t *testing.T) {
-	// The soft limit must sit in a window: above the uid's live process/thread
-	// count (the Go re-exec trampoline spawns threads before exec, so a low
-	// value like 137 fails on busy CI runners with exit 2) yet at or below the
-	// platform cap so the readback is faithful (macOS clamps NPROC to
-	// kern.maxprocperuid at set time). 8192 satisfies both.
-	target := clampToHard(t, rlimitNproc, 8192)
+	// NPROC is special: the re-exec trampoline is a multi-threaded Go program,
+	// so a soft limit below the uid's live process/thread count makes the
+	// runtime abort before exec (exit 2) — which is why a low absolute value
+	// fails on busy CI runners. Live usage is bounded by the current soft
+	// limit, so we set the target just slightly below the current soft limit:
+	// an observable change that stays above live usage (never starving the
+	// child) and at/below any platform cap (macOS clamps NPROC to
+	// kern.maxprocperuid, but the target is below the current soft so it is
+	// applied faithfully). Skip when the soft limit is unlimited or too small
+	// to carve out a distinct value.
+	var rl syscall.Rlimit
+	if err := syscall.Getrlimit(rlimitNproc, &rl); err != nil {
+		t.Fatalf("getrlimit(nproc): %v", err)
+	}
+	soft := uint64(rl.Cur)
+	if soft == ^uint64(0) || soft < 128 {
+		t.Skip("NPROC soft limit unlimited or too small for an end-to-end apply check")
+	}
+	reduce := soft / 64
+	if reduce == 0 {
+		reduce = 1
+	}
+	target := soft - reduce
 	out := spawnCapture(t, SpawnConfig{
 		Command: "/bin/sh",
 		Args:    []string{"-c", "ulimit -u"},
