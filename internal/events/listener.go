@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -135,18 +137,55 @@ func (lp *ListenerPool) sendToReady(event Event) {
 	lp.logger.Warn("no ready listeners for event", "pool", lp.name, "event", string(event.Type))
 }
 
+// formatEventPayload renders an event for delivery to a listener's stdin.
+//
+// The wire format is a length-framed payload, mirroring supervisord: a
+// trusted header line "TYPE TIMESTAMP len:N\n" is followed by exactly N
+// bytes of body. The header is composed only of supervisor-controlled
+// values (event type and timestamp); the body carries the event data,
+// whose values may originate from managed process output and are therefore
+// untrusted under a process-compromise assumption. Length-framing the body
+// ensures an embedded newline or header-like text is carried as opaque data
+// and cannot be parsed as a forged protocol line. An empty body is framed
+// with len:0. The READY/RESULT handshake framing is unchanged.
 func formatEventPayload(event Event) string {
+	body := formatEventBody(event)
+
 	var sb strings.Builder
 	sb.WriteString(string(event.Type))
 	sb.WriteString(" ")
 	sb.WriteString(event.Timestamp.Format(time.RFC3339))
-	for k, v := range event.Data {
-		sb.WriteString(" ")
+	sb.WriteString(" len:")
+	sb.WriteString(strconv.Itoa(len(body)))
+	sb.WriteString("\n")
+	sb.WriteString(body)
+	return sb.String()
+}
+
+// formatEventBody renders the space-separated key:value data pairs that make
+// up the length-framed payload body. Keys are sorted for deterministic
+// output. The body carries no trailing newline; the listener reads exactly
+// the announced number of bytes.
+func formatEventBody(event Event) string {
+	if len(event.Data) == 0 {
+		return ""
+	}
+
+	keys := make([]string, 0, len(event.Data))
+	for k := range event.Data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var sb strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString(" ")
+		}
 		sb.WriteString(k)
 		sb.WriteString(":")
-		sb.WriteString(v)
+		sb.WriteString(event.Data[k])
 	}
-	sb.WriteString("\n")
 	return sb.String()
 }
 
