@@ -703,6 +703,8 @@ func TestUnixSocketCleanupOnShutdown(t *testing.T) {
 
 func TestTCPServer(t *testing.T) {
 	srv, _, _ := testServer()
+	srv.authUser = "admin"
+	srv.authPass = "secret"
 	if err := srv.StartTCP("127.0.0.1:0"); err != nil {
 		t.Fatal(err)
 	}
@@ -758,10 +760,52 @@ func TestTCPAuthRequired(t *testing.T) {
 	}
 }
 
+func TestStartTCPRefusesWithoutCredentials(t *testing.T) {
+	cases := []struct {
+		name string
+		user string
+		pass string
+	}{
+		{"no username and no password", "", ""},
+		{"username but no password", "admin", ""},
+		{"password but no username", "", "secret"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, _, _ := testServer()
+			srv.authUser = tc.user
+			srv.authPass = tc.pass
+
+			err := srv.StartTCP("127.0.0.1:0")
+			if err == nil {
+				_ = srv.Stop(context.Background())
+				t.Fatal("expected StartTCP to refuse without credentials")
+			}
+			if !strings.Contains(err.Error(), "requires username/password") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if srv.TCPAddr() != "" {
+				t.Fatal("expected no listener to be opened")
+			}
+		})
+	}
+}
+
+func TestStartTCPRefusesLoopbackWithoutCredentials(t *testing.T) {
+	// Loopback receives no exemption from the credential requirement.
+	srv, _, _ := testServer()
+	if err := srv.StartTCP("127.0.0.1:0"); err == nil {
+		_ = srv.Stop(context.Background())
+		t.Fatal("expected loopback StartTCP to refuse without credentials")
+	}
+}
+
 // --- SSE tests ---
 
 func TestEventStreamSSE(t *testing.T) {
 	srv, _, _ := testServer()
+	srv.authUser = "admin"
+	srv.authPass = "secret"
 
 	// Start TCP server for real SSE test.
 	if err := srv.StartTCP("127.0.0.1:0"); err != nil {
@@ -777,6 +821,7 @@ func TestEventStreamSSE(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(ctx, "GET", "http://"+addr+"/api/v1/events/stream", nil)
 	req.Header.Set("Accept", "text/event-stream")
+	req.SetBasicAuth("admin", "secret")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -811,6 +856,8 @@ func TestEventStreamSSE(t *testing.T) {
 
 func TestEventStreamWithTypeFilter(t *testing.T) {
 	srv, _, _ := testServer()
+	srv.authUser = "admin"
+	srv.authPass = "secret"
 	if err := srv.StartTCP("127.0.0.1:0"); err != nil {
 		t.Fatal(err)
 	}
@@ -822,6 +869,7 @@ func TestEventStreamWithTypeFilter(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(ctx, "GET",
 		"http://"+addr+"/api/v1/events/stream?types=PROCESS_STATE_RUNNING", nil)
+	req.SetBasicAuth("admin", "secret")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

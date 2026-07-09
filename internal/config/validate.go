@@ -49,5 +49,15 @@ func Validate(cfg *Config) []error {
 		}
 	}
 
+	// Fail-closed TCP authentication (SEC-015): enabling the HTTP listener
+	// requires credentials for any bind address, loopback included. Loopback
+	// is not a trust boundary (shared across a network namespace), so it gets
+	// no exemption. The password-free local path is the Unix socket.
+	if cfg.Server.HTTP.Enabled {
+		if strings.TrimSpace(cfg.Server.HTTP.Username) == "" || cfg.Server.HTTP.Password == "" {
+			errs = append(errs, fmt.Errorf("http listener on %s requires username/password", cfg.Server.HTTP.Listen))
+		}
+	}
+
 	return errs
 }
