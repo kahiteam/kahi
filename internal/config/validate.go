@@ -59,5 +59,11 @@ func Validate(cfg *Config) []error {
 		}
 	}
 
+	// bcrypt-only passwords (SEC-018): a configured password must be a bcrypt
+	// hash; plaintext is rejected at startup.
+	if pw := cfg.Server.HTTP.Password; pw != "" && !strings.HasPrefix(pw, "$2") {
+		errs = append(errs, fmt.Errorf("http.password must be a bcrypt hash"))
+	}
+
 	return errs
 }

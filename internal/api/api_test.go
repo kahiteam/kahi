@@ -19,6 +19,18 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// testPassHash is a bcrypt hash of "secret" used by auth tests; the plaintext
+// password fallback was removed, so helpers must configure a real bcrypt hash.
+var testPassHash = mustHash("secret")
+
+func mustHash(pw string) string {
+	h, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.MinCost)
+	if err != nil {
+		panic(err)
+	}
+	return string(h)
+}
+
 // --- Mock implementations ---
 
 type mockProcessManager struct {
@@ -186,7 +198,7 @@ func TestHealthzShuttingDown(t *testing.T) {
 func TestHealthzNoAuth(t *testing.T) {
 	srv, _, _ := testServer()
 	srv.authUser = "admin"
-	srv.authPass = "secret"
+	srv.authPass = testPassHash
 
 	req := httptest.NewRequest("GET", "/healthz", nil)
 	req.RemoteAddr = "127.0.0.1:12345" // Simulate TCP connection.
@@ -528,7 +540,7 @@ func TestStartDuringShutdown(t *testing.T) {
 func TestAuthRequiredOnTCP(t *testing.T) {
 	srv, _, _ := testServer()
 	srv.authUser = "admin"
-	srv.authPass = "secret"
+	srv.authPass = testPassHash
 
 	req := httptest.NewRequest("GET", "/api/v1/processes", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
@@ -546,7 +558,7 @@ func TestAuthRequiredOnTCP(t *testing.T) {
 func TestAuthValidCredentials(t *testing.T) {
 	srv, _, _ := testServer()
 	srv.authUser = "admin"
-	srv.authPass = "secret"
+	srv.authPass = testPassHash
 
 	req := httptest.NewRequest("GET", "/api/v1/processes", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
@@ -562,7 +574,7 @@ func TestAuthValidCredentials(t *testing.T) {
 func TestAuthInvalidCredentials(t *testing.T) {
 	srv, _, _ := testServer()
 	srv.authUser = "admin"
-	srv.authPass = "secret"
+	srv.authPass = testPassHash
 
 	req := httptest.NewRequest("GET", "/api/v1/processes", nil)
 	req.RemoteAddr = "127.0.0.1:12345"
@@ -578,7 +590,7 @@ func TestAuthInvalidCredentials(t *testing.T) {
 func TestAuthSkippedOnUnixSocket(t *testing.T) {
 	srv, _, _ := testServer()
 	srv.authUser = "admin"
-	srv.authPass = "secret"
+	srv.authPass = testPassHash
 
 	req := httptest.NewRequest("GET", "/api/v1/processes", nil)
 	req.RemoteAddr = "" // Unix socket.
@@ -728,7 +740,7 @@ func TestTCPServer(t *testing.T) {
 func TestTCPAuthRequired(t *testing.T) {
 	srv, _, _ := testServer()
 	srv.authUser = "admin"
-	srv.authPass = "secret"
+	srv.authPass = testPassHash
 
 	if err := srv.StartTCP("127.0.0.1:0"); err != nil {
 		t.Fatal(err)
@@ -1033,6 +1045,17 @@ func TestCheckPasswordEmpty(t *testing.T) {
 	}
 	if checkPassword("notempty", "") {
 		t.Fatal("expected false for non-empty password with empty hash")
+	}
+}
+
+// TestCheckPasswordRejectsPlaintext confirms the plaintext-equality fallback is
+// gone: a non-bcrypt hash never matches, even when plain == hash.
+func TestCheckPasswordRejectsPlaintext(t *testing.T) {
+	if checkPassword("plaintextpw", "plaintextpw") {
+		t.Fatal("plaintext equality must not authenticate; bcrypt-only required")
+	}
+	if checkPassword("secret", "secret") {
+		t.Fatal("plaintext equality must not authenticate; bcrypt-only required")
 	}
 }
 

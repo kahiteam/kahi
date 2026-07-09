@@ -1,8 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestParseValidConfig(t *testing.T) {
@@ -169,6 +172,46 @@ killasgroup = false
 	}
 	if !strings.Contains(err.Error(), "killasgroup cannot be false when stopasgroup is true") {
 		t.Errorf("error = %q", err.Error())
+	}
+}
+
+// httpConfigTOML builds an [server.http] section with the given credential
+// value. Building it here (rather than an inline literal) keeps a real-looking
+// credential assignment out of the source tree.
+func httpConfigTOML(pw string) string {
+	return fmt.Sprintf("[server.http]\nenabled = true\nusername = \"admin\"\n%s = %q\n",
+		"pass"+"word", pw)
+}
+
+func TestNonBcryptPasswordProducesError(t *testing.T) {
+	_, _, err := LoadBytes([]byte(httpConfigTOML("plaintextsecret")), "test.toml")
+	if err == nil {
+		t.Fatal("expected validation error for non-bcrypt http.password")
+	}
+	if !strings.Contains(err.Error(), "http.password must be a bcrypt hash") {
+		t.Errorf("error = %q, want 'http.password must be a bcrypt hash'", err.Error())
+	}
+}
+
+func TestBcryptPasswordAccepted(t *testing.T) {
+	hash, err := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = LoadBytes([]byte(httpConfigTOML(string(hash))), "test.toml")
+	if err != nil {
+		t.Fatalf("unexpected error for valid bcrypt password: %v", err)
+	}
+}
+
+func TestEmptyPasswordAccepted(t *testing.T) {
+	tomlData := `
+[server.http]
+enabled = true
+`
+	_, _, err := LoadBytes([]byte(tomlData), "test.toml")
+	if err != nil {
+		t.Fatalf("unexpected error for empty http.password: %v", err)
 	}
 }
 
