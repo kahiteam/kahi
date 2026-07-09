@@ -2028,7 +2028,7 @@
         "Run 'go test -run TestGetConfig ./internal/api/...' and confirm the regression test asserts absence of the seeded secrets",
         "Verify any config reload or diff response that echoes config applies the same redaction"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["rest-api-endpoints", "http-basic-auth"]
     },
     {
@@ -2044,7 +2044,7 @@
         "Run 'go test ./internal/config/... ./internal/api/...' and confirm both the config-validation and StartTCP guards are covered",
         "Verify the all-interfaces bind warning still logs in addition to the hard failure"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["tcp-http-server", "http-basic-auth"]
     },
     {
@@ -2060,7 +2060,7 @@
         "Verify HOME resolves from the target user's passwd entry and falls back to / when unresolved",
         "Run 'go test -run TestBuildEnv ./internal/process/...' and confirm the differing-user clean-by-default path is covered"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["per-process-user-switching"]
     },
     {
@@ -2076,7 +2076,7 @@
         "With no config in system paths and none explicit, verify the daemon exits non-zero listing the searched paths",
         "Run 'go test -run TestResolve ./internal/config/...' and confirm the daemon search order excludes the CWD entry"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["config-search-paths"]
     },
     {
@@ -2092,7 +2092,7 @@
         "Run 'go test -run TestCheckPassword ./internal/api/...' and confirm no plaintext path remains",
         "Verify test helpers use bcrypt hashes rather than plaintext passwords"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["http-basic-auth"]
     },
     {
@@ -2107,7 +2107,7 @@
         "On a platform lacking openat semantics, verify the final-component O_NOFOLLOW guard remains and the trusted-path assumption is documented",
         "Run 'go test -run TestLogOpen ./internal/logging/...' covering the parent-symlink case"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["process-output-capture"]
     },
     {
@@ -2123,7 +2123,7 @@
         "Verify an empty payload is framed with length 0",
         "Run 'go test -run TestFormatEventPayload ./internal/events/...' covering the framing"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["event-listener-pools"]
     },
     {
@@ -2140,7 +2140,7 @@
         "Verify limits and umask are applied in the child post-fork pre-exec via SysProcAttr or child init",
         "Run 'go test -run TestApplyRLimits ./internal/process/...' and 'go test -run TestApplyUmask ./internal/process/...' and confirm they are exercised through the spawn path, not only directly"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["resource-limits", "process-umask"]
     },
     {
@@ -2156,7 +2156,7 @@
         "Verify the migrator does not emit chown into generated config and the generated template drops the commented chown example",
         "Run 'go test ./internal/api/... ./internal/config/...' covering the chown and chmod rejections"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["unix-socket-server"]
     },
     {
@@ -2176,7 +2176,7 @@
         "Run the renderer via 'go run .github/scripts/build-test-comment.go' against fixture JUnit files and verify both compact and full outputs",
         "Verify the feature targets GitHub Actions only and GitLab/Jenkins remain documentation guides"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["test-output-formatting", "pr-test-result-visibility"]
     }
   ]
