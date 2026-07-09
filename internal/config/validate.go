@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -9,6 +10,20 @@ import (
 var validSignals = map[string]bool{
 	"TERM": true, "HUP": true, "INT": true, "QUIT": true,
 	"KILL": true, "USR1": true, "USR2": true,
+}
+
+// knownRLimits lists the resource-limit environment keys the supervisor
+// applies to child processes. Values must be "unlimited", "-1", a single
+// unsigned integer, or a "soft:hard" pair of unsigned integers.
+var knownRLimits = map[string]bool{
+	"KAHI_RLIMIT_NOFILE": true,
+	"KAHI_RLIMIT_NPROC":  true,
+	"KAHI_RLIMIT_CORE":   true,
+	"KAHI_RLIMIT_FSIZE":  true,
+	"KAHI_RLIMIT_AS":     true,
+	"KAHI_RLIMIT_DATA":   true,
+	"KAHI_RLIMIT_STACK":  true,
+	"KAHI_RLIMIT_RSS":    true,
 }
 
 // validAutorestartValues lists the allowed autorestart values.
@@ -47,7 +62,50 @@ func Validate(cfg *Config) []error {
 		if p.Numprocs < 1 {
 			errs = append(errs, fmt.Errorf("%s: numprocs must be >= 1, got %d", prefix, p.Numprocs))
 		}
+
+		errs = append(errs, validateRLimits(prefix, p.Environment)...)
 	}
 
 	return errs
+}
+
+// validateRLimits rejects malformed resource-limit entries so a bad value fails
+// at config validation rather than being silently dropped at spawn time.
+func validateRLimits(prefix string, env map[string]string) []error {
+	var errs []error
+	for k, v := range env {
+		name := strings.ToUpper(k)
+		if !strings.HasPrefix(name, "KAHI_RLIMIT_") {
+			continue
+		}
+		if !knownRLimits[name] {
+			errs = append(errs, fmt.Errorf("%s: invalid rlimit %s: unknown resource", prefix, name))
+			continue
+		}
+		if !validRLimitValue(v) {
+			errs = append(errs, fmt.Errorf("%s: invalid rlimit %s: %s", prefix, name, v))
+		}
+	}
+	return errs
+}
+
+// validRLimitValue reports whether s is a valid rlimit value: "unlimited",
+// "-1", a single unsigned integer, or a "soft:hard" pair.
+func validRLimitValue(s string) bool {
+	parts := strings.SplitN(s, ":", 2)
+	for _, p := range parts {
+		if !validRLimitComponent(p) {
+			return false
+		}
+	}
+	return true
+}
+
+func validRLimitComponent(s string) bool {
+	s = strings.TrimSpace(s)
+	if strings.EqualFold(s, "unlimited") || s == "-1" {
+		return true
+	}
+	_, err := strconv.ParseUint(s, 10, 64)
+	return err == nil
 }

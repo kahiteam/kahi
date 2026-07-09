@@ -163,6 +163,7 @@ func (p *Process) spawnLocked() error {
 		Args:    args,
 		Dir:     p.config.Directory,
 		Env:     env,
+		Umask:   -1, // -1 means inherit the supervisor's umask
 	}
 
 	// Apply resource limits.
@@ -170,6 +171,13 @@ func (p *Process) spawnLocked() error {
 	if len(rlimits) > 0 {
 		spawnCfg.RLimits = rlimits
 	}
+
+	// Apply the per-process umask (empty config means inherit, i.e. -1).
+	umask, err := ParseUmask(p.config.Umask)
+	if err != nil {
+		return p.failSpawnLocked(fmt.Errorf("invalid umask %q: %w", p.config.Umask, err))
+	}
+	spawnCfg.Umask = umask
 
 	// Apply per-process credential switching (uid/gid). Switching credentials
 	// requires root: when not running as root the setting is ignored with a
