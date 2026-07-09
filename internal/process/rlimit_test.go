@@ -1,10 +1,49 @@
 package process
 
 import (
+	"syscall"
 	"testing"
 
 	"github.com/kahiteam/kahi/internal/config"
 )
+
+// TestApplyRLimits exercises ApplyRLimits directly by lowering the current
+// process's NOFILE soft limit and reading it back. The spawn-path coverage that
+// applies limits to a child lives in TestSpawnAppliesNofileRLimit and
+// TestSpawnAppliesNprocRLimit.
+func TestApplyRLimits(t *testing.T) {
+	var orig syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &orig); err != nil {
+		t.Fatalf("getrlimit: %v", err)
+	}
+	t.Cleanup(func() { _ = syscall.Setrlimit(syscall.RLIMIT_NOFILE, &orig) })
+
+	target := uint64(256)
+	if hard := uint64(orig.Max); hard != 0 && hard < target {
+		target = hard
+	}
+	if err := ApplyRLimits([]RLimit{{
+		Resource: int(syscall.RLIMIT_NOFILE),
+		Cur:      target,
+		Max:      target,
+	}}); err != nil {
+		t.Fatalf("ApplyRLimits: %v", err)
+	}
+
+	var got syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &got); err != nil {
+		t.Fatalf("getrlimit after apply: %v", err)
+	}
+	if uint64(got.Cur) != target {
+		t.Fatalf("NOFILE soft = %d, want %d", uint64(got.Cur), target)
+	}
+}
+
+func TestApplyRLimitsEmpty(t *testing.T) {
+	if err := ApplyRLimits(nil); err != nil {
+		t.Fatalf("ApplyRLimits(nil) = %v, want nil", err)
+	}
+}
 
 func TestParseRLimitsNofile(t *testing.T) {
 	cfg := config.ProgramConfig{

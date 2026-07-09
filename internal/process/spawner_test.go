@@ -10,6 +10,7 @@ func TestExecSpawnerSpawn(t *testing.T) {
 	sp, err := s.Spawn(SpawnConfig{
 		Command: "/bin/echo",
 		Args:    []string{"hello"},
+		Umask:   -1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -39,6 +40,7 @@ func TestExecSpawnerSpawnInvalidCommand(t *testing.T) {
 	s := &ExecSpawner{}
 	_, err := s.Spawn(SpawnConfig{
 		Command: "/nonexistent/binary",
+		Umask:   -1,
 	})
 	if err == nil {
 		t.Fatal("expected error for invalid command")
@@ -50,6 +52,7 @@ func TestExecSpawnerSignal(t *testing.T) {
 	sp, err := s.Spawn(SpawnConfig{
 		Command: "/bin/sleep",
 		Args:    []string{"10"},
+		Umask:   -1,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -65,6 +68,7 @@ func TestExecSpawnerStdinPipe(t *testing.T) {
 	s := &ExecSpawner{}
 	sp, err := s.Spawn(SpawnConfig{
 		Command: "/bin/cat",
+		Umask:   -1,
 	})
 	if err != nil {
 		t.Fatal(err)
