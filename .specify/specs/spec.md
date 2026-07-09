@@ -3509,11 +3509,11 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Scenario                                    | Behavior                                                        |
-| ------------------------------------------- | --------------------------------------------------------------- |
-| `id-token: write` permission missing        | cosign OIDC exchange fails; job fails; release is not published |
-| Rekor transparency log unreachable          | cosign retries; timeout fails the job (no silent skip)          |
-| cosign binary missing                       | cosign-installer step fails; job fails before goreleaser runs   |
+| Scenario                             | Behavior                                                        |
+| ------------------------------------ | --------------------------------------------------------------- |
+| `id-token: write` permission missing | cosign OIDC exchange fails; job fails; release is not published |
+| Rekor transparency log unreachable   | cosign retries; timeout fails the job (no silent skip)          |
+| cosign binary missing                | cosign-installer step fails; job fails before goreleaser runs   |
 
 **Dependencies:** INFRA-003, INFRA-013
 
@@ -3535,11 +3535,11 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Scenario                                 | Behavior                                                    |
-| ---------------------------------------- | ----------------------------------------------------------- |
-| syft binary missing                      | sbom-action step fails; job fails before goreleaser runs    |
-| `go.mod` unreadable (invalid checkout)   | syft produces empty SBOM; goreleaser aborts on empty artifact |
-| SBOM generation slower than archive build| GoReleaser serializes SBOM generation per archive; no race  |
+| Scenario                                  | Behavior                                                      |
+| ----------------------------------------- | ------------------------------------------------------------- |
+| syft binary missing                       | sbom-action step fails; job fails before goreleaser runs      |
+| `go.mod` unreadable (invalid checkout)    | syft produces empty SBOM; goreleaser aborts on empty artifact |
+| SBOM generation slower than archive build | GoReleaser serializes SBOM generation per archive; no race    |
 
 **Dependencies:** INFRA-003, SEC-003
 
@@ -3562,11 +3562,11 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Scenario                                         | Behavior                                       |
-| ------------------------------------------------ | ---------------------------------------------- |
-| Registry login missing                           | cosign sign fails; release job fails           |
-| Digest output not exported by build-push-action  | signing step fails fast with a clear error     |
-| `id-token: write` permission missing             | OIDC exchange fails; release job fails         |
+| Scenario                                        | Behavior                                   |
+| ----------------------------------------------- | ------------------------------------------ |
+| Registry login missing                          | cosign sign fails; release job fails       |
+| Digest output not exported by build-push-action | signing step fails fast with a clear error |
+| `id-token: write` permission missing            | OIDC exchange fails; release job fails     |
 
 **Dependencies:** INFRA-012, SEC-003
 
@@ -3588,11 +3588,11 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Scenario                                  | Behavior                                                              |
-| ----------------------------------------- | --------------------------------------------------------------------- |
+| Scenario                                    | Behavior                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------- |
 | BuildKit too old for `provenance: mode=max` | docker/build-push-action fails with a clear error; upgrade required |
-| syft unable to scan the image             | step fails; attestation not uploaded; release fails                   |
-| `cosign attest` fails mid-run             | release job fails; verify-signatures and release-notes are not run    |
+| syft unable to scan the image               | step fails; attestation not uploaded; release fails                 |
+| `cosign attest` fails mid-run               | release job fails; verify-signatures and release-notes are not run  |
 
 **Dependencies:** SEC-005
 
@@ -3615,12 +3615,12 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Scenario                                       | Behavior                                                       |
-| ---------------------------------------------- | -------------------------------------------------------------- |
-| One artifact signature missing                 | verify-blob fails; job fails; release fails                    |
-| Certificate identity does not match tag workflow | verify fails; job fails; release fails                       |
-| Rekor transparency log entry missing           | verify fails; job fails; release fails (no bypass flag)        |
-| Upstream SBOM/sign job failed                  | verify-signatures is skipped; release job already failed earlier |
+| Scenario                                         | Behavior                                                         |
+| ------------------------------------------------ | ---------------------------------------------------------------- |
+| One artifact signature missing                   | verify-blob fails; job fails; release fails                      |
+| Certificate identity does not match tag workflow | verify fails; job fails; release fails                           |
+| Rekor transparency log entry missing             | verify fails; job fails; release fails (no bypass flag)          |
+| Upstream SBOM/sign job failed                    | verify-signatures is skipped; release job already failed earlier |
 
 **Dependencies:** SEC-003, SEC-004, SEC-005, SEC-006
 
@@ -3666,10 +3666,10 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Error Condition                                 | Expected Behavior     | User-Facing Message                          |
-| ----------------------------------------------- | --------------------- | -------------------------------------------- |
-| Configured user cannot be resolved              | Process goes to FATAL | "user not found: {name}"                     |
-| Credential cannot be applied at spawn (fail)    | Process goes to FATAL | "cannot apply user {name}: {error}"          |
+| Error Condition                              | Expected Behavior     | User-Facing Message                 |
+| -------------------------------------------- | --------------------- | ----------------------------------- |
+| Configured user cannot be resolved           | Process goes to FATAL | "user not found: {name}"            |
+| Credential cannot be applied at spawn (fail) | Process goes to FATAL | "cannot apply user {name}: {error}" |
 
 **Edge Cases:**
 
@@ -3700,9 +3700,9 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Error Condition    | Expected Behavior | User-Facing Message               |
-| ------------------ | ----------------- | --------------------------------- |
-| setgroups fails    | Exit with error   | "setgroups failed: {error}"       |
+| Error Condition | Expected Behavior | User-Facing Message         |
+| --------------- | ----------------- | --------------------------- |
+| setgroups fails | Exit with error   | "setgroups failed: {error}" |
 
 **Edge Cases:**
 
@@ -3762,9 +3762,9 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Error Condition                  | Expected Behavior                         | User-Facing Message                       |
-| -------------------------------- | ----------------------------------------- | ----------------------------------------- |
-| Log path final component is link | Open fails; process to FATAL / daemon err | "cannot open log file: {path}: {error}"   |
+| Error Condition                  | Expected Behavior                         | User-Facing Message                     |
+| -------------------------------- | ----------------------------------------- | --------------------------------------- |
+| Log path final component is link | Open fails; process to FATAL / daemon err | "cannot open log file: {path}: {error}" |
 
 **Edge Cases:**
 
@@ -3791,9 +3791,9 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Error Condition         | Expected Behavior        | User-Facing Message |
-| ----------------------- | ------------------------ | ------------------- |
-| n/a (output formatting) | Output framed per SSE spec | n/a               |
+| Error Condition         | Expected Behavior          | User-Facing Message |
+| ----------------------- | -------------------------- | ------------------- |
+| n/a (output formatting) | Output framed per SSE spec | n/a                 |
 
 **Edge Cases:**
 
@@ -3801,6 +3801,297 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 - Scope is the log SSE endpoint only; the event stream endpoint (`/api/v1/events/stream`) already JSON-encodes its payload and is unaffected
 
 **Dependencies:** FUNC-027
+
+---
+
+### SEC-014: Redact Secrets from Config API Response
+
+**Description:** The `GET /api/v1/config` endpoint must not expose secrets. The 2026-07-09 whole-repo security review (HIGH, confidence 9) found that `handleGetConfig` serializes the live `*config.Config` directly via `json.Encode`; the config structs carry only `toml:` tags and no `json:` tags, so every field is emitted verbatim. The response leaks `Server.HTTP.Password` (the API credential), every `Programs[*].Environment` map (routinely DB passwords, API keys, tokens), and every `Webhooks[*].Headers` value and credential-bearing `Webhooks[*].URL`. Any principal who can reach the API — unauthenticated when combined with SEC-015 — harvests these in one call. Hardens FUNC-026 and enforces constitution Security Requirement 3.
+
+**Acceptance Criteria:**
+
+- **Given** a config with an HTTP password, a program with `environment` secrets, and a webhook with an `Authorization` header
+  **When** `GET /api/v1/config` is requested by an authorized caller
+  **Then** the response body contains none of the password value, no environment values, and no webhook header values; secret fields are omitted or masked (e.g. `"***"`)
+
+- **Given** `HTTPServerConfig.Password` and `Username`
+  **When** the config struct is JSON-encoded for any API response
+  **Then** those fields are excluded (`json:"-"`) and never appear in output
+
+- **Given** a webhook URL embedding credentials (`https://user:pass@host/path`)
+  **When** the config is returned
+  **Then** the userinfo component is stripped or masked
+
+**Error Handling:**
+
+| Error Condition                  | Expected Behavior                          | User-Facing Message |
+| -------------------------------- | ------------------------------------------ | ------------------- |
+| Redaction DTO construction fails | Return 500; do not fall back to raw config | "SERVER_ERROR"      |
+
+**Edge Cases:**
+
+- Redaction applies to every endpoint that returns config, not only `GET /api/v1/config` (e.g. any reload or diff response echoing config)
+- Non-secret config fields (program names, commands, numprocs) remain visible so the endpoint stays useful
+- A regression test asserts the response body contains none of the seeded secret values
+
+**Dependencies:** FUNC-026
+
+---
+
+### SEC-015: Fail-Closed Authentication on the TCP Listener
+
+**Description:** Enabling the TCP HTTP listener must require credentials for any bind address, loopback included. The 2026-07-09 review (MEDIUM, confidence 8) found `requireAuth` grants unauthenticated access whenever `authUser == ""`, while `StartTCP` is invoked on `HTTP.Enabled` alone with only a log warning on an all-interfaces bind. A config that sets `http.enabled = true` without a `username` exposes the entire control API — `start`/`stop`/`signal`, `stdin` write, `config/reload`, `shutdown` — with no authentication. Loopback is explicitly NOT treated as a trust boundary: in a shared network namespace (Kubernetes pods share `localhost` across all containers; `--network host` shares the host loopback) a `127.0.0.1`-bound API with no auth is reachable unauthenticated by any co-located container or local process. The password-free local path is the Unix domain socket (auth-skipped, filesystem-gated to the service UID at default mode 0700 — see FUNC-024 and SEC-022), so requiring credentials on all TCP binds does not impede local CLI use, which defaults to the socket and only uses TCP when `--addr` is passed. Auth must be fail-closed, not opt-in. Hardens FUNC-025 and FUNC-028 and enforces constitution Security Requirements 1 and 3.
+
+**Acceptance Criteria:**
+
+- **Given** `http.enabled = true` with any `listen` address (loopback or routable) and no username/password
+  **When** the daemon starts
+  **Then** startup fails with a clear configuration error and the TCP listener is not opened
+
+- **Given** `http.enabled = true` bound to a loopback address (`127.0.0.1`/`::1`) with no credentials
+  **When** the daemon starts
+  **Then** startup fails identically to a routable bind — loopback receives no exemption
+
+- **Given** `http.enabled = true` with a configured username and password
+  **When** the daemon starts and a request arrives without valid credentials
+  **Then** the listener starts and the request is rejected with 401
+
+- **Given** the operator wants password-free local administration
+  **When** they use the CLI without `--addr`
+  **Then** it connects over the Unix socket and works with no credentials (unchanged), independent of whether TCP is enabled
+
+**Error Handling:**
+
+| Error Condition                           | Expected Behavior              | User-Facing Message                                  |
+| ----------------------------------------- | ------------------------------ | ---------------------------------------------------- |
+| TCP enabled (any address), no credentials | Refuse to start; exit non-zero | "http listener on {addr} requires username/password" |
+
+**Edge Cases:**
+
+- The Unix socket path is unaffected (its trust boundary is filesystem permissions, default 0700; see SEC-022)
+- Cross-container control without a password is achieved by sharing the socket via a mounted volume, not by loopback TCP; loopback TCP for cross-container use still requires credentials
+- The existing all-interfaces warning is retained in addition to the hard failure
+
+**Dependencies:** FUNC-025
+
+---
+
+### SEC-016: Clean Environment for Lower-Privilege Child Processes
+
+**Description:** A child that drops to a different user must not inherit the supervisor's environment by default. The 2026-07-09 review (MEDIUM, confidence 7) found `buildEnv` seeds every child with the supervisor's full `os.Environ()`, with `clean_environment` opt-in (default false). When the supervisor runs as root with secrets in its environment and a program is configured with `user = "<uid>:<gid>"`, the semi-trusted child inherits root's secrets (readable via `/proc/self/environ`) — a downward privilege-boundary crossing. Hardens FUNC-046 and enforces constitution Security Requirement 6.
+
+**Acceptance Criteria:**
+
+- **Given** the supervisor running with a distinctive env var (for example a variable named `ROOT_ONLY`) set and a program configured with a per-process `user` that differs from the supervisor
+  **When** the child is spawned without explicit inheritance opt-in
+  **Then** the child's environment does not contain `ROOT_ONLY`; it contains only a minimal base (PATH, HOME for the target user, `SUPERVISOR_*` vars) plus the program's explicit `environment` entries
+
+- **Given** a program with no per-process `user` (runs as the supervisor)
+  **When** it is spawned
+  **Then** existing environment behavior is unchanged (backward compatible)
+
+- **Given** a program that explicitly opts into inheritance
+  **When** it is spawned
+  **Then** it receives the supervisor's environment as before
+
+**Error Handling:**
+
+| Error Condition                         | Expected Behavior                       | User-Facing Message |
+| --------------------------------------- | --------------------------------------- | ------------------- |
+| Target user's home directory unresolved | Fall back to `/` for HOME; log at debug | n/a                 |
+
+**Edge Cases:**
+
+- Interaction with the existing `clean_environment` flag is defined: a differing `user` implies clean-by-default even when `clean_environment` is unset
+- `SUPERVISOR_*` process-metadata vars are always injected regardless of clean mode
+
+**Dependencies:** FUNC-046
+
+---
+
+### SEC-017: Drop Current-Directory Config Precedence for the Daemon
+
+**Description:** The daemon must not load a config from an untrusted current working directory ahead of system paths. The 2026-07-09 review (hardening, confidence ~6) found `DefaultSearchPaths` lists `./kahi.toml` first, before `/etc/kahi/kahi.toml` and `/etc/kahi.toml`. If root launches `kahi daemon` without `-c`/`KAHI_CONFIG` from a directory an unprivileged local user can write to, that user plants `./kahi.toml` defining a program whose `command` runs as root — local privilege escalation that also shadows the correct system config. Hardens FUNC-015.
+
+**Acceptance Criteria:**
+
+- **Given** the daemon started as root with no `-c` and no `KAHI_CONFIG`, from a directory containing a `./kahi.toml`
+  **When** config resolution runs
+  **Then** the CWD-relative file is not selected; resolution uses the system search paths only (or fails if none exist)
+
+- **Given** an explicit `-c ./kahi.toml` or `KAHI_CONFIG`
+  **When** the daemon starts
+  **Then** the explicitly requested path is honored (explicit intent is trusted)
+
+**Error Handling:**
+
+| Error Condition                              | Expected Behavior                   | User-Facing Message               |
+| -------------------------------------------- | ----------------------------------- | --------------------------------- |
+| No config found in system paths, no explicit | Exit non-zero with search-path list | "no config file found in {paths}" |
+
+**Edge Cases:**
+
+- Non-daemon CLI subcommands may retain CWD-relative convenience lookup; the restriction targets the daemon's default search order
+- Alternatively, honor `./kahi.toml` only when the process euid is non-zero and the file is owned by the invoking user — either policy is acceptable if enforced and tested
+
+**Dependencies:** FUNC-015
+
+---
+
+### SEC-018: Remove Plaintext Password Fallback and Use Constant-Time Comparison
+
+**Description:** Credential checking must not accept plaintext-stored passwords and must compare in constant time. The 2026-07-09 review (hardening) found `checkPassword` falls back to `plain == hash` for any non-`$2` hash prefix (a plaintext comparison, labeled "testing only" but reachable in production), and both `user != s.authUser` and the plaintext branch are non-constant-time, enabling username enumeration via timing. **Clarify decision (resolved):** hard-reject at startup — a non-bcrypt `http.password` fails config validation immediately (no deprecation window); this is an accepted breaking change for the plaintext "testing only" path, acceptable under the project's 0.x alpha semver. Enforces constitution Security Requirement 3 (bcrypt only, no plaintext storage).
+
+**Acceptance Criteria:**
+
+- **Given** a configured password that is not a bcrypt hash (`$2` prefix)
+  **When** the daemon loads config
+  **Then** it rejects the config at startup with an error (no plaintext password accepted)
+
+- **Given** an authentication attempt
+  **When** the username and password are compared
+  **Then** both comparisons are constant-time (`subtle.ConstantTimeCompare` / `hmac.Equal`), leaking no timing signal that distinguishes a wrong username from a wrong password
+
+**Error Handling:**
+
+| Error Condition               | Expected Behavior | User-Facing Message                   |
+| ----------------------------- | ----------------- | ------------------------------------- |
+| Non-bcrypt password in config | Refuse to start   | "http.password must be a bcrypt hash" |
+
+**Edge Cases:**
+
+- Empty password with empty configured hash behavior is preserved only where intended (e.g. auth disabled); it must not become a bypass
+- Test helpers that previously used plaintext passwords are updated to use bcrypt hashes
+
+**Dependencies:** FUNC-028
+
+---
+
+### SEC-019: Extend Log-File Symlink Protection Beyond the Final Component
+
+**Description:** Log-file opening should resist symlinked parent directories, not only the final path component. The 2026-07-09 review (hardening) noted SEC-012's `O_NOFOLLOW` guards only the last component, so a swapped parent-directory symlink can still redirect a root daemon's writes. Log paths come from trusted config, so this is defense-in-depth. Deliverable: open log files relative to a verified directory (e.g. `openat` with `O_NOFOLLOW` on each component, or resolve and validate the parent is not attacker-writable), or explicitly document and accept the trusted-path assumption in the constitution and code. Hardens SEC-012.
+
+**Acceptance Criteria:**
+
+- **Given** a log path whose parent directory is replaced with a symlink to an unintended location
+  **When** the log file is opened
+  **Then** the open either fails or resolves within the intended directory; writes are never redirected through the swapped parent
+
+- **Given** a normal log path with no symlinked components
+  **When** the log file is opened
+  **Then** behavior is unchanged from SEC-012
+
+**Error Handling:**
+
+| Error Condition               | Expected Behavior                         | User-Facing Message                     |
+| ----------------------------- | ----------------------------------------- | --------------------------------------- |
+| A path component is a symlink | Open fails; process to FATAL / daemon err | "cannot open log file: {path}: {error}" |
+
+**Edge Cases:**
+
+- If the accepted resolution is to document the trusted-path assumption rather than harden, the decision is recorded in the plan as an ADR and the code comment is updated accordingly
+- Behavior is consistent across process stdout/stderr capture and the daemon log file
+
+**Dependencies:** SEC-012
+
+---
+
+### SEC-020: Length-Frame Event Listener Payloads
+
+**Description:** Event listener payloads must be framed so process output cannot forge protocol lines. The 2026-07-09 review (hardening) found `formatEventPayload` emits `TYPE ts key:value` as an unframed newline-terminated line; a managed process whose output contains a newline (only untrusted under a process-compromise assumption) could inject a forged protocol line into a listener's stdin. Real supervisord length-prefixes the payload for exactly this reason. Hardens FUNC-055.
+
+**Acceptance Criteria:**
+
+- **Given** an event whose payload data contains an embedded newline or a line resembling a protocol header
+  **When** the payload is written to an event listener's stdin
+  **Then** it is length-prefixed (payload length announced, then exactly that many bytes) so the embedded content cannot be parsed as a new protocol line
+
+- **Given** an ordinary single-line payload
+  **When** it is delivered
+  **Then** a conforming listener parses it identically to before (protocol remains compatible with the documented handshake)
+
+**Error Handling:**
+
+| Error Condition            | Expected Behavior              | User-Facing Message |
+| -------------------------- | ------------------------------ | ------------------- |
+| Listener stdin write fails | Listener marked failed; logged | n/a                 |
+
+**Edge Cases:**
+
+- The READY/RESULT handshake framing is preserved; only the payload body gains a length prefix
+- Empty payloads are framed with length 0
+
+**Dependencies:** FUNC-055
+
+---
+
+### SEC-021: Apply Configured Resource Limits and Umask at Spawn
+
+**Description:** Configured per-process rlimits and umask must actually be applied. The 2026-07-09 review (correctness/hardening) found `ExecSpawner.Spawn` silently ignores `SpawnConfig.RLimits`, and per-process `Umask` is never applied in the spawn path (`ApplyUmask`/`ApplyRLimits` have no non-test callers). Operators setting `NOFILE`/`NPROC` limits or a restrictive umask get no enforcement, weakening intended isolation. Hardens FUNC-068 and FUNC-047.
+
+**Acceptance Criteria:**
+
+- **Given** a program configured with a `NOFILE` (and/or `NPROC`) rlimit
+  **When** the child is spawned
+  **Then** the child process runs with that limit applied (verifiable via `/proc/<pid>/limits` or a getrlimit self-check in a test binary)
+
+- **Given** a program configured with a `umask`
+  **When** the child is spawned and creates a file
+  **Then** the file mode reflects the configured umask
+
+- **Given** a program with neither configured
+  **When** it is spawned
+  **Then** the child inherits the supervisor's limits/umask as before
+
+**Error Handling:**
+
+| Error Condition                        | Expected Behavior             | User-Facing Message                     |
+| -------------------------------------- | ----------------------------- | --------------------------------------- |
+| Invalid rlimit value in config         | Reject at config validation   | "invalid rlimit {name}: {value}"        |
+| setrlimit/umask syscall fails at spawn | Spawn fails; process to FATAL | "cannot apply resource limits: {error}" |
+
+**Edge Cases:**
+
+- Limits are applied in the child (post-fork, pre-exec) via `SysProcAttr`/init, consistent with credential and umask handling
+- Platform differences (Linux vs Darwin rlimit sets) are respected via the existing `rlimit_linux.go`/`rlimit_darwin.go` split
+
+**Dependencies:** FUNC-068
+
+---
+
+### SEC-022: Lock the Control Socket to the Service Identity
+
+**Description:** The Unix domain control socket is the password-free local administration path (auth is skipped for socket connections — `isUnixConn`), so its access control must be sound. The 2026-07-09 transport review found that `isUnixConn` trusts the transport rather than the peer (no `SO_PEERCRED`/`LOCAL_PEERCRED` check), so the daemon authorizes any process that can connect; and that `server.unix.chown` is dead config — a struct field present in the generated template and parsed by the migrator, but never applied at bind (only `chmod` is; no `os.Chown` anywhere), so an operator who sets it gets a silent no-op and a false sense of control. **Clarify decision (resolved):** the socket is locked to the service identity — owner-only, no multi-user sharing path. The daemon keeps the default mode 0700 owned by the service UID and **rejects the `server.unix.chown` field with a config error** rather than silently ignoring it (a socket shared by ownership/group is not supported, because without a peer-credential check it would grant unrestricted authority to every connecting process). Peer-credential (`SO_PEERCRED`/`getpeereid`) authorization is therefore not required now; it is recorded as a future extension to revisit only if controlled multi-user local administration is ever added. Enforces constitution Security Requirement 2 and hardens FUNC-024.
+
+**Acceptance Criteria:**
+
+- **Given** the default configuration
+  **When** the daemon binds the control socket
+  **Then** the socket is mode 0700, owned by the service UID, and a chmod failure closes the listener (no world-accessible socket is ever served) — existing behavior preserved
+
+- **Given** a config that sets `server.unix.chmod` to a mode granting group or other access (e.g. `0770`, `0666`)
+  **When** the daemon starts
+  **Then** it rejects the configuration with an error explaining that the control socket must remain owner-only (the socket authorizes by transport, so a shared mode would grant unrestricted control)
+
+- **Given** `server.unix.chown` set in config
+  **When** the daemon starts
+  **Then** the daemon refuses to start with a clear error — the field is never silently ignored
+
+**Error Handling:**
+
+| Error Condition                        | Expected Behavior                | User-Facing Message                                        |
+| -------------------------------------- | -------------------------------- | ---------------------------------------------------------- |
+| `server.unix.chown` present in config  | Refuse to start                  | "server.unix.chown is not supported; socket is owner-only" |
+| `server.unix.chmod` grants group/other | Refuse to start                  | "control socket must be owner-only (0700); got {mode}"     |
+| `os.Chmod` fails at bind               | Close the listener; do not serve | "cannot chmod socket {path}: {error}"                      |
+
+**Edge Cases:**
+
+- The migrator (`internal/migrate`) must not emit `chown` into generated config, and the generated template must drop the commented `chown` example, so migration output stays loadable under the new rule
+- Rejecting a group/other-accessible `chmod` is the enforcement mechanism for "lock to the service id"; a future peer-credential check would be the prerequisite before any shared mode could be permitted
+- This does not change the SEC-015 rule that TCP always requires credentials; this feature governs the Unix socket transport only
+
+**Dependencies:** FUNC-024
 
 ---
 
@@ -4048,6 +4339,53 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 | Test reporter action fails | Non-blocking; test pass/fail still determined by gotestsum exit code |
 
 **Dependencies:** TEST-003
+
+---
+
+### TEST-005: PR Test-Result Comment Tiles with Opt-In Full Per-Test Table
+
+**Description:** Each CI test surface posts a sticky pull-request comment ("tile") summarizing its results, keyed by a per-surface `header` via `marocchino/sticky-pull-request-comment` so repeated pushes update the same comment in place. Three tiles are posted: Unit (from `ci.yml`), Integration and E2E (from `integration.yml`). Each tile shows a pass/skip/fail summary table rendered by the shared `.github/scripts/build-test-comment.go` (stdlib `encoding/xml`; excluded from the module build by living under a dot directory), collapsed inside a `<details>` twisty on a green run and auto-expanded on failure. As merged (PR #51), the twisty carries only the failing and skipped tests — deliberately, to keep the comment compact for the ~600-test unit suite. This feature adds an **opt-in full per-test table**: reviewers who want the complete list of every test with a color-coded status can enable it without bloating the default comment. Because GitHub markdown has no arbitrary text color, status color is conveyed with the same emoji indicators used in the summary tile (✅ passed, ⚠️ skipped, ❌ failed). **Clarify decisions (resolved):** the opt-in is a **`full-test-report` PR label** — the renderer checks for it at tile-render time via the `pull_request` event's label set, and adding the label (a `pull_request: labeled` trigger) re-runs the workflow so the tiles regenerate with the full table; and the feature is **scoped to GitHub Actions only** (Kahi's CI platform), with GitLab/Jenkins remaining documentation mapping guides, not implemented targets.
+
+**Acceptance Criteria:**
+
+- **Given** a CI run on a same-repo pull request
+  **When** each test surface completes
+  **Then** its sticky tile is posted/updated with the summary table, collapsed on green and expanded on failure, and the existing three-tile behavior (Unit, Integration, E2E) is unchanged
+
+- **Given** full-table mode is NOT opted in
+  **When** the tile is rendered
+  **Then** the twisty contains only failures and skipped tests plus an "All N passed" line on green (current default behavior preserved)
+
+- **Given** the `full-test-report` label is present on the PR
+  **When** the workflow runs (including the re-run triggered by adding the label) and the tile is rendered
+  **Then** the twisty contains a table of every test with columns Test (name), Result (✅/⚠️/❌ + word), and Duration, ordered failures → skipped → passed, with all rows color-coded by status emoji
+
+- **Given** the `full-test-report` label is added to an open PR
+  **When** the `pull_request: labeled` event fires
+  **Then** the workflow re-runs and updates the sticky tiles in place with the full table (no new comments are created)
+
+- **Given** a suite large enough that the full table would exceed GitHub's comment size limit (65536 chars)
+  **When** the full table is rendered
+  **Then** the renderer truncates deterministically (all failures and skipped always included; passed rows capped) and emits an explicit "N passed rows omitted — see run log" note rather than silently dropping rows
+
+**Error Handling:**
+
+| Error Condition                        | Expected Behavior                                    | User-Facing Message                   |
+| -------------------------------------- | ---------------------------------------------------- | ------------------------------------- |
+| JUnit XML missing/unparseable          | Post a "no results" tile; do not fail the build      | "no results" tile body                |
+| Dependabot / fork PR (read-only token) | Post step is best-effort (`continue-on-error`); skip | n/a (posting silently degrades)       |
+| Full table exceeds comment size limit  | Truncate passed rows with an explicit omission note  | "N passed rows omitted — see run log" |
+
+**Edge Cases:**
+
+- The `full-test-report` label controls all three surfaces uniformly (one label drives the Unit, Integration, and E2E tiles)
+- Adding the label re-runs the test suites (the `labeled` event triggers a fresh run); rendering the full table from a retained JUnit artifact without re-running is a possible optimization deferred to the plan phase, not required here
+- Removing the label does not retroactively rewrite an existing tile; the next push (or re-run) renders the compact form again
+- Test names may contain markdown/backticks; the renderer escapes or code-spans them so the table cannot break formatting or inject HTML (GitHub sanitizes comment HTML regardless)
+- On green with full-table opted in, the twisty stays collapsed by default (opt-in changes contents, not the collapse-on-green behavior)
+- The renderer remains excluded from `task build`/`vet`/`lint`/`coverage` (dot-directory placement); a unit test may exercise it via `go run` with fixture JUnit files
+
+**Dependencies:** TEST-004
 
 ---
 

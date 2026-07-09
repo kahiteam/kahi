@@ -2013,6 +2013,171 @@
         "container-sbom-provenance-attestations",
         "release-verify-signatures-gate"
       ]
+    },
+    {
+      "id": "config-api-secret-redaction",
+      "category": "functional",
+      "title": "Redact Secrets from the Config API Response",
+      "description": "GET /api/v1/config must not expose secrets. handleGetConfig serializes the raw config (only toml tags), leaking Server.HTTP.Password, per-process Environment maps, and webhook Headers/URL credentials. Return a sanitized view: json-exclude Password/Username and mask Environment values, webhook Headers, and userinfo in webhook URLs.",
+      "testing_steps": [
+        "Add json:\"-\" to HTTPServerConfig.Password and Username and run 'go test ./internal/config/...' to confirm they never serialize",
+        "Configure an http.password, a program with an environment secret, and a webhook with an Authorization header, then request GET /api/v1/config over the Unix socket and verify the response body contains none of those values",
+        "Verify environment map keys remain present in the response but their values are masked (for example \"***\")",
+        "Verify webhook Headers values are masked and any userinfo in a webhook URL is stripped",
+        "Verify non-secret fields (program name, command, numprocs) are returned unchanged",
+        "Run 'go test -run TestGetConfig ./internal/api/...' and confirm the regression test asserts absence of the seeded secrets",
+        "Verify any config reload or diff response that echoes config applies the same redaction"
+      ],
+      "passes": false,
+      "dependencies": ["rest-api-endpoints", "http-basic-auth"]
+    },
+    {
+      "id": "tcp-listener-fail-closed-auth",
+      "category": "functional",
+      "title": "Fail-Closed Authentication on the TCP Listener",
+      "description": "Enabling the TCP HTTP listener must require credentials for any bind address, loopback included, because loopback is shared across a network namespace (pods, --network host). The Unix socket remains the password-free local path.",
+      "testing_steps": [
+        "Set http.enabled=true with listen=0.0.0.0:9876 and no username/password and verify the daemon refuses to start with a config error",
+        "Set http.enabled=true with listen=127.0.0.1:9876 and no credentials and verify the daemon refuses to start identically (loopback gets no exemption)",
+        "Set http.enabled=true with a username and bcrypt password and verify the TCP listener starts and rejects unauthenticated requests with 401",
+        "Verify the CLI without --addr connects over the Unix socket and works with no credentials regardless of whether TCP is enabled",
+        "Run 'go test ./internal/config/... ./internal/api/...' and confirm both the config-validation and StartTCP guards are covered",
+        "Verify the all-interfaces bind warning still logs in addition to the hard failure"
+      ],
+      "passes": false,
+      "dependencies": ["tcp-http-server", "http-basic-auth"]
+    },
+    {
+      "id": "clean-env-privilege-differentiated-children",
+      "category": "functional",
+      "title": "Clean Environment for Privilege-Differentiated Children",
+      "description": "When a program's per-process user differs from the supervisor, the child must not inherit the supervisor's full environment by default. Start from a minimal base (PATH, target-user HOME, SUPERVISOR_* vars) plus the program's explicit environment, unless inheritance is explicitly opted into.",
+      "testing_steps": [
+        "Export a distinctive variable (for example ROOT_SECRET) in the supervisor environment, configure a program with user set to a different uid:gid, spawn it, and verify the child environment does not contain ROOT_SECRET",
+        "Verify the child receives only a minimal base (PATH, HOME for the target user, SUPERVISOR_* vars) plus the program's explicit environment entries",
+        "Configure a program with no per-process user and verify it still inherits the supervisor environment (backward compatible)",
+        "Configure a privilege-differentiated program that explicitly opts into inheritance and verify it receives the full environment",
+        "Verify HOME resolves from the target user's passwd entry and falls back to / when unresolved",
+        "Run 'go test -run TestBuildEnv ./internal/process/...' and confirm the differing-user clean-by-default path is covered"
+      ],
+      "passes": false,
+      "dependencies": ["per-process-user-switching"]
+    },
+    {
+      "id": "daemon-config-search-excludes-cwd",
+      "category": "functional",
+      "title": "Daemon Config Search Excludes the Current Directory",
+      "description": "The daemon must not load ./kahi.toml from an untrusted current working directory ahead of system paths, which is a local privilege-escalation vector when root starts the daemon from an attacker-writable directory. Explicit -c and KAHI_CONFIG are still honored.",
+      "testing_steps": [
+        "Place a ./kahi.toml in the working directory, start the daemon without -c or KAHI_CONFIG, and verify the CWD file is not selected",
+        "Verify the daemon resolves config from the system search paths only (/etc/kahi/kahi.toml, /etc/kahi.toml)",
+        "Verify an explicit '-c ./kahi.toml' is still honored",
+        "Verify KAHI_CONFIG pointing at any path is still honored",
+        "With no config in system paths and none explicit, verify the daemon exits non-zero listing the searched paths",
+        "Run 'go test -run TestResolve ./internal/config/...' and confirm the daemon search order excludes the CWD entry"
+      ],
+      "passes": false,
+      "dependencies": ["config-search-paths"]
+    },
+    {
+      "id": "bcrypt-only-password-constant-time",
+      "category": "functional",
+      "title": "bcrypt-Only Passwords with Constant-Time Comparison",
+      "description": "Credential checking must reject non-bcrypt (plaintext) passwords at startup and compare username and password in constant time to remove the plaintext fallback and the username-enumeration timing oracle.",
+      "testing_steps": [
+        "Configure http.password with a plaintext (non-$2) value and verify the daemon refuses to start with a bcrypt-required error",
+        "Configure http.password with a valid bcrypt hash and verify the daemon starts and authenticates correctly",
+        "Verify the checkPassword plaintext-equality branch has been removed from internal/api",
+        "Verify username and password comparisons use subtle.ConstantTimeCompare or hmac.Equal",
+        "Run 'go test -run TestCheckPassword ./internal/api/...' and confirm no plaintext path remains",
+        "Verify test helpers use bcrypt hashes rather than plaintext passwords"
+      ],
+      "passes": false,
+      "dependencies": ["http-basic-auth"]
+    },
+    {
+      "id": "log-open-symlink-hardening",
+      "category": "functional",
+      "title": "Log Open Hardening Beyond the Final Path Component",
+      "description": "Extend the existing O_NOFOLLOW final-component guard so a swapped parent-directory symlink cannot redirect a root daemon's log writes, using an openat-style per-component open where supported, otherwise documenting the trusted-path assumption.",
+      "testing_steps": [
+        "Create a log directory, replace a parent component with a symlink to an unintended location, attempt to open the log file, and verify the open fails or resolves within the intended directory",
+        "Verify writes are never redirected through the swapped parent directory",
+        "Verify a normal log path with no symlinked components opens unchanged from the prior O_NOFOLLOW behavior",
+        "On a platform lacking openat semantics, verify the final-component O_NOFOLLOW guard remains and the trusted-path assumption is documented",
+        "Run 'go test -run TestLogOpen ./internal/logging/...' covering the parent-symlink case"
+      ],
+      "passes": false,
+      "dependencies": ["process-output-capture"]
+    },
+    {
+      "id": "event-listener-payload-framing",
+      "category": "functional",
+      "title": "Length-Framed Event Listener Payloads",
+      "description": "Event listener payloads must be length-prefixed so process output containing newlines cannot inject forged protocol lines into a listener's stdin, matching supervisord's framing. The READY/RESULT handshake is unchanged.",
+      "testing_steps": [
+        "Emit an event whose payload contains an embedded newline and a line resembling a protocol header, write it to a listener's stdin, and verify the embedded content is not parsed as a new protocol line",
+        "Verify the payload is length-prefixed (announced length followed by exactly that many bytes)",
+        "Verify an ordinary single-line payload is parsed identically by a conforming listener (protocol compatibility preserved)",
+        "Verify the READY/RESULT handshake framing is unchanged and only the payload body gains a length prefix",
+        "Verify an empty payload is framed with length 0",
+        "Run 'go test -run TestFormatEventPayload ./internal/events/...' covering the framing"
+      ],
+      "passes": false,
+      "dependencies": ["event-listener-pools"]
+    },
+    {
+      "id": "spawn-rlimit-umask-application",
+      "category": "functional",
+      "title": "Apply Configured RLimits and Umask at Spawn",
+      "description": "Configured per-process rlimits and umask must actually be applied in the child (post-fork, pre-exec); currently ExecSpawner ignores SpawnConfig.RLimits and per-process Umask, so operator-set isolation is silently unenforced.",
+      "testing_steps": [
+        "Configure a program with a NOFILE rlimit, spawn it, and verify the child runs with that limit via /proc/<pid>/limits or a getrlimit self-check",
+        "Configure a program with an NPROC rlimit and verify it is applied to the child",
+        "Configure a program with a umask, spawn it, have it create a file, and verify the file mode reflects the configured umask",
+        "Configure a program with neither rlimit nor umask and verify the child inherits the supervisor's limits and umask",
+        "Configure an invalid rlimit value and verify config validation rejects it",
+        "Verify limits and umask are applied in the child post-fork pre-exec via SysProcAttr or child init",
+        "Run 'go test -run TestApplyRLimits ./internal/process/...' and 'go test -run TestApplyUmask ./internal/process/...' and confirm they are exercised through the spawn path, not only directly"
+      ],
+      "passes": false,
+      "dependencies": ["resource-limits", "process-umask"]
+    },
+    {
+      "id": "control-socket-owner-only-lockdown",
+      "category": "functional",
+      "title": "Lock the Control Socket to the Service Identity",
+      "description": "The Unix control socket must stay owner-only (0700, service UID). Reject the dead server.unix.chown field and any group/other chmod with a config error rather than silently ignoring them; peer-credential authorization is deferred as a future extension.",
+      "testing_steps": [
+        "Start the daemon with default config and verify the control socket is mode 0700 owned by the service UID via stat",
+        "Verify a chmod failure at bind closes the listener so no world-accessible socket is served",
+        "Set server.unix.chmod to 0770 or 0666 and verify the daemon refuses to start with an owner-only error",
+        "Set server.unix.chown and verify the daemon refuses to start with a not-supported error",
+        "Verify the migrator does not emit chown into generated config and the generated template drops the commented chown example",
+        "Run 'go test ./internal/api/... ./internal/config/...' covering the chown and chmod rejections"
+      ],
+      "passes": false,
+      "dependencies": ["unix-socket-server"]
+    },
+    {
+      "id": "pr-test-tiles-full-table-optin",
+      "category": "testing",
+      "title": "PR Test Tiles with Opt-In Full Per-Test Table",
+      "description": "The sticky PR test tiles gain an opt-in full per-test table (name plus color-coded status emoji) behind a full-test-report PR label, keeping the default comment compact for the ~600-test suite. GitHub Actions only.",
+      "testing_steps": [
+        "Open a PR without the full-test-report label and verify each tile's twisty contains only failures and skipped tests plus an 'All N passed' line on green",
+        "Add the full-test-report label and verify the pull_request labeled event triggers a workflow re-run",
+        "Verify the re-run updates the existing sticky tiles in place (no new comments) with a full per-test table",
+        "Verify the full table lists every test with columns Test, Result (with status emoji), and Duration, ordered failures then skipped then passed",
+        "Verify status is color-coded via emoji indicators (green check passed, warning skipped, red x failed)",
+        "Simulate a suite whose full table would exceed 65536 chars and verify deterministic truncation keeps all failures and skipped and appends an 'N passed rows omitted' note",
+        "Verify test names containing markdown or backticks are escaped or code-spanned so the table cannot break formatting",
+        "Verify the renderer .github/scripts/build-test-comment.go is excluded from 'task build', 'task vet', 'task lint', and 'task coverage'",
+        "Run the renderer via 'go run .github/scripts/build-test-comment.go' against fixture JUnit files and verify both compact and full outputs",
+        "Verify the feature targets GitHub Actions only and GitLab/Jenkins remain documentation guides"
+      ],
+      "passes": false,
+      "dependencies": ["test-output-formatting", "pr-test-result-visibility"]
     }
   ]
 }

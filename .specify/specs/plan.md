@@ -3,9 +3,9 @@
 ## Overview
 
 **Project:** Kahi -- Lightweight process supervisor for modern infrastructure
-**Spec Version:** 1.0.0
-**Plan Version:** 1.0.0
-**Last Updated:** 2026-02-16
+**Spec Version:** 1.1.0
+**Plan Version:** 1.1.0
+**Last Updated:** 2026-07-09
 **Status:** Draft
 
 ---
@@ -590,3 +590,252 @@ CodeQL's `BarrierGuard` recognizes only relational comparisons (`<`, `<=`, `>`, 
 
 - A log file that is intentionally a symlink will no longer open; operators must point the log at a real path. This is the intended hardening.
 - Log SSE output is correctly framed; no behavior change for the web UI, which appends its own newline and renders text nodes.
+
+---
+
+### ADR-016: Config API Redaction via a Sanitized View
+
+**Date:** 2026-07-09
+**Status:** Accepted
+
+**Context:** The 2026-07-09 security review (SEC-014, HIGH) found `handleGetConfig` serializes the live `*config.Config` directly; the structs carry only `toml:` tags, so `encoding/json` emits `Server.HTTP.Password`, every `Programs[*].Environment` map, and every `Webhooks[*].Headers`/credentialed URL verbatim. Struct tags alone cannot mask map values (env, headers) or URL userinfo.
+
+**Decision:** Return a purpose-built sanitized view from every config-returning endpoint rather than the live struct.
+
+- Add `json:"-"` to `HTTPServerConfig.Password` and `Username` so credentials never serialize anywhere.
+- Build an explicit redacted DTO in `handleGetConfig` (and any reload/diff response that echoes config) that replaces `Environment` values and webhook `Headers` values with a fixed mask (`"***"`) while keeping keys, and strips userinfo from webhook URLs.
+- Non-secret fields (program names, commands, numprocs) pass through unchanged so the endpoint stays useful.
+
+**Alternatives Considered:**
+
+1. **`json:"-"` tags only:** Rejected -- cannot redact per-entry map values (env vars, headers); would either drop the whole map or leak it.
+2. **Reflection-based recursive scrubber keyed on field names:** Rejected -- fragile, hard to test, and easy to miss a new secret field; an explicit DTO is auditable.
+3. **Remove the config endpoint entirely:** Rejected -- operators legitimately need to inspect effective config; redaction preserves the capability.
+
+**Consequences:**
+
+- A regression test asserts the response contains none of the seeded secret values (enables SEC-014).
+- Adding a new secret-bearing config field requires updating the DTO; this is intentional friction and is documented next to the DTO.
+
+---
+
+### ADR-017: Fail-Closed TCP Authentication; Loopback Is Not a Trust Boundary
+
+**Date:** 2026-07-09
+**Status:** Accepted
+
+**Context:** SEC-015 (MEDIUM): `requireAuth` grants access whenever `authUser == ""` and `StartTCP` runs on `HTTP.Enabled` alone, so enabling the HTTP API without a username exposes the full control API unauthenticated. The transport investigation confirmed the password-free local path is the Unix socket (auth-skipped, 0700 owner-only), not loopback TCP -- and loopback is shared across a network namespace (Kubernetes pods share `localhost`; `--network host` shares host loopback), so it cannot be treated as trusted.
+
+**Decision:** Enforce credentials for any TCP bind, loopback included.
+
+- Config validation rejects `http.enabled = true` with no username/password, for every listen address (loopback receives no exemption); the daemon refuses to start.
+- A defense-in-depth guard in `StartTCP` refuses to open the listener under the same condition.
+- The Unix socket remains the documented password-free local path; the CLI defaults to it and uses TCP only when `--addr` is passed.
+
+**Alternatives Considered:**
+
+1. **Exempt loopback binds from the credential requirement:** Rejected -- unsafe in shared network namespaces (pod sidecars, `--network host`), and unnecessary because the socket already serves local admin.
+2. **Runtime 401 only (no startup check):** Rejected -- fails open on misconfiguration; a startup refusal is louder and safer.
+3. **Warn-only (current behavior):** Rejected -- the review showed the warning does not fire for a `127.0.0.1` bind and does not prevent serving.
+
+**Consequences:**
+
+- Enabling TCP now requires credentials; this is a deliberate breaking change for any unauthenticated TCP deployment (acceptable pre-1.0), and satisfies constitution Security Requirements 1 and 3 (enables SEC-015).
+- Cross-container password-free control is achieved by mounting the socket, not by loopback TCP.
+
+---
+
+### ADR-018: Clean Environment by Default for Privilege-Differentiated Children
+
+**Date:** 2026-07-09
+**Status:** Accepted
+
+**Context:** SEC-016 (MEDIUM): `buildEnv` seeds every child with the supervisor's full `os.Environ()` (ADR-006 inheritance modes, `clean_environment` opt-in default false). When the supervisor runs as root and a program drops to a different `user`, the child inherits root's environment secrets. This extends the environment-inheritance model established in ADR-006.
+
+**Decision:** Make a differing per-process `user` imply clean-environment-by-default.
+
+- When a program's resolved `user` differs from the supervisor's identity, the child starts from a minimal base (PATH, HOME for the target user, `SUPERVISOR_*` metadata) plus the program's explicit `environment`, regardless of the `clean_environment` flag's default.
+- Programs with no per-process `user` keep the existing inheritance behavior (backward compatible).
+- An explicit opt-in still allows full inheritance for a privilege-differentiated child when an operator truly wants it.
+
+**Alternatives Considered:**
+
+1. **Keep opt-out (status quo):** Rejected -- secrets leak downward by default, the exact finding.
+2. **Always clean for every child:** Rejected -- breaks same-user programs that rely on inherited environment; too broad.
+3. **Require operators to set `clean_environment` per program:** Rejected -- security-by-remembering; the safe default should not depend on operator diligence.
+
+**Consequences:**
+
+- Satisfies constitution Security Requirement 6 (enables SEC-016); refines ADR-006.
+- `HOME` for the target user is resolved from the passwd database, falling back to `/`.
+
+---
+
+### ADR-019: Control Socket Locked to the Service Identity
+
+**Date:** 2026-07-09
+**Status:** Accepted
+
+**Context:** SEC-022: `isUnixConn` authorizes by transport, not peer identity (no `SO_PEERCRED` check), and `server.unix.chown` is dead config (parsed, templated, never applied at bind). At the default 0700 this is safe, but a loosened socket (group/other access) would grant unrestricted control to any connecting process. The clarify decision is to lock the socket to the service identity and not support ownership/group sharing. Related to ADR-013 (privilege drop) and ADR-014 (FastCGI socket permissions).
+
+**Decision:** Owner-only, no sharing path.
+
+- Keep the default mode 0700 owned by the service UID; a chmod failure closes the listener (existing behavior).
+- Reject `server.unix.chown` at config validation with a clear error rather than silently ignoring it.
+- Reject a `server.unix.chmod` that grants group or other access (the socket authorizes by transport, so a shared mode would grant unrestricted control).
+- The migrator must not emit `chown`, and the generated template drops the commented `chown` example, so migration output stays loadable.
+
+**Alternatives Considered:**
+
+1. **Wire `chown` and add `SO_PEERCRED`/`getpeereid` uid/gid authorization now:** Rejected for this pass -- real value only if controlled multi-user local admin is required, which it is not; recorded as a future extension (prerequisite before any shared mode is permitted).
+2. **Leave `chown` as a silent no-op:** Rejected -- false sense of control is a security footgun.
+
+**Consequences:**
+
+- Enforces constitution Security Requirement 2 (enables SEC-022); "lock to the service id" is realized by refusing any non-owner-only mode.
+- Operators wanting another local user to run the CLI must use `sudo`/run-as the service account, or (future) the deferred peer-credential feature.
+
+---
+
+### ADR-020: bcrypt-Only Passwords with Constant-Time Comparison
+
+**Date:** 2026-07-09
+**Status:** Accepted
+
+**Context:** SEC-018: `checkPassword` falls back to `plain == hash` for any non-`$2` prefix (plaintext, "testing only" but reachable), and both the username check and the plaintext branch are non-constant-time (username-enumeration timing oracle). The clarify decision is to hard-reject non-bcrypt passwords at startup.
+
+**Decision:**
+
+- Config validation rejects an `http.password` that is not a bcrypt hash (`$2` prefix); the daemon refuses to start. No plaintext branch remains.
+- Username and password comparisons use `subtle.ConstantTimeCompare`/`hmac.Equal` so timing does not distinguish a wrong username from a wrong password.
+- Test helpers migrate to bcrypt hashes.
+
+**Alternatives Considered:**
+
+1. **Deprecation window (warn then reject):** Rejected by the user -- clean immediate rejection preferred; acceptable breaking change pre-1.0.
+2. **Keep plaintext for tests only, gated by a build tag:** Rejected -- a reachable plaintext path is a liability; bcrypt in tests is cheap enough at low cost factor.
+
+**Consequences:**
+
+- Satisfies constitution Security Requirement 3 (enables SEC-018); a plaintext password that previously "worked" now fails at startup with a clear message.
+
+---
+
+### ADR-021: Daemon Config Search Excludes the Current Directory
+
+**Date:** 2026-07-09
+**Status:** Accepted
+
+**Context:** SEC-017: `DefaultSearchPaths` lists `./kahi.toml` before `/etc/kahi/kahi.toml`, so a root daemon started without `-c`/`KAHI_CONFIG` from an attacker-writable CWD loads a planted config and runs its commands as root -- local privilege escalation that also shadows the system config.
+
+**Decision:** Remove the CWD-relative entry from the daemon's default search order; the daemon searches system paths only. An explicit `-c ./kahi.toml` or `KAHI_CONFIG` is still honored (explicit intent is trusted). Non-daemon convenience lookups, if any, are out of scope of this change.
+
+**Alternatives Considered:**
+
+1. **Honor `./kahi.toml` only when euid != 0 and the file is owned by the invoking user:** Viable and noted as an acceptable equivalent, but more code and more edge cases than simply dropping it from the daemon default.
+2. **Keep current order (status quo):** Rejected -- the LPE vector.
+
+**Consequences:**
+
+- A deployment that relied on an implicit CWD config for the daemon must pass `-c` explicitly (enables SEC-017).
+
+---
+
+### ADR-022: Log Open Hardening Beyond the Final Path Component
+
+**Date:** 2026-07-09
+**Status:** Accepted
+
+**Context:** SEC-019 extends ADR-015. `O_NOFOLLOW` guards only the final component, so a swapped parent-directory symlink can still redirect a root daemon's writes. Log paths come from trusted config, so this is defense-in-depth.
+
+**Decision:** Open log files by walking the path with per-component `O_NOFOLLOW` (an `openat`-based traversal from a verified base directory) on platforms that support it, so no intermediate symlink is followed; on platforms lacking the primitive, fall back to the ADR-015 final-component guard and document the residual trusted-path assumption. The choice between full hardening and documented-assumption is recorded here so implementation is unambiguous.
+
+**Alternatives Considered:**
+
+1. **`EvalSymlinks` + validate then open:** Rejected -- TOCTOU (consistent with ADR-015's reasoning); `openat`/`O_NOFOLLOW` per component is atomic.
+2. **Accept the final-component guard and only document the assumption:** Retained as the explicit fallback for platforms without `openat` semantics.
+
+**Consequences:**
+
+- Root daemon log writes cannot be redirected through a swapped parent dir on supported platforms (enables SEC-019); behavior for non-symlinked paths is unchanged from ADR-015.
+
+---
+
+### ADR-023: Length-Prefixed Event Listener Payloads
+
+**Date:** 2026-07-09
+**Status:** Accepted
+
+**Context:** SEC-020: `formatEventPayload` emits an unframed newline-terminated `TYPE ts key:value` line into a listener's stdin. Process output containing a newline (untrusted under a process-compromise assumption) could inject a forged protocol line. supervisord length-prefixes its payload for exactly this reason.
+
+**Decision:** Length-prefix the payload body -- announce the byte length, then write exactly that many bytes -- so embedded newlines and header-like text are carried as opaque data. The READY/RESULT handshake framing is unchanged; only the payload body gains a length prefix, keeping the documented listener protocol compatible.
+
+**Alternatives Considered:**
+
+1. **Escape/strip newlines in payload values:** Rejected -- lossy and error-prone; length-framing is the standard and matches supervisord.
+2. **Status quo:** Rejected -- the injection vector.
+
+**Consequences:**
+
+- Enables SEC-020; conforming listeners parse identically. Empty payloads are framed with length 0.
+
+---
+
+### ADR-024: Apply RLimits and Umask in the Spawn Path
+
+**Date:** 2026-07-09
+**Status:** Accepted
+
+**Context:** SEC-021: `ExecSpawner.Spawn` silently ignores `SpawnConfig.RLimits`, and per-process `Umask` is never applied (`ApplyRLimits`/`ApplyUmask` have no non-test callers). Operators setting `NOFILE`/`NPROC` limits or a restrictive umask get no enforcement.
+
+**Decision:** Apply configured rlimits and umask in the child (post-fork, pre-exec), consistent with the existing credential/umask handling via `SysProcAttr`/child init. Invalid rlimit values are rejected at config validation. The platform split follows the existing `rlimit_linux.go`/`rlimit_darwin.go` convention.
+
+**Alternatives Considered:**
+
+1. **Apply in the parent before fork:** Rejected -- would alter the supervisor's own limits/umask.
+2. **Status quo (ignore):** Rejected -- silent non-enforcement of a security-relevant control.
+
+**Consequences:**
+
+- Configured limits/umask take effect (enables SEC-021); a program that implicitly relied on limits NOT being applied may see a behavior change -- this is the intended fix.
+
+---
+
+### ADR-025: PR Test-Result Tiles -- Label Opt-In, GitHub-Only
+
+**Date:** 2026-07-09
+**Status:** Accepted
+
+**Context:** TEST-005: the sticky PR tiles (PR #51) intentionally show only failures/skipped in the twisty to stay compact for the ~600-test suite. Reviewers want opt-in access to the full per-test list with color-coded status. Kahi's CI is GitHub Actions; `ci/gitlab` and `ci/jenkins` are documentation mapping guides.
+
+**Decision:**
+
+- The full per-test table is gated by a `full-test-report` PR label, evaluated at tile-render time from the `pull_request` event's label set; adding the label (`pull_request: labeled` trigger) re-runs the workflow and updates the sticky tiles in place.
+- Status color uses the existing emoji indicators (no arbitrary markdown color): ✅ passed, ⚠️ skipped, ❌ failed; rows ordered failures → skipped → passed.
+- The renderer truncates deterministically if the comment would exceed GitHub's 64 KB limit (all failures/skipped kept; passed rows capped with an explicit omission note).
+- Scope is GitHub Actions only.
+
+**Alternatives Considered:**
+
+1. **`workflow_dispatch` input:** Rejected -- manual dispatch, not tied to a PR push.
+2. **Repo/org variable:** Rejected -- global, noisy on every PR for a large suite.
+3. **Always include the full table in a nested collapsed `<details>`:** Rejected -- still ships ~600 rows in every comment payload, the bloat the opt-in exists to avoid.
+4. **Specify GitLab/Jenkins equivalents now:** Rejected -- speculative; Kahi does not run those CIs.
+
+**Consequences:**
+
+- Enables TEST-005; adding the label re-runs the suites. Rendering the full table from a retained JUnit artifact without re-running is a possible future optimization, out of scope here.
+
+---
+
+### Implementation Sequencing (Security Hardening + Test Tiles)
+
+This batch (ADR-016..025) has no cross-feature code dependencies that force a strict order; the natural sequencing by blast radius and shared surface is:
+
+1. **Config-validation gate (do first, shared surface):** ADR-017 (fail-closed TCP), ADR-019 (socket owner-only + reject chown/chmod), ADR-020 (bcrypt-only), ADR-021 (drop CWD search), ADR-024 config validation for rlimits -- all add rejections in `internal/config` validation and are low-risk, high-value.
+2. **API response layer:** ADR-016 (config redaction DTO) -- isolated to `internal/api` + config struct tags.
+3. **Process spawn layer:** ADR-018 (clean env for differing user), ADR-024 (apply rlimits/umask) -- both touch `internal/process` spawn.
+4. **Logging/events hardening:** ADR-022 (log open hardening), ADR-023 (listener framing) -- isolated to `internal/logging` and `internal/events`.
+5. **CI tooling (independent):** ADR-025 (test-tile label opt-in) -- `.github/` only, no Go coupling.
+
+Per-feature testing steps and the machine-readable dependency graph are generated in `feature_list.json` by `/cpf:specforge features`.
