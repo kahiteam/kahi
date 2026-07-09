@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -643,7 +644,11 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		if user != s.authUser || !checkPassword(pass, s.authPass) {
+		// Evaluate both comparisons unconditionally so timing does not
+		// distinguish a wrong username from a wrong password.
+		userOK := subtle.ConstantTimeCompare([]byte(user), []byte(s.authUser)) == 1
+		passOK := checkPassword(pass, s.authPass)
+		if !userOK || !passOK {
 			w.Header().Set("WWW-Authenticate", `Basic realm="kahi"`)
 			writeError(w, http.StatusUnauthorized, "invalid credentials", "UNAUTHORIZED")
 			return
@@ -658,15 +663,15 @@ func isUnixConn(r *http.Request) bool {
 	return r.RemoteAddr == "" || r.RemoteAddr == "@"
 }
 
+// checkPassword reports whether plain matches the configured bcrypt hash.
+// Config validation guarantees hash is a bcrypt hash ($2 prefix); a non-bcrypt
+// hash reaching here fails closed via bcrypt.CompareHashAndPassword. bcrypt's
+// compare is constant-time with respect to the password.
 func checkPassword(plain, hash string) bool {
 	if hash == "" {
 		return plain == ""
 	}
-	if strings.HasPrefix(hash, "$2") {
-		return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain)) == nil
-	}
-	// Plaintext fallback for testing only.
-	return plain == hash
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain)) == nil
 }
 
 // --- JSON helpers ---

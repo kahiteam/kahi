@@ -49,5 +49,9 @@ func Validate(cfg *Config) []error {
 		}
 	}
 
+	if pw := cfg.Server.HTTP.Password; pw != "" && !strings.HasPrefix(pw, "$2") {
+		errs = append(errs, fmt.Errorf("http.password must be a bcrypt hash"))
+	}
+
 	return errs
 }
