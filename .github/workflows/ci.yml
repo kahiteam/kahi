@@ -10,6 +10,7 @@ permissions:
   contents: read
   checks: write
   statuses: write
+  pull-requests: write
 
 jobs:
   changes:
@@ -96,6 +97,27 @@ jobs:
                 ].join('\n'),
               },
             });
+      - name: Build unit test PR comment
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          go run .github/scripts/build-test-comment.go \
+            -junit unit-results.xml \
+            -title "Unit test results" \
+            -label "Unit" \
+            -output pr-comment-unit.md
+          {
+            echo ""
+            echo "[Run log](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          } >> pr-comment-unit.md
+      - name: Post unit test sticky comment
+        # Best-effort: dependabot / fork PRs run with a read-only token and
+        # cannot post comments. Do not fail the build when posting is denied.
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@v3
+        with:
+          header: unit-test-results
+          path: pr-comment-unit.md
       - name: Test summary
         if: always()
         run: |
