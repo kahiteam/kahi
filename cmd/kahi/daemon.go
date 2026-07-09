@@ -35,8 +35,11 @@ func init() {
 }
 
 func daemonRun(cmd *cobra.Command, args []string) error {
-	// Resolve config path.
-	cfgPath, err := config.Resolve(configFlag)
+	// Resolve config path. The daemon excludes the current directory from its
+	// default search order so a root daemon cannot be tricked into loading a
+	// ./kahi.toml planted in an attacker-writable working directory (SEC-017).
+	// Explicit -c and KAHI_CONFIG are still honored.
+	cfgPath, err := config.ResolveDaemon(configFlag)
 	if err != nil {
 		return err
 	}
