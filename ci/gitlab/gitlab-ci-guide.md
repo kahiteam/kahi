@@ -23,7 +23,7 @@ stages:
   - build
 
 variables:
-  NODE_VERSION: '22'
+  NODE_VERSION: '26'
 
 # --- Lint ---
 lint:
