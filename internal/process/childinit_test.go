@@ -83,7 +83,11 @@ func TestSpawnAppliesNofileRLimit(t *testing.T) {
 
 // SEC-021: a configured NPROC limit must take effect in the spawned child.
 func TestSpawnAppliesNprocRLimit(t *testing.T) {
-	target := clampToHard(t, rlimitNproc, 137)
+	// Use a high-but-below-hard soft limit: it is still an observable change
+	// (asserted via ulimit -u) yet stays well above the live per-uid process
+	// count, so the child can spawn. A low absolute value (e.g. 137) fails on
+	// busy CI runners whose uid already exceeds it.
+	target := clampToHard(t, rlimitNproc, 65535)
 	out := spawnCapture(t, SpawnConfig{
 		Command: "/bin/sh",
 		Args:    []string{"-c", "ulimit -u"},
