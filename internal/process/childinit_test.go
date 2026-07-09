@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -84,28 +85,28 @@ func TestSpawnAppliesNofileRLimit(t *testing.T) {
 // SEC-021: a configured NPROC limit must take effect in the spawned child.
 func TestSpawnAppliesNprocRLimit(t *testing.T) {
 	// NPROC is special: the re-exec trampoline is a multi-threaded Go program,
-	// so a soft limit below the uid's live process/thread count makes the
-	// runtime abort before exec (exit 2) — which is why a low absolute value
-	// fails on busy CI runners. Live usage is bounded by the current soft
-	// limit, so we set the target just slightly below the current soft limit:
-	// an observable change that stays above live usage (never starving the
-	// child) and at/below any platform cap (macOS clamps NPROC to
-	// kern.maxprocperuid, but the target is below the current soft so it is
-	// applied faithfully). Skip when the soft limit is unlimited or too small
-	// to carve out a distinct value.
+	// so a soft limit below the uid's live process/thread count aborts the
+	// runtime before exec (exit 2). Lowering is therefore unsafe on a busy
+	// runner, so we RAISE the soft limit toward the hard limit — strictly more
+	// headroom, so the child can never starve — and assert the child sees it.
+	// macOS clamps NPROC to kern.maxprocperuid at set time, making a raise
+	// unobservable there, so skip macOS; the end-to-end apply mechanism is
+	// already covered by the NOFILE test above.
+	if runtime.GOOS == "darwin" {
+		t.Skip("macOS clamps NPROC to kern.maxprocperuid; apply path covered by the NOFILE test")
+	}
 	var rl syscall.Rlimit
 	if err := syscall.Getrlimit(rlimitNproc, &rl); err != nil {
 		t.Fatalf("getrlimit(nproc): %v", err)
 	}
-	soft := uint64(rl.Cur)
-	if soft == ^uint64(0) || soft < 128 {
-		t.Skip("NPROC soft limit unlimited or too small for an end-to-end apply check")
+	soft, hard := uint64(rl.Cur), uint64(rl.Max)
+	target := soft + 1024
+	if hard != ^uint64(0) && target > hard {
+		target = hard
 	}
-	reduce := soft / 64
-	if reduce == 0 {
-		reduce = 1
+	if target == soft {
+		t.Skip("no NPROC headroom to raise the soft limit")
 	}
-	target := soft - reduce
 	out := spawnCapture(t, SpawnConfig{
 		Command: "/bin/sh",
 		Args:    []string{"-c", "ulimit -u"},
