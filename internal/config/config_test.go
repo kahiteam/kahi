@@ -205,9 +205,13 @@ func TestBcryptPasswordAccepted(t *testing.T) {
 }
 
 func TestEmptyPasswordAccepted(t *testing.T) {
+	// An empty http.password must not trigger the bcrypt-format check (SEC-018).
+	// The listener stays disabled, so the SEC-015 fail-closed credential
+	// requirement does not apply (enabling HTTP without credentials is rejected
+	// separately, covered by the validation tests).
 	tomlData := `
 [server.http]
-enabled = true
+enabled = false
 `
 	_, _, err := LoadBytes([]byte(tomlData), "test.toml")
 	if err != nil {

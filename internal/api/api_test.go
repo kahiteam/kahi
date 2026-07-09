@@ -716,7 +716,7 @@ func TestUnixSocketCleanupOnShutdown(t *testing.T) {
 func TestTCPServer(t *testing.T) {
 	srv, _, _ := testServer()
 	srv.authUser = "admin"
-	srv.authPass = "secret"
+	srv.authPass = testPassHash
 	if err := srv.StartTCP("127.0.0.1:0"); err != nil {
 		t.Fatal(err)
 	}
@@ -817,7 +817,7 @@ func TestStartTCPRefusesLoopbackWithoutCredentials(t *testing.T) {
 func TestEventStreamSSE(t *testing.T) {
 	srv, _, _ := testServer()
 	srv.authUser = "admin"
-	srv.authPass = "secret"
+	srv.authPass = testPassHash
 
 	// Start TCP server for real SSE test.
 	if err := srv.StartTCP("127.0.0.1:0"); err != nil {
@@ -869,7 +869,7 @@ func TestEventStreamSSE(t *testing.T) {
 func TestEventStreamWithTypeFilter(t *testing.T) {
 	srv, _, _ := testServer()
 	srv.authUser = "admin"
-	srv.authPass = "secret"
+	srv.authPass = testPassHash
 	if err := srv.StartTCP("127.0.0.1:0"); err != nil {
 		t.Fatal(err)
 	}
