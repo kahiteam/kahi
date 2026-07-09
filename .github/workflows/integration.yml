@@ -19,6 +19,7 @@ on:
 permissions:
   contents: read
   checks: write
+  pull-requests: write
 
 jobs:
   integration:
@@ -81,6 +82,48 @@ jobs:
             }
             await createCheckRun('integration-results.xml', 'Integration Test Results');
             await createCheckRun('e2e-results.xml', 'E2E Test Results');
+      - name: Build integration test PR comment
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          go run .github/scripts/build-test-comment.go \
+            -junit integration-results.xml \
+            -title "Integration test results" \
+            -label "Integration" \
+            -output pr-comment-integration.md
+          {
+            echo ""
+            echo "[Run log](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          } >> pr-comment-integration.md
+      - name: Post integration test sticky comment
+        # Best-effort: dependabot / fork PRs run with a read-only token and
+        # cannot post comments. Do not fail the build when posting is denied.
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@v3
+        with:
+          header: integration-test-results
+          path: pr-comment-integration.md
+      - name: Build e2e test PR comment
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          go run .github/scripts/build-test-comment.go \
+            -junit e2e-results.xml \
+            -title "E2E test results" \
+            -label "E2E" \
+            -output pr-comment-e2e.md
+          {
+            echo ""
+            echo "[Run log](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          } >> pr-comment-e2e.md
+      - name: Post e2e test sticky comment
+        # Best-effort: dependabot / fork PRs run with a read-only token and
+        # cannot post comments. Do not fail the build when posting is denied.
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@v3
+        with:
+          header: e2e-test-results
+          path: pr-comment-e2e.md
       - name: Test summary
         if: always()
         run: |
