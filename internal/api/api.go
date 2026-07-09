@@ -189,6 +189,14 @@ func (s *Server) StartUnix(path string, mode os.FileMode) error {
 
 // StartTCP begins serving on a TCP address.
 func (s *Server) StartTCP(addr string) error {
+	// Fail-closed TCP authentication (SEC-015): refuse to open the listener
+	// without credentials for any bind address, loopback included. This is a
+	// defense-in-depth guard mirroring the config-validation gate; the Unix
+	// socket remains the password-free local path.
+	if s.authUser == "" || s.authPass == "" {
+		return fmt.Errorf("http listener on %s requires username/password", addr)
+	}
+
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("cannot bind %s: %w", addr, err)
