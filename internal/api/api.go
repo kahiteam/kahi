@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/events"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -519,7 +520,18 @@ func (s *Server) handleRestartGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.config.GetConfig())
+	writeJSON(w, http.StatusOK, sanitizeConfigView(s.config.GetConfig()))
+}
+
+// sanitizeConfigView redacts secrets from any config-returning response. When
+// the value is a *config.Config it is replaced by the sanitized view (masked
+// environment and webhook header values, stripped webhook URL userinfo, and
+// json-excluded credentials); other values pass through unchanged.
+func sanitizeConfigView(v any) any {
+	if c, ok := v.(*config.Config); ok {
+		return config.Sanitized(c)
+	}
+	return v
 }
 
 func (s *Server) handleReloadConfig(w http.ResponseWriter, r *http.Request) {

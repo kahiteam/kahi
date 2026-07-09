@@ -83,8 +83,8 @@ type UnixServerConfig struct {
 type HTTPServerConfig struct {
 	Enabled  bool   `toml:"enabled"`
 	Listen   string `toml:"listen"`
-	Username string `toml:"username"`
-	Password string `toml:"password"`
+	Username string `toml:"username" json:"-"`
+	Password string `toml:"password" json:"-"`
 }
 
 // WebhookConfig holds per-webhook settings.
