@@ -45,6 +45,7 @@ const DefaultConfigTOML = `# Kahi configuration file
 # directory = ""               # working directory
 # umask = ""                   # file creation mask
 # clean_environment = false    # whitelist-only environment mode
+# inherit_environment = false  # inherit full env even when user differs
 # redirect_stderr = false      # merge stderr into stdout
 # strip_ansi = false           # remove ANSI escape sequences
 # stdout_logfile = ""          # stdout log file (default: container stdout)
