@@ -80,8 +80,9 @@ cryptographic module for password hashing and TLS.
 ### Prebuilt binaries
 
 Download from [GitHub Releases](https://github.com/kahiteam/kahi/releases).
-Archives are available for linux/amd64, linux/arm64, darwin/amd64, and
-darwin/arm64. A FIPS variant (`kahi-fips`) is available for linux.
+Archives are available for linux (amd64, arm, arm64, ppc64le, riscv64, s390x)
+and darwin (amd64, arm64). A FIPS variant (`kahi-fips`) is available for linux.
+Every archive, `checksums.txt`, and SBOM is signed (see [Verifying releases](#verifying-releases)).
 
 ### go install
 
@@ -91,7 +92,7 @@ go install github.com/kahiteam/kahi/cmd/kahi@latest
 
 ### Build from source
 
-Requires Go 1.26.2+ and [Task](https://taskfile.dev).
+Requires Go 1.26.5+ and [Task](https://taskfile.dev).
 
 ```sh
 git clone https://github.com/kahiteam/kahi.git
@@ -105,7 +106,7 @@ The binary is written to `./bin/kahi`.
 
 ### Prerequisites
 
-- Go 1.26.2 or later
+- Go 1.26.5 or later
 - [Task](https://taskfile.dev) -- task runner
 - golangci-lint (optional, for linting)
 
@@ -129,8 +130,8 @@ Run `task setup` to install golangci-lint and goreleaser.
 ### Release builds
 
 [GoReleaser](https://goreleaser.com/) produces cross-compiled archives for
-linux and darwin on amd64 and arm64. The FIPS variant is built with
-`GOFIPS140=v1.0.0` for linux only.
+linux (amd64, arm, arm64, ppc64le, riscv64, s390x) and darwin (amd64, arm64).
+The FIPS variant is built with `GOFIPS140=v1.0.0` for linux only.
 
 ```sh
 # Local snapshot build (no publish)
@@ -219,13 +220,17 @@ kahi migrate <supervisord.conf> [flags]
 
 ### Config search order
 
-When no explicit config path is given, Kahi searches:
+When no explicit config path is given, Kahi resolves the config in this order:
 
 1. `-c` flag value
 2. `KAHI_CONFIG` environment variable
-3. `./kahi.toml`
-4. `/etc/kahi/kahi.toml`
-5. `/etc/kahi.toml`
+3. `/etc/kahi/kahi.toml`
+4. `/etc/kahi.toml`
+
+`kahi daemon` does **not** search the current directory: a root daemon started
+without `-c`/`KAHI_CONFIG` will not load a `./kahi.toml` that an unprivileged
+user could plant in the working directory. The `kahi ctl` client, for local
+convenience, additionally checks `./kahi.toml` ahead of the system paths.
 
 ## Configuration
 
@@ -253,14 +258,13 @@ kahi init -o kahi.toml        # write to file
 
 [server.unix]
 # file = "/var/run/kahi.sock"   # Unix socket path
-# chmod = "0700"                # socket file permissions
-# chown = ""                    # socket owner (user:group)
+# chmod = "0700"                # socket permissions; must be owner-only -- group/other access is rejected
 
 [server.http]
-# enabled = false               # enable TCP HTTP server
-# listen = "127.0.0.1:9876"    # TCP listen address
-# username = ""                 # HTTP Basic Auth username
-# password = ""                 # bcrypt-hashed password
+# enabled = false               # enable TCP HTTP server (requires username + password below)
+# listen = "127.0.0.1:9876"    # TCP listen address; loopback is NOT exempt from auth
+# username = ""                 # HTTP Basic Auth username (required when enabled)
+# password = ""                 # bcrypt hash from `kahi hash-password` -- plaintext is rejected
 
 # Process definitions
 # [programs.example]
@@ -281,7 +285,9 @@ kahi init -o kahi.toml        # write to file
 # user = ""                    # run as user
 # directory = ""               # working directory
 # umask = ""                   # file creation mask
-# clean_environment = false    # whitelist-only environment mode
+# clean_environment = false    # pass only supervisor + explicit env vars (no inheritance)
+# inherit_environment = false  # for a process whose `user` differs from the supervisor, opt back
+#                              # into full env inheritance (differing-user children are clean by default)
 # redirect_stderr = false      # merge stderr into stdout
 # strip_ansi = false           # remove ANSI escape sequences
 # stdout_logfile = ""          # stdout log file (default: container stdout)
@@ -329,6 +335,29 @@ include = ["/etc/kahi/conf.d/*.toml"]
 ```
 
 Glob patterns are supported. Circular includes are detected and rejected.
+
+## Security
+
+Kahi is secure by default:
+
+- **Control plane.** The Unix socket is the default transport, created owner-only
+  (`0700`) and bound to the service identity; the daemon rejects a group/other
+  `chmod` or a `chown`. The TCP API is disabled by default; enabling it requires
+  an HTTP Basic Auth username and a bcrypt-hashed password (loopback included) --
+  the daemon refuses to start otherwise. Plaintext passwords are rejected.
+- **Config secrets.** `GET /api/v1/config` returns a redacted view: passwords,
+  process environment values, and webhook auth headers are masked.
+- **Privilege separation.** The daemon can drop privileges (`-u`), and per-process
+  `user`/`umask`/resource limits are enforced at spawn. A process that runs as a
+  different user starts from a minimal environment by default, so supervisor
+  secrets are not inherited downward (opt in with `inherit_environment`).
+- **No shell.** Commands are `exec`'d directly, never via `sh -c`.
+- **Config trust.** `kahi daemon` does not load a config from the current
+  directory (see [Config search order](#config-search-order)).
+- **Signed releases.** Artifacts and images are signed (keyless cosign) and ship
+  CycloneDX SBOMs -- see below.
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Verifying releases
 
