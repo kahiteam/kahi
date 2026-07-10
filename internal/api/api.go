@@ -3,6 +3,7 @@ package api
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/events"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -188,6 +190,14 @@ func (s *Server) StartUnix(path string, mode os.FileMode) error {
 
 // StartTCP begins serving on a TCP address.
 func (s *Server) StartTCP(addr string) error {
+	// Fail-closed TCP authentication (SEC-015): refuse to open the listener
+	// without credentials for any bind address, loopback included. This is a
+	// defense-in-depth guard mirroring the config-validation gate; the Unix
+	// socket remains the password-free local path.
+	if s.authUser == "" || s.authPass == "" {
+		return fmt.Errorf("http listener on %s requires username/password", addr)
+	}
+
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("cannot bind %s: %w", addr, err)
@@ -519,7 +529,18 @@ func (s *Server) handleRestartGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.config.GetConfig())
+	writeJSON(w, http.StatusOK, sanitizeConfigView(s.config.GetConfig()))
+}
+
+// sanitizeConfigView redacts secrets from any config-returning response. When
+// the value is a *config.Config it is replaced by the sanitized view (masked
+// environment and webhook header values, stripped webhook URL userinfo, and
+// json-excluded credentials); other values pass through unchanged.
+func sanitizeConfigView(v any) any {
+	if c, ok := v.(*config.Config); ok {
+		return config.Sanitized(c)
+	}
+	return v
 }
 
 func (s *Server) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
@@ -643,7 +664,11 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		if user != s.authUser || !checkPassword(pass, s.authPass) {
+		// Evaluate both comparisons unconditionally so timing does not
+		// distinguish a wrong username from a wrong password.
+		userOK := subtle.ConstantTimeCompare([]byte(user), []byte(s.authUser)) == 1
+		passOK := checkPassword(pass, s.authPass)
+		if !userOK || !passOK {
 			w.Header().Set("WWW-Authenticate", `Basic realm="kahi"`)
 			writeError(w, http.StatusUnauthorized, "invalid credentials", "UNAUTHORIZED")
 			return
@@ -658,15 +683,15 @@ func isUnixConn(r *http.Request) bool {
 	return r.RemoteAddr == "" || r.RemoteAddr == "@"
 }
 
+// checkPassword reports whether plain matches the configured bcrypt hash.
+// Config validation guarantees hash is a bcrypt hash ($2 prefix); a non-bcrypt
+// hash reaching here fails closed via bcrypt.CompareHashAndPassword. bcrypt's
+// compare is constant-time with respect to the password.
 func checkPassword(plain, hash string) bool {
 	if hash == "" {
 		return plain == ""
 	}
-	if strings.HasPrefix(hash, "$2") {
-		return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain)) == nil
-	}
-	// Plaintext fallback for testing only.
-	return plain == hash
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain)) == nil
 }
 
 // --- JSON helpers ---

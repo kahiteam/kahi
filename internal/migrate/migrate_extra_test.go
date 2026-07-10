@@ -32,8 +32,23 @@ command = /usr/bin/python -m http.server
 	if !strings.Contains(result.TOML, `chmod = "0700"`) {
 		t.Fatalf("expected chmod in output, got:\n%s", result.TOML)
 	}
-	if !strings.Contains(result.TOML, `chown = "nobody:nogroup"`) {
-		t.Fatalf("expected chown in output, got:\n%s", result.TOML)
+	// chown must never be emitted as active config: the control socket is
+	// owner-only and Kahi rejects server.unix.chown, so it is reported as an
+	// unsupported option instead, keeping migration output loadable.
+	if strings.Contains(result.TOML, `chown = "nobody:nogroup"`) {
+		t.Fatalf("chown must not be emitted as active config, got:\n%s", result.TOML)
+	}
+	if !strings.Contains(result.TOML, "# UNSUPPORTED: chown = nobody:nogroup") {
+		t.Fatalf("expected chown reported as unsupported, got:\n%s", result.TOML)
+	}
+	found := false
+	for _, w := range result.Warnings {
+		if strings.Contains(w, `server.unix: unsupported option "chown"`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected chown warning, got: %v", result.Warnings)
 	}
 }
 

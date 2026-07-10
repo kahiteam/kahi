@@ -17,8 +17,7 @@ const DefaultConfigTOML = `# Kahi configuration file
 
 [server.unix]
 # file = "/var/run/kahi.sock"   # Unix socket path
-# chmod = "0700"                # socket file permissions
-# chown = ""                    # socket owner (user:group)
+# chmod = "0700"                # socket file permissions (owner-only; group/other access is rejected)
 
 [server.http]
 # enabled = false               # enable TCP HTTP server

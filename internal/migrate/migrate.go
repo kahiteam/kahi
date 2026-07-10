@@ -202,11 +202,11 @@ func writeUnixServerSection(b *strings.Builder, sec INISection, result *Result) 
 	if chmod, ok := sec.Options["chmod"]; ok {
 		fmt.Fprintf(b, "chmod = %q\n", chmod)
 	}
-	if chown, ok := sec.Options["chown"]; ok {
-		fmt.Fprintf(b, "chown = %q\n", chown)
-	}
+	// chown is not emitted: the control socket is locked to the service
+	// identity (owner-only) and Kahi rejects server.unix.chown, so it is
+	// reported as unsupported rather than written as active config.
 	for k, v := range sec.Options {
-		if k != "file" && k != "chmod" && k != "chown" {
+		if k != "file" && k != "chmod" {
 			fmt.Fprintf(b, "# UNSUPPORTED: %s = %s\n", k, v)
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("server.unix: unsupported option %q", k))

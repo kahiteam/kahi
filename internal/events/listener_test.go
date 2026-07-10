@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -102,29 +103,65 @@ func TestDispatchRoutesEventsToSendToReady(t *testing.T) {
 		Data:      map[string]string{"name": "web"},
 	})
 
-	// Read the payload from the listener's stdin.
-	scanner := bufio.NewScanner(stdinR)
-	done := make(chan string, 1)
+	// Read the framed payload from the listener's stdin.
+	type framed struct {
+		header string
+		body   string
+	}
+	done := make(chan framed, 1)
+	errCh := make(chan error, 1)
 	go func() {
-		if scanner.Scan() {
-			done <- scanner.Text()
+		reader := bufio.NewReader(stdinR)
+		header, body, err := readFramedPayload(reader)
+		if err != nil {
+			errCh <- err
+			return
 		}
+		done <- framed{header: header, body: body}
 	}()
 
 	select {
-	case line := <-done:
-		if !strings.HasPrefix(line, "PROCESS_STATE_RUNNING") {
-			t.Fatalf("expected payload starting with PROCESS_STATE_RUNNING, got %q", line)
+	case f := <-done:
+		if !strings.HasPrefix(f.header, "PROCESS_STATE_RUNNING") {
+			t.Fatalf("expected header starting with PROCESS_STATE_RUNNING, got %q", f.header)
 		}
-		if !strings.Contains(line, "name:web") {
-			t.Fatalf("expected payload to contain name:web, got %q", line)
+		if f.body != "name:web" {
+			t.Fatalf("expected framed body name:web, got %q", f.body)
 		}
+	case err := <-errCh:
+		t.Fatalf("failed to read framed payload: %v", err)
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for event payload on listener stdin")
 	}
 
 	stdoutW.Close()
 	stdinR.Close()
+}
+
+// readFramedPayload parses one length-framed listener payload: a header line
+// "TYPE TIMESTAMP len:N" followed by exactly N body bytes. It returns the
+// header (without its trailing newline) and the N-byte body.
+func readFramedPayload(r *bufio.Reader) (header string, body string, err error) {
+	line, err := r.ReadString('\n')
+	if err != nil {
+		return "", "", err
+	}
+	header = strings.TrimSuffix(line, "\n")
+
+	idx := strings.LastIndex(header, " len:")
+	if idx < 0 {
+		return "", "", fmt.Errorf("header missing len prefix: %q", header)
+	}
+	n, err := strconv.Atoi(header[idx+len(" len:"):])
+	if err != nil {
+		return "", "", fmt.Errorf("invalid length in header %q: %w", header, err)
+	}
+
+	buf := make([]byte, n)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return "", "", err
+	}
+	return header, string(buf), nil
 }
 
 func TestSendToReadyTransitionsToBusy(t *testing.T) {
@@ -177,20 +214,10 @@ func TestFormatEventPayload(t *testing.T) {
 		Data:      map[string]string{"name": "web"},
 	}
 
-	payload := formatEventPayload(event)
-
-	// Payload format: "TYPE TIMESTAMP key:value\n"
-	if !strings.HasPrefix(payload, "PROCESS_STATE_RUNNING ") {
-		t.Fatalf("expected prefix PROCESS_STATE_RUNNING, got %q", payload)
-	}
-	if !strings.Contains(payload, ts.Format(time.RFC3339)) {
-		t.Fatalf("expected RFC3339 timestamp in payload, got %q", payload)
-	}
-	if !strings.Contains(payload, "name:web") {
-		t.Fatalf("expected name:web in payload, got %q", payload)
-	}
-	if !strings.HasSuffix(payload, "\n") {
-		t.Fatalf("expected trailing newline, got %q", payload)
+	// Payload format: "TYPE TIMESTAMP len:N\n" followed by exactly N body bytes.
+	expected := fmt.Sprintf("PROCESS_STATE_RUNNING %s len:8\nname:web", ts.Format(time.RFC3339))
+	if payload := formatEventPayload(event); payload != expected {
+		t.Fatalf("expected %q, got %q", expected, payload)
 	}
 }
 
@@ -202,10 +229,115 @@ func TestFormatEventPayloadEmptyData(t *testing.T) {
 		Data:      nil,
 	}
 
+	// An empty payload body is framed with len:0 and no body bytes.
 	payload := formatEventPayload(event)
-	expected := fmt.Sprintf("PROCESS_STATE_STOPPED %s\n", ts.Format(time.RFC3339))
+	expected := fmt.Sprintf("PROCESS_STATE_STOPPED %s len:0\n", ts.Format(time.RFC3339))
 	if payload != expected {
 		t.Fatalf("expected %q, got %q", expected, payload)
+	}
+}
+
+// TestFormatEventPayloadAnnouncesBodyLength verifies the header announces the
+// exact byte length of the body and that the body follows the header line.
+func TestFormatEventPayloadAnnouncesBodyLength(t *testing.T) {
+	ts := time.Date(2026, 2, 16, 12, 0, 0, 0, time.UTC)
+	event := Event{
+		Type:      ProcessStateRunning,
+		Timestamp: ts,
+		Data:      map[string]string{"name": "web", "pid": "123"},
+	}
+
+	header, body, err := readFramedPayload(bufio.NewReader(strings.NewReader(formatEventPayload(event))))
+	if err != nil {
+		t.Fatalf("failed to parse framed payload: %v", err)
+	}
+
+	// Keys are emitted in sorted order for deterministic framing.
+	if body != "name:web pid:123" {
+		t.Fatalf("unexpected body %q", body)
+	}
+	if want := fmt.Sprintf("PROCESS_STATE_RUNNING %s len:%d", ts.Format(time.RFC3339), len(body)); header != want {
+		t.Fatalf("expected header %q, got %q", want, header)
+	}
+}
+
+// TestFormatEventPayloadFramesEmbeddedNewline verifies that a payload value
+// containing an embedded newline and header-like text is carried as opaque
+// body bytes and cannot be parsed as a forged protocol line.
+func TestFormatEventPayloadFramesEmbeddedNewline(t *testing.T) {
+	ts := time.Date(2026, 2, 16, 12, 0, 0, 0, time.UTC)
+	// A compromised process could emit output containing a newline followed
+	// by a line that mimics a protocol header.
+	malicious := "line1\nPROCESS_STATE_FATAL 2026-01-01T00:00:00Z injected:1"
+	event := Event{
+		Type:      ProcessStateRunning,
+		Timestamp: ts,
+		Data:      map[string]string{"data": malicious},
+	}
+
+	payload := formatEventPayload(event)
+
+	// The header is the only content up to the first newline. The injected
+	// text must not appear on the header line.
+	firstLine := payload[:strings.IndexByte(payload, '\n')]
+	if strings.Contains(firstLine, "PROCESS_STATE_FATAL") {
+		t.Fatalf("injected header leaked into protocol line: %q", firstLine)
+	}
+	if !strings.HasPrefix(firstLine, "PROCESS_STATE_RUNNING ") {
+		t.Fatalf("unexpected header line: %q", firstLine)
+	}
+
+	// A conforming listener reads exactly len bytes and recovers the value
+	// verbatim, embedded newline included.
+	header, body, err := readFramedPayload(bufio.NewReader(strings.NewReader(payload)))
+	if err != nil {
+		t.Fatalf("failed to parse framed payload: %v", err)
+	}
+	idx := strings.LastIndex(header, " len:")
+	n, err := strconv.Atoi(header[idx+len(" len:"):])
+	if err != nil {
+		t.Fatalf("invalid announced length in header %q: %v", header, err)
+	}
+	if n != len(body) {
+		t.Fatalf("announced length %d does not match body length %d", n, len(body))
+	}
+	if body != "data:"+malicious {
+		t.Fatalf("body not recovered verbatim: got %q", body)
+	}
+}
+
+// TestFormatEventPayloadFrameConcatenation verifies two framed payloads
+// written back-to-back are each recoverable, proving a length-framed body
+// cannot desynchronize the stream even when it contains newlines.
+func TestFormatEventPayloadFrameConcatenation(t *testing.T) {
+	ts := time.Date(2026, 2, 16, 12, 0, 0, 0, time.UTC)
+	first := formatEventPayload(Event{
+		Type:      ProcessStateRunning,
+		Timestamp: ts,
+		Data:      map[string]string{"data": "a\nb"},
+	})
+	second := formatEventPayload(Event{
+		Type:      ProcessStateStopped,
+		Timestamp: ts,
+		Data:      map[string]string{"name": "web"},
+	})
+
+	r := bufio.NewReader(strings.NewReader(first + second))
+
+	h1, b1, err := readFramedPayload(r)
+	if err != nil {
+		t.Fatalf("failed to read first frame: %v", err)
+	}
+	if !strings.HasPrefix(h1, "PROCESS_STATE_RUNNING ") || b1 != "data:a\nb" {
+		t.Fatalf("unexpected first frame: header=%q body=%q", h1, b1)
+	}
+
+	h2, b2, err := readFramedPayload(r)
+	if err != nil {
+		t.Fatalf("failed to read second frame: %v", err)
+	}
+	if !strings.HasPrefix(h2, "PROCESS_STATE_STOPPED ") || b2 != "name:web" {
+		t.Fatalf("unexpected second frame: header=%q body=%q", h2, b2)
 	}
 }
 

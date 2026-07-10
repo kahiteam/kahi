@@ -10,6 +10,9 @@ on:
       - 'Taskfile.yml'
   pull_request:
     branches: [main]
+    # labeled re-runs the suite so tiles regenerate when full-test-report is
+    # added; the other types are the default pull_request activity set.
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - '**.go'
       - 'go.mod'
@@ -84,11 +87,16 @@ jobs:
             await createCheckRun('e2e-results.xml', 'E2E Test Results');
       - name: Build integration test PR comment
         if: always() && github.event_name == 'pull_request'
+        env:
+          # The full-test-report label switches the tile to the full per-test
+          # table; absent, FULL_REPORT is empty and the compact tile is kept.
+          FULL_REPORT: ${{ contains(github.event.pull_request.labels.*.name, 'full-test-report') && '-full' || '' }}
         run: |
           go run .github/scripts/build-test-comment.go \
             -junit integration-results.xml \
             -title "Integration test results" \
             -label "Integration" \
+            $FULL_REPORT \
             -output pr-comment-integration.md
           {
             echo ""
@@ -105,11 +113,16 @@ jobs:
           path: pr-comment-integration.md
       - name: Build e2e test PR comment
         if: always() && github.event_name == 'pull_request'
+        env:
+          # The full-test-report label switches the tile to the full per-test
+          # table; absent, FULL_REPORT is empty and the compact tile is kept.
+          FULL_REPORT: ${{ contains(github.event.pull_request.labels.*.name, 'full-test-report') && '-full' || '' }}
         run: |
           go run .github/scripts/build-test-comment.go \
             -junit e2e-results.xml \
             -title "E2E test results" \
             -label "E2E" \
+            $FULL_REPORT \
             -output pr-comment-e2e.md
           {
             echo ""
