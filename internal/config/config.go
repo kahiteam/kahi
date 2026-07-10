@@ -45,6 +45,7 @@ type ProgramConfig struct {
 	Umask                 string            `toml:"umask"`
 	Environment           map[string]string `toml:"environment"`
 	CleanEnvironment      bool              `toml:"clean_environment"`
+	InheritEnvironment    bool              `toml:"inherit_environment"`
 	StdoutLogfile         string            `toml:"stdout_logfile"`
 	StdoutLogfileMaxbytes string            `toml:"stdout_logfile_maxbytes"`
 	StdoutLogfileBackups  int               `toml:"stdout_logfile_backups"`

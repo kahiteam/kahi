@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/user"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -528,18 +530,30 @@ func (p *Process) restartAfterExit() {
 	}
 }
 
-func (p *Process) buildEnv() []string {
-	var env []string
+// defaultCleanPath is used for a privilege-differentiated child when the
+// supervisor itself has no PATH set.
+const defaultCleanPath = "/usr/local/bin:/usr/bin:/bin"
 
-	if p.config.CleanEnvironment {
+func (p *Process) buildEnv() []string {
+	targetUID, differs := p.privilegeDiffers()
+
+	var env []string
+	switch {
+	case differs && !p.config.InheritEnvironment:
+		// SEC-016: a child dropping to a different user must not inherit the
+		// supervisor's environment by default. Start from a minimal base
+		// regardless of the clean_environment flag; explicit inherit_environment
+		// opts back into full inheritance.
+		env = p.minimalBaseEnv(targetUID)
+	case p.config.CleanEnvironment:
 		// Only supervisor vars + explicit environment.
 		env = []string{}
-	} else {
+	default:
 		// Inherit parent environment.
 		env = os.Environ()
 	}
 
-	// Add supervisor identification vars.
+	// Add supervisor identification vars (always injected regardless of mode).
 	env = append(env,
 		"SUPERVISOR_ENABLED=1",
 		fmt.Sprintf("SUPERVISOR_PROCESS_NAME=%s", p.name),
@@ -552,6 +566,46 @@ func (p *Process) buildEnv() []string {
 	}
 
 	return env
+}
+
+// privilegeDiffers reports whether the program's resolved per-process user
+// differs from the supervisor's own uid. It returns the target uid when a
+// per-process user is configured and parseable.
+func (p *Process) privilegeDiffers() (uint32, bool) {
+	cred, err := ParseCredential(p.config.User)
+	if err != nil || cred == nil {
+		return 0, false
+	}
+	// Compare as int64 so the uint32 uid is never narrowed to a smaller int
+	// (which would overflow on 32-bit platforms).
+	if int64(cred.Uid) == int64(os.Getuid()) {
+		return cred.Uid, false
+	}
+	return cred.Uid, true
+}
+
+// minimalBaseEnv builds the SEC-016 minimal base for a privilege-differentiated
+// child: PATH plus HOME resolved for the target user.
+func (p *Process) minimalBaseEnv(uid uint32) []string {
+	path := os.Getenv("PATH")
+	if path == "" {
+		path = defaultCleanPath
+	}
+	return []string{
+		"PATH=" + path,
+		"HOME=" + p.resolveHome(uid),
+	}
+}
+
+// resolveHome returns the target user's home directory from the passwd
+// database, falling back to "/" when it cannot be resolved.
+func (p *Process) resolveHome(uid uint32) string {
+	u, err := user.LookupId(strconv.FormatUint(uint64(uid), 10))
+	if err != nil || u.HomeDir == "" {
+		p.logger.Debug("target user home unresolved, using /", "uid", uid, "error", err)
+		return "/"
+	}
+	return u.HomeDir
 }
 
 func (p *Process) parseCommand() (string, []string) {

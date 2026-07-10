@@ -1903,7 +1903,7 @@
         "Run cosign verify-blob with --certificate-identity https://github.com/kahiteam/kahi/.github/workflows/release.yml@refs/tags/<tag> and --certificate-oidc-issuer https://token.actions.githubusercontent.com against each archive and confirm success",
         "Run the same cosign verify-blob against checksums.txt and confirm success"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["goreleaser-config", "release-pipeline-hardening"]
     },
     {
@@ -1922,7 +1922,7 @@
         "Verify every *.cdx.json asset has a matching .sig and .pem produced by the cosign signs: block",
         "Run cosign verify-blob against an SBOM and confirm the signature is valid"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["goreleaser-config", "goreleaser-cosign-signing"]
     },
     {
@@ -1942,7 +1942,7 @@
         "Run cosign tree ghcr.io/kahiteam/kahi:<tag> and confirm a Signatures section lists the cosign signature",
         "Verify previous releases (v0.1.0-alpha.1..v0.1.0-alpha.6) remain unsigned and unaffected"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["oci-multiarch-containers", "goreleaser-cosign-signing"]
     },
     {
@@ -1960,7 +1960,7 @@
         "Verify the SBOM enumerates filesystem packages (not only Go module dependencies)",
         "Verify docker buildx imagetools inspect ghcr.io/kahiteam/kahi:<tag> --format '{{json .Provenance}}' returns a non-empty provenance document"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["container-cosign-signing"]
     },
     {
@@ -1980,7 +1980,7 @@
         "Verify the verify script sources its expected identity from refs/tags/${GITHUB_REF_NAME} with no branch fallback",
         "Confirm a prior job failure in sign/sbom/attest steps also blocks the release -- the gate is defense-in-depth, not the only check"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "goreleaser-cosign-signing",
         "goreleaser-cyclonedx-sbom",
@@ -2006,7 +2006,7 @@
         "Verify README.md has a Verifying releases section that links to docs/verifying-releases.md",
         "Verify release.yml appends the verify command block into the auto-generated release notes (mirrors the ai-resume pattern)"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "goreleaser-cosign-signing",
         "container-cosign-signing",
