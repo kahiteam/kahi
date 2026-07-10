@@ -2,15 +2,16 @@
 
 ## Supported Versions
 
-| Version | Supported |
-|---------|-----------|
-| latest minor of 1.x | Yes |
-| older minors of 1.x | Security fixes only |
-| < 1.0 | No |
+| Version                                              | Supported                                    |
+| ---------------------------------------------------- | -------------------------------------------- |
+| latest minor (`0.1.x` today; latest `1.x` after 1.0) | Yes                                          |
+| previous minor                                       | Security fixes for 30 days after a new minor |
+| older pre-release alphas/betas                       | No                                           |
 
-Only the latest minor release of each major version receives security updates.
-Once a new minor is released, the previous minor is supported for 30 days
-to allow time for upgrades.
+Kahi is pre-1.0: the current supported line is the latest `0.x` minor. Only the
+latest minor release receives security updates. Once a new minor is released,
+the previous minor is supported for 30 days to allow time for upgrades. The
+same policy applies to `1.x` after the 1.0 release.
 
 ## Reporting a Vulnerability
 
@@ -39,11 +40,11 @@ Include the following in your report:
 
 ## Response SLA
 
-| Milestone | Timeframe |
-|-----------|-----------|
-| Acknowledgment | Within 48 hours |
-| Initial assessment | Within 7 days |
-| Fix or mitigation | Within 90 days |
+| Milestone          | Timeframe       |
+| ------------------ | --------------- |
+| Acknowledgment     | Within 48 hours |
+| Initial assessment | Within 7 days   |
+| Fix or mitigation  | Within 90 days  |
 
 If we cannot meet the 90-day fix timeline, we will communicate the delay
 and provide a revised timeline before the deadline expires.
