@@ -576,7 +576,9 @@ func (p *Process) privilegeDiffers() (uint32, bool) {
 	if err != nil || cred == nil {
 		return 0, false
 	}
-	if int(cred.Uid) == os.Getuid() {
+	// Compare as int64 so the uint32 uid is never narrowed to a smaller int
+	// (which would overflow on 32-bit platforms).
+	if int64(cred.Uid) == int64(os.Getuid()) {
 		return cred.Uid, false
 	}
 	return cred.Uid, true
