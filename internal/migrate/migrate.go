@@ -32,7 +32,7 @@ func Migrate(inputPath string, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("file not found: %s", inputPath)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	return MigrateReader(f, opts)
 }

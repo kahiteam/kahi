@@ -171,7 +171,7 @@ func (s *Server) StartUnix(path string, mode os.FileMode) error {
 	}
 
 	if err := os.Chmod(path, mode); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return fmt.Errorf("cannot set socket permissions: %s: %w", path, err)
 	}
 
@@ -489,9 +489,9 @@ func (s *Server) handleStreamLog(w http.ResponseWriter, r *http.Request) {
 // data and cannot inject additional SSE frames. See SEC-013.
 func writeSSEData(w io.Writer, data string) {
 	for line := range strings.SplitSeq(data, "\n") {
-		fmt.Fprintf(w, "data: %s\n", line)
+		_, _ = fmt.Fprintf(w, "data: %s\n", line)
 	}
-	fmt.Fprint(w, "\n")
+	_, _ = fmt.Fprint(w, "\n")
 }
 
 func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
@@ -635,7 +635,7 @@ func (s *Server) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case ev := <-ch:
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.eventType, ev.data)
+			_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.eventType, ev.data)
 			flusher.Flush()
 		}
 	}

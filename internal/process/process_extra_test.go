@@ -129,7 +129,7 @@ func TestReadPipe(t *testing.T) {
 
 	_ = p.Start()
 	_, _ = pw.Write([]byte("hello"))
-	pw.Close()
+	_ = pw.Close()
 	time.Sleep(50 * time.Millisecond)
 
 	mu.Lock()

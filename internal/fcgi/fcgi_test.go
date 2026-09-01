@@ -20,7 +20,7 @@ func TestSocketOpenUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sock.Close()
+	defer func() { _ = sock.Close() }()
 
 	if fd == nil {
 		t.Fatal("expected non-nil file descriptor")
@@ -50,7 +50,7 @@ func TestSocketOpenTCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sock.Close()
+	defer func() { _ = sock.Close() }()
 
 	if fd == nil {
 		t.Fatal("expected non-nil file descriptor")
@@ -101,7 +101,7 @@ func TestSocketOpenIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sock.Close()
+	defer func() { _ = sock.Close() }()
 
 	fd2, err := sock.Open()
 	if err != nil {

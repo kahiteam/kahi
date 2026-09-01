@@ -54,7 +54,7 @@ func openLogFile(path string, perm os.FileMode) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	if relDir == "" {
 		relDir = "."
 	}
@@ -63,7 +63,7 @@ func openLogFile(path string, perm os.FileMode) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer dirFile.Close()
+	defer func() { _ = dirFile.Close() }()
 
 	flags := logFileOpenFlags | unix.O_NOFOLLOW | unix.O_CLOEXEC
 	fd, err := unix.Openat(int(dirFile.Fd()), base, flags, uint32(perm.Perm()))

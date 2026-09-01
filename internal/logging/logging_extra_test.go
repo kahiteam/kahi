@@ -21,7 +21,7 @@ func TestPipeToWriterBasic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cw.Close()
+	defer func() { _ = cw.Close() }()
 
 	pr, pw := io.Pipe()
 	done := make(chan struct{})
@@ -32,7 +32,7 @@ func TestPipeToWriterBasic(t *testing.T) {
 
 	_, _ = pw.Write([]byte("hello world\n"))
 	_, _ = pw.Write([]byte("second line\n"))
-	pw.Close()
+	_ = pw.Close()
 	<-done
 
 	data, err := os.ReadFile(logFile)
@@ -56,7 +56,7 @@ func TestPipeToWriterContainerJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cw.Close()
+	defer func() { _ = cw.Close() }()
 
 	var containerBuf bytes.Buffer
 	pr, pw := io.Pipe()
@@ -67,7 +67,7 @@ func TestPipeToWriterContainerJSON(t *testing.T) {
 	}()
 
 	_, _ = pw.Write([]byte("error message\n"))
-	pw.Close()
+	_ = pw.Close()
 	<-done
 
 	output := containerBuf.String()
@@ -142,13 +142,13 @@ func TestReopenAfterDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cw.Close()
+	defer func() { _ = cw.Close() }()
 
 	// Write initial data.
 	_, _ = cw.Write([]byte("before\n"))
 
 	// Delete the log file (simulating rotation).
-	os.Remove(logFile)
+	_ = os.Remove(logFile)
 
 	// Reopen should recreate.
 	if err := cw.Reopen(); err != nil {
@@ -180,7 +180,7 @@ func TestReopenNoFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cw.Close()
+	defer func() { _ = cw.Close() }()
 
 	// Reopen with no file should be a no-op.
 	if err := cw.Reopen(); err != nil {
@@ -259,7 +259,7 @@ func TestSyslogForwarder(t *testing.T) {
 	if err != nil {
 		t.Skip("syslog not available:", err)
 	}
-	defer sf.Close()
+	defer func() { _ = sf.Close() }()
 
 	n, err := sf.Write([]byte("test message"))
 	if err != nil {

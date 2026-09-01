@@ -55,8 +55,8 @@ func TestAddListenerRegistersAcknowledged(t *testing.T) {
 	}
 
 	// Close pipes to let readReady goroutine exit.
-	stdoutW.Close()
-	stdinW.Close()
+	_ = stdoutW.Close()
+	_ = stdinW.Close()
 }
 
 func TestReadReadyTransitionsToReady(t *testing.T) {
@@ -70,13 +70,13 @@ func TestReadReadyTransitionsToReady(t *testing.T) {
 	lp.AddListener("listener-0", stdinW, stdoutR)
 
 	// Send READY token through the stdout pipe.
-	fmt.Fprintln(stdoutW, "READY")
+	_, _ = fmt.Fprintln(stdoutW, "READY")
 
 	// Wait for the readReady goroutine to process it.
 	waitForState(t, lp, 0, ListenerReady, 2*time.Second)
 
-	stdoutW.Close()
-	stdinW.Close()
+	_ = stdoutW.Close()
+	_ = stdinW.Close()
 }
 
 func TestDispatchRoutesEventsToSendToReady(t *testing.T) {
@@ -90,7 +90,7 @@ func TestDispatchRoutesEventsToSendToReady(t *testing.T) {
 	lp.AddListener("listener-0", stdinW, stdoutR)
 
 	// Signal READY.
-	fmt.Fprintln(stdoutW, "READY")
+	_, _ = fmt.Fprintln(stdoutW, "READY")
 
 	// Wait for Ready state.
 	waitForState(t, lp, 0, ListenerReady, 2*time.Second)
@@ -134,8 +134,8 @@ func TestDispatchRoutesEventsToSendToReady(t *testing.T) {
 		t.Fatal("timed out waiting for event payload on listener stdin")
 	}
 
-	stdoutW.Close()
-	stdinR.Close()
+	_ = stdoutW.Close()
+	_ = stdinR.Close()
 }
 
 // readFramedPayload parses one length-framed listener payload: a header line
@@ -175,7 +175,7 @@ func TestSendToReadyTransitionsToBusy(t *testing.T) {
 	lp.AddListener("listener-0", stdinW, stdoutR)
 
 	// Signal READY.
-	fmt.Fprintln(stdoutW, "READY")
+	_, _ = fmt.Fprintln(stdoutW, "READY")
 	waitForState(t, lp, 0, ListenerReady, 2*time.Second)
 
 	// Drain stdin in background so sendToReady doesn't block.
@@ -202,8 +202,8 @@ func TestSendToReadyTransitionsToBusy(t *testing.T) {
 		t.Fatalf("expected state Busy (2), got %d", state)
 	}
 
-	stdoutW.Close()
-	stdinR.Close()
+	_ = stdoutW.Close()
+	_ = stdinR.Close()
 }
 
 func TestFormatEventPayload(t *testing.T) {
@@ -356,8 +356,8 @@ func TestMultipleListenersOnlyFirstReadyGetsEvent(t *testing.T) {
 	lp.AddListener("listener-1", stdinW1, stdoutR1)
 
 	// Make both ready.
-	fmt.Fprintln(stdoutW0, "READY")
-	fmt.Fprintln(stdoutW1, "READY")
+	_, _ = fmt.Fprintln(stdoutW0, "READY")
+	_, _ = fmt.Fprintln(stdoutW1, "READY")
 	waitForState(t, lp, 0, ListenerReady, 2*time.Second)
 	waitForState(t, lp, 1, ListenerReady, 2*time.Second)
 
@@ -398,8 +398,8 @@ func TestMultipleListenersOnlyFirstReadyGetsEvent(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Close pipes to unblock scanners.
-	stdinW0.Close()
-	stdinW1.Close()
+	_ = stdinW0.Close()
+	_ = stdinW1.Close()
 	wg.Wait()
 
 	mu.Lock()
@@ -434,10 +434,10 @@ func TestMultipleListenersOnlyFirstReadyGetsEvent(t *testing.T) {
 		t.Fatalf("expected listener-1 to still be Ready, got %d", state1)
 	}
 
-	stdoutW0.Close()
-	stdoutW1.Close()
-	stdinR0.Close()
-	stdinR1.Close()
+	_ = stdoutW0.Close()
+	_ = stdoutW1.Close()
+	_ = stdinR0.Close()
+	_ = stdinR1.Close()
 }
 
 func TestNoReadyListenersDoesNotCrash(t *testing.T) {
@@ -467,8 +467,8 @@ func TestNoReadyListenersDoesNotCrash(t *testing.T) {
 		Timestamp: ts,
 	})
 
-	stdoutW.Close()
-	stdinW.Close()
+	_ = stdoutW.Close()
+	_ = stdinW.Close()
 }
 
 func TestStopShutsDownCleanly(t *testing.T) {

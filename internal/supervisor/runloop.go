@@ -125,7 +125,9 @@ shutdown:
 
 	// Close capture writers.
 	for _, cw := range s.captures {
-		cw.Close()
+		if err := cw.Close(); err != nil {
+			s.logger.Warn("capture writer close failed during shutdown", "error", err)
+		}
 	}
 
 	close(s.doneCh)

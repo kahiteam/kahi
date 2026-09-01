@@ -154,7 +154,7 @@ func (h *Handler) staticHandler() http.Handler {
 		// ETag based on file content.
 		f, err := h.staticFS.Open(r.URL.Path)
 		if err == nil {
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 			if info, err := f.Stat(); err == nil && !info.IsDir() {
 				etag := fmt.Sprintf(`"%x"`, sha256.Sum256([]byte(info.Name()+info.ModTime().String())))
 				w.Header().Set("ETag", etag)

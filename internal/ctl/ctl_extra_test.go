@@ -108,7 +108,7 @@ func TestAttachStreamsOutput(t *testing.T) {
 	mux.HandleFunc("GET /api/v1/processes/{name}/log/{stream}/stream", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher := w.(http.Flusher)
-		fmt.Fprint(w, "data: output line\n\n")
+		_, _ = fmt.Fprint(w, "data: output line\n\n")
 		flusher.Flush()
 	})
 	mux.HandleFunc("POST /api/v1/processes/{name}/stdin", func(w http.ResponseWriter, r *http.Request) {

@@ -16,7 +16,7 @@ func TestUnixControlSocketOwnerOnlyMode(t *testing.T) {
 	// Use /tmp directly to avoid long macOS temp paths exceeding the Unix
 	// socket path length limit (see TestUnixSocketCleanupOnShutdown).
 	sockPath := filepath.Join("/tmp", fmt.Sprintf("kahi-owner-%d.sock", os.Getpid()))
-	t.Cleanup(func() { os.Remove(sockPath) })
+	t.Cleanup(func() { _ = os.Remove(sockPath) })
 
 	if err := srv.StartUnix(sockPath, 0o700); err != nil {
 		t.Fatalf("StartUnix: %v", err)

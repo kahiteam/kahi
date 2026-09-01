@@ -136,7 +136,7 @@ func TestHashPasswordCommand(t *testing.T) {
 
 	go func() {
 		_, _ = w.Write([]byte("testpassword\n"))
-		w.Close()
+		_ = w.Close()
 	}()
 
 	buf := new(bytes.Buffer)

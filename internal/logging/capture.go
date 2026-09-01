@@ -127,7 +127,7 @@ func (cw *CaptureWriter) rotateIfNeeded() {
 		return
 	}
 	// Close current file before rotating.
-	cw.file.Close()
+	_ = cw.file.Close()
 	_ = rotateFile(cw.config.Logfile, cw.config.Backups)
 	// Reopen a fresh file.
 	f, err := openLogFile(cw.config.Logfile, 0644)
@@ -147,7 +147,7 @@ func (cw *CaptureWriter) Reopen() error {
 		return nil
 	}
 
-	cw.file.Close()
+	_ = cw.file.Close()
 	f, err := openLogFile(cw.config.Logfile, 0644)
 	if err != nil {
 		return fmt.Errorf("cannot reopen log file: %s: %w", cw.config.Logfile, err)

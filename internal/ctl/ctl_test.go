@@ -591,7 +591,7 @@ func TestClientTailFollow(t *testing.T) {
 		func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			flusher := w.(http.Flusher)
-			fmt.Fprint(w, "data: hello world\n\n")
+			_, _ = fmt.Fprint(w, "data: hello world\n\n")
 			flusher.Flush()
 		})
 	ts := httptest.NewServer(mux)
@@ -733,7 +733,7 @@ func TestClientTailFollowDefaultStream(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			flusher := w.(http.Flusher)
-			fmt.Fprint(w, "data: default stream\n\n")
+			_, _ = fmt.Fprint(w, "data: default stream\n\n")
 			flusher.Flush()
 		})
 	ts := httptest.NewServer(mux)
@@ -766,7 +766,7 @@ func TestClientTailFollowWithAuth(t *testing.T) {
 			}
 			w.Header().Set("Content-Type", "text/event-stream")
 			flusher := w.(http.Flusher)
-			fmt.Fprint(w, "data: authed\n\n")
+			_, _ = fmt.Fprint(w, "data: authed\n\n")
 			flusher.Flush()
 		})
 	ts := httptest.NewServer(mux)

@@ -74,8 +74,8 @@ func ValidateSocketPermissions(socketPath string) error {
 	if err != nil {
 		return fmt.Errorf("permission denied: cannot create socket in %s: %w", dir, err)
 	}
-	f.Close()
-	os.Remove(tmpPath)
+	_ = f.Close()
+	_ = os.Remove(tmpPath)
 
 	return nil
 }
@@ -116,7 +116,7 @@ func Daemonize(logger *slog.Logger) (bool, error) {
 	_ = sysDup2(int(devNull.Fd()), int(os.Stdin.Fd()))
 	_ = sysDup2(int(devNull.Fd()), int(os.Stdout.Fd()))
 	_ = sysDup2(int(devNull.Fd()), int(os.Stderr.Fd()))
-	devNull.Close()
+	_ = devNull.Close()
 
 	logger.Info("daemonized", "pid", os.Getpid())
 	return false, nil

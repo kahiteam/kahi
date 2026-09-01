@@ -70,7 +70,7 @@ func (c *Client) doJSON(method, path string, body io.Reader) (map[string]any, er
 	if err != nil {
 		return nil, fmt.Errorf("connection failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -163,7 +163,7 @@ func (c *Client) StatusWithOptions(names []string, opts StatusOptions, w io.Writ
 	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var procs []ProcessInfo
 	if err := json.NewDecoder(resp.Body).Decode(&procs); err != nil {
@@ -207,7 +207,7 @@ func formatStatusTable(procs []ProcessInfo, w io.Writer, color bool) error {
 	})
 
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintf(tw, "NAME\tSTATE\tPID\tUPTIME\tDESCRIPTION\n")
+	_, _ = fmt.Fprintf(tw, "NAME\tSTATE\tPID\tUPTIME\tDESCRIPTION\n")
 
 	for _, p := range procs {
 		state := p.State
@@ -230,7 +230,7 @@ func formatStatusTable(procs []ProcessInfo, w io.Writer, color bool) error {
 			desc = fmt.Sprintf("exit %d", p.ExitStatus)
 		}
 
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p.Name, state, pid, uptime, desc)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p.Name, state, pid, uptime, desc)
 	}
 	return tw.Flush()
 }
@@ -284,7 +284,7 @@ func (c *Client) Tail(name, stream string, bytes int, w io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		var errBody map[string]string
@@ -317,7 +317,7 @@ func (c *Client) TailFollow(ctx context.Context, name, stream string, w io.Write
 	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		var errBody map[string]string
@@ -335,7 +335,7 @@ func (c *Client) TailFollow(ctx context.Context, name, stream string, w io.Write
 			// Extract data lines from SSE.
 			for line := range strings.SplitSeq(string(buf[:n]), "\n") {
 				if strings.HasPrefix(line, "data: ") {
-					fmt.Fprintln(w, line[6:])
+					_, _ = fmt.Fprintln(w, line[6:])
 				}
 			}
 		}
@@ -385,7 +385,7 @@ func (c *Client) PID(name string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("connection failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var info ProcessInfo
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
@@ -405,7 +405,7 @@ func (c *Client) Health() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("connection failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var body map[string]string
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -424,7 +424,7 @@ func (c *Client) Ready(processes []string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("connection failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var body map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
@@ -455,7 +455,7 @@ func (c *Client) Attach(ctx context.Context, name string, stdin io.Reader, stdou
 	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("no such process: %s", name)
 	}

@@ -59,7 +59,7 @@ func TestExpandProgramNameAndProcessNum(t *testing.T) {
 }
 
 func TestExpandUndefinedEnvVar(t *testing.T) {
-	os.Unsetenv("KAHI_TEST_UNDEF_VAR")
+	_ = os.Unsetenv("KAHI_TEST_UNDEF_VAR")
 
 	cfg := &Config{
 		Programs: map[string]ProgramConfig{

@@ -16,7 +16,7 @@ func shortSocketPath(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return filepath.Join(dir, "s.sock")
 }
 
@@ -35,7 +35,7 @@ func TestUnixSocketDefaultsToOwnerOnly(t *testing.T) {
 	if _, err := sock.Open(); err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer sock.Close()
+	defer func() { _ = sock.Close() }()
 
 	info, err := os.Stat(path)
 	if err != nil {
@@ -57,7 +57,7 @@ func TestUnixSocketExplicitModeHonored(t *testing.T) {
 	if _, err := sock.Open(); err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	defer sock.Close()
+	defer func() { _ = sock.Close() }()
 
 	info, err := os.Stat(path)
 	if err != nil {
