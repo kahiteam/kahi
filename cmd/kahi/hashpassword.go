@@ -30,7 +30,7 @@ var hashPasswordCmd = &cobra.Command{
 			return fmt.Errorf("bcrypt error: %w", err)
 		}
 
-		fmt.Fprintln(cmd.OutOrStdout(), string(hash))
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), string(hash))
 		return nil
 	},
 }

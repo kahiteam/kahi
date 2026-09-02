@@ -41,7 +41,7 @@ func rotateFile(path string, backups int) error {
 	// Rotate: .N-1 -> .N, ... , .1 -> .2, file -> .1
 	// Remove the oldest backup.
 	oldest := fmt.Sprintf("%s.%d", path, backups)
-	os.Remove(oldest)
+	_ = os.Remove(oldest)
 
 	// Shift existing backups (missing intermediates are expected).
 	for i := backups - 1; i >= 1; i-- {
@@ -99,7 +99,7 @@ func CleanupStaleLogs(logDir string, patterns []string) error {
 			continue
 		}
 		if info.Size() == 0 {
-			os.Remove(pattern)
+			_ = os.Remove(pattern)
 		}
 	}
 	return nil

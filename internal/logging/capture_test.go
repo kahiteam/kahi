@@ -19,7 +19,7 @@ func TestCaptureWriterToFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cw.Close()
+	defer func() { _ = cw.Close() }()
 
 	if _, err := cw.Write([]byte("hello world\n")); err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestCaptureWriterStripAnsi(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cw.Close()
+	defer func() { _ = cw.Close() }()
 
 	if _, err := cw.Write([]byte("\033[31mERROR\033[0m: something failed\n")); err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestCaptureWriterRingBuffer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cw.Close()
+	defer func() { _ = cw.Close() }()
 
 	if _, err := cw.Write([]byte("line 1\n")); err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestCaptureWriterHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cw.Close()
+	defer func() { _ = cw.Close() }()
 
 	var received []byte
 	cw.AddHandler(func(name string, data []byte) {
@@ -126,7 +126,7 @@ func TestCaptureWriterReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cw.Close()
+	defer func() { _ = cw.Close() }()
 
 	if _, err := cw.Write([]byte("before\n")); err != nil {
 		t.Fatal(err)

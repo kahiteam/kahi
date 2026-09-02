@@ -218,7 +218,7 @@ func TestHandleLogReopenWithCaptures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cw.Close()
+	defer func() { _ = cw.Close() }()
 
 	_, _ = cw.Write([]byte("before\n"))
 
@@ -253,9 +253,9 @@ func TestHandleLogReopenWithBadCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cw.Close()
+	defer func() { _ = cw.Close() }()
 
-	os.RemoveAll(subdir)
+	_ = os.RemoveAll(subdir)
 
 	s := testSupervisor()
 	s.captures["bad-proc:stdout"] = cw

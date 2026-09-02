@@ -14,7 +14,7 @@ func TestOpenTCPInvalidAddress(t *testing.T) {
 
 	_, err := sock.Open()
 	if err == nil {
-		sock.Close()
+		_ = sock.Close()
 		t.Fatal("expected error for invalid TCP address")
 	}
 	if !strings.Contains(err.Error(), "cannot bind") {
@@ -30,7 +30,7 @@ func TestOpenUnixInvalidPath(t *testing.T) {
 
 	_, err := sock.Open()
 	if err == nil {
-		sock.Close()
+		_ = sock.Close()
 		t.Fatal("expected error for invalid unix path")
 	}
 	if !strings.Contains(err.Error(), "cannot create") {
@@ -103,7 +103,7 @@ func TestOpenTCPIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sock.Close()
+	defer func() { _ = sock.Close() }()
 
 	fd2, err := sock.Open()
 	if err != nil {

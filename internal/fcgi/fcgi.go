@@ -61,7 +61,7 @@ func (s *Socket) Open() (*os.File, error) {
 	switch s.config.Protocol {
 	case ProtocolUnix:
 		// Remove stale socket.
-		os.Remove(s.config.SocketPath)
+		_ = os.Remove(s.config.SocketPath)
 		ln, err = net.Listen("unix", s.config.SocketPath)
 		if err != nil {
 			return nil, fmt.Errorf("cannot create FastCGI socket: %s: %w", s.config.SocketPath, err)
@@ -76,7 +76,7 @@ func (s *Socket) Open() (*os.File, error) {
 			mode = defaultSocketMode
 		}
 		if err := chmodSocket(s.config.SocketPath, mode); err != nil {
-			ln.Close()
+			_ = ln.Close()
 			return nil, fmt.Errorf("cannot chmod FastCGI socket: %s: %w", s.config.SocketPath, err)
 		}
 	case ProtocolTCP:
@@ -95,14 +95,14 @@ func (s *Socket) Open() (*os.File, error) {
 	case *net.TCPListener:
 		f, err := l.File()
 		if err != nil {
-			ln.Close()
+			_ = ln.Close()
 			return nil, fmt.Errorf("cannot get socket fd: %w", err)
 		}
 		s.fd = f
 	case *net.UnixListener:
 		f, err := l.File()
 		if err != nil {
-			ln.Close()
+			_ = ln.Close()
 			return nil, fmt.Errorf("cannot get socket fd: %w", err)
 		}
 		s.fd = f
@@ -117,7 +117,7 @@ func (s *Socket) Close() error {
 	defer s.mu.Unlock()
 
 	if s.fd != nil {
-		s.fd.Close()
+		_ = s.fd.Close()
 		s.fd = nil
 	}
 	if s.listener != nil {
@@ -125,7 +125,7 @@ func (s *Socket) Close() error {
 		s.listener = nil
 		// Clean up Unix socket file.
 		if s.config.Protocol == ProtocolUnix {
-			os.Remove(s.config.SocketPath)
+			_ = os.Remove(s.config.SocketPath)
 		}
 		return err
 	}

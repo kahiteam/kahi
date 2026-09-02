@@ -48,7 +48,7 @@ var migrateCmd = &cobra.Command{
 		}
 
 		if migrateOutput != "" && !migrateDryRun {
-			fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", migrateOutput)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", migrateOutput)
 		}
 
 		return nil

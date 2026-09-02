@@ -174,7 +174,7 @@ func (wm *WebhookManager) sendHTTP(h *webhookEntry, payload []byte) error {
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("webhook returned %d", resp.StatusCode)

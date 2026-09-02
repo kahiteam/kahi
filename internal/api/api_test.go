@@ -671,7 +671,7 @@ func TestUnixSocketServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -686,7 +686,7 @@ func TestUnixSocketStaleCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ln.Close()
+	_ = ln.Close()
 
 	srv, _, _ := testServer()
 	if err := srv.StartUnix(sockPath, 0770); err != nil {
@@ -703,7 +703,7 @@ func TestUnixSocketCleanupOnShutdown(t *testing.T) {
 	srv, _, _ := testServer()
 	// Use /tmp directly to avoid long macOS temp paths exceeding Unix socket limit.
 	sockPath := filepath.Join("/tmp", fmt.Sprintf("kahi-test-%d.sock", os.Getpid()))
-	t.Cleanup(func() { os.Remove(sockPath) })
+	t.Cleanup(func() { _ = os.Remove(sockPath) })
 
 	if err := srv.StartUnix(sockPath, 0700); err != nil {
 		t.Fatal(err)
@@ -731,7 +731,7 @@ func TestTCPServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -754,7 +754,7 @@ func TestTCPAuthRequired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", resp.StatusCode)
 	}
@@ -766,7 +766,7 @@ func TestTCPAuthRequired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp2.Body.Close()
+	_ = resp2.Body.Close()
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp2.StatusCode)
 	}
@@ -839,7 +839,7 @@ func TestEventStreamSSE(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
 		t.Fatalf("expected text/event-stream, got %s", ct)
@@ -886,7 +886,7 @@ func TestEventStreamWithTypeFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.Header.Get("Content-Type") != "text/event-stream" {
 		t.Fatal("expected text/event-stream")

@@ -75,13 +75,13 @@ var ctlStartCmd = &cobra.Command{
 					fmt.Fprintf(os.Stderr, "%s: %s\n", name, err)
 					continue
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: started\n", name)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: started\n", name)
 			} else {
 				if err := c.Start(name); err != nil {
 					fmt.Fprintf(os.Stderr, "%s: %s\n", name, err)
 					continue
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: started\n", name)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: started\n", name)
 			}
 		}
 		return nil
@@ -101,13 +101,13 @@ var ctlStopCmd = &cobra.Command{
 					fmt.Fprintf(os.Stderr, "%s: %s\n", name, err)
 					continue
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: stopped\n", name)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: stopped\n", name)
 			} else {
 				if err := c.Stop(name); err != nil {
 					fmt.Fprintf(os.Stderr, "%s: %s\n", name, err)
 					continue
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: stopped\n", name)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: stopped\n", name)
 			}
 		}
 		return nil
@@ -144,7 +144,7 @@ var ctlRestartCmd = &cobra.Command{
 					continue
 				}
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s: restarted\n", name)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: restarted\n", name)
 		}
 		return nil
 	},
@@ -160,7 +160,7 @@ var ctlSignalCmd = &cobra.Command{
 		if err := c.Signal(name, sig); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s: signaled %s\n", name, sig)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: signaled %s\n", name, sig)
 		return nil
 	},
 }
@@ -212,7 +212,7 @@ var ctlShutdownCmd = &cobra.Command{
 		if err := c.Shutdown(); err != nil {
 			return err
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), "shutdown initiated")
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "shutdown initiated")
 		return nil
 	},
 }
@@ -226,7 +226,7 @@ var ctlReloadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "config reloaded: added=%v changed=%v removed=%v\n",
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "config reloaded: added=%v changed=%v removed=%v\n",
 			result["added"], result["changed"], result["removed"])
 		return nil
 	},
@@ -242,7 +242,7 @@ var ctlVersionCmd = &cobra.Command{
 			return err
 		}
 		for k, v := range result {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s: %v\n", k, v)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %v\n", k, v)
 		}
 		return nil
 	},
@@ -262,7 +262,7 @@ var ctlPIDCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), pid)
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), pid)
 		return nil
 	},
 }
@@ -277,7 +277,7 @@ var ctlHealthCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), strings.ToUpper(status))
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), strings.ToUpper(status))
 		if status != "ok" {
 			os.Exit(1)
 		}
@@ -297,7 +297,7 @@ var ctlReadyCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		fmt.Fprintln(cmd.OutOrStdout(), strings.ToUpper(status))
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), strings.ToUpper(status))
 		if status != "ready" {
 			os.Exit(1)
 		}
@@ -324,7 +324,7 @@ var ctlRereadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "added=%v changed=%v removed=%v\n",
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "added=%v changed=%v removed=%v\n",
 			result["added"], result["changed"], result["removed"])
 		return nil
 	},
@@ -339,7 +339,7 @@ var ctlUpdateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "updated: added=%v changed=%v removed=%v\n",
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "updated: added=%v changed=%v removed=%v\n",
 			result["added"], result["changed"], result["removed"])
 		return nil
 	},
@@ -359,7 +359,7 @@ var ctlAddCmd = &cobra.Command{
 		if err := c.StartGroup(args[0]); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s: added and started\n", args[0])
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: added and started\n", args[0])
 		return nil
 	},
 }
@@ -374,7 +374,7 @@ var ctlRemoveCmd = &cobra.Command{
 		if err := c.StopGroup(args[0]); err != nil {
 			return fmt.Errorf("stop %s: %w", args[0], err)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s: stopped and removed\n", args[0])
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: stopped and removed\n", args[0])
 		return nil
 	},
 }

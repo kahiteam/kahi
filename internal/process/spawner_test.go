@@ -78,7 +78,7 @@ func TestExecSpawnerStdinPipe(t *testing.T) {
 	if pipe == nil {
 		t.Fatal("expected non-nil stdin pipe")
 	}
-	pipe.Close()
+	_ = pipe.Close()
 	_, _ = sp.Wait()
 }
 
