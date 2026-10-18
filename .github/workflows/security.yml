@@ -7,12 +7,14 @@ on:
       - '**.go'
       - 'go.mod'
       - 'go.sum'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
     paths:
       - '**.go'
       - 'go.mod'
       - 'go.sum'
+      - '.github/workflows/**'
   schedule:
     - cron: '0 6 * * 1'
 
@@ -22,7 +24,7 @@ permissions:
 
 jobs:
   check-go-files:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       has-go: ${{ steps.check.outputs.has-go }}
     steps:
@@ -38,7 +40,7 @@ jobs:
   codeql:
     needs: check-go-files
     if: needs.check-go-files.outputs.has-go == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -53,7 +55,7 @@ jobs:
   govulncheck:
     needs: check-go-files
     if: needs.check-go-files.outputs.has-go == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
