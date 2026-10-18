@@ -3,6 +3,15 @@
 version: "3"
 
 vars:
+  # Pinned tool invocations. gotestsum/goreleaser/govulncheck come from
+  # tools/go.mod; golangci-lint is a verified binary download because upstream
+  # does not support tool directives. Never call these tools bare: a tool found
+  # on PATH is whatever that machine happens to have, which is how a green
+  # local run and a green CI run disagree.
+  GOTESTSUM: go tool -modfile=tools/go.mod gotestsum
+  GORELEASER: go tool -modfile=tools/go.mod goreleaser
+  GOVULNCHECK: go tool -modfile=tools/go.mod govulncheck
+  GOLANGCI: ./bin/golangci-lint
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev
   COMMIT:
@@ -33,12 +42,13 @@ tasks:
   test:
     desc: Run unit tests with race detector
     cmds:
-      - gotestsum --format testdox --junitfile unit-results.xml -- -race -count=1 ./...
+      - '{{.GOTESTSUM}} --format testdox --junitfile unit-results.xml -- -race -count=1 ./...'
 
   lint:
-    desc: Run golangci-lint
+    desc: Run golangci-lint at the pinned version
     cmds:
-      - golangci-lint run ./...
+      - ./scripts/install-golangci-lint.sh
+      - '{{.GOLANGCI}} run ./...'
 
   fmt:
     desc: Check formatting (exits non-zero if files need formatting)
@@ -59,7 +69,7 @@ tasks:
   coverage:
     desc: Generate coverage report and fail if below 85%
     cmds:
-      - gotestsum --format testdox --junitfile unit-results.xml -- -race -count=1 -coverprofile=coverage.out ./...
+      - '{{.GOTESTSUM}} --format testdox --junitfile unit-results.xml -- -race -count=1 -coverprofile=coverage.out ./...'
       - |
         total=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
         echo "Total coverage: ${total}%"
@@ -86,16 +96,32 @@ tasks:
   test-integration:
     desc: Run integration tests
     cmds:
-      - gotestsum --format testdox --junitfile integration-results.xml -- -race -count=1 -tags=integration ./...
+      - '{{.GOTESTSUM}} --format testdox --junitfile integration-results.xml -- -race -count=1 -tags=integration ./...'
 
   test-e2e:
     desc: Run end-to-end tests
     cmds:
-      - gotestsum --format testdox --junitfile e2e-results.xml -- -race -count=1 -timeout=15m -tags=e2e ./...
+      - '{{.GOTESTSUM}} --format testdox --junitfile e2e-results.xml -- -race -count=1 -timeout=15m -tags=e2e ./...'
 
   setup:
-    desc: Install development tools
+    desc: Install development tools at their pinned versions
     cmds:
-      - go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
-      - go install github.com/goreleaser/goreleaser/v2@latest
-      - go install gotest.tools/gotestsum@latest
+      # gotestsum, goreleaser and govulncheck need no install step: `go tool`
+      # builds them from tools/go.mod on first use and caches them.
+      - ./scripts/install-golangci-lint.sh
+      - task: tools-parity
+
+  tools-parity:
+    desc: Fail if any tool on PATH disagrees with its pinned version
+    cmds:
+      - ./scripts/check-tool-parity.sh
+
+  snapshot:
+    desc: Build a local release snapshot with the pinned goreleaser
+    cmds:
+      - '{{.GORELEASER}} release --snapshot --clean'
+
+  vulncheck:
+    desc: Run govulncheck at the pinned version
+    cmds:
+      - '{{.GOVULNCHECK}} ./...'

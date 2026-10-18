@@ -1,0 +1,8 @@
+# Versions of tools installed as verified binary downloads rather than from
+# source. Bumped by hand as a reviewable change, together with the matching
+# checksum file: scripts/install-golangci-lint.sh --update rewrites both.
+#
+# golangci-lint is here rather than in tools/go.mod because upstream states
+# that go install, the tools pattern and tool directives "aren't guaranteed to
+# work" and recommends binary installation.
+golangci-lint 2.15.0

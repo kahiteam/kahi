@@ -35,11 +35,14 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # Key the module cache on both modules: without tools/go.sum a
+          # cold runner recompiles goreleaser from source (~46s) every run.
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
       - uses: arduino/setup-task@v3
         with:
-          version: '3.x'
-      - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@latest
+          version: '3.54.0'
       - run: task test-integration
         name: Integration tests
       - run: task test-e2e
