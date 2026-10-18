@@ -88,7 +88,6 @@ Single binary (`kahi`) with subcommand routing via cobra:
 - `internal/logging/` -- slog-based structured logging
 - `internal/ctl/` -- CLI control client logic
 - `internal/migrate/` -- supervisord.conf parser and converter
-- `internal/fcgi/` -- FastCGI socket management
 - `internal/metrics/` -- Prometheus collectors
 - `internal/web/` -- Web UI templates, embedded assets
 - `internal/version/` -- Build metadata

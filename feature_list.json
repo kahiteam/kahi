@@ -8,7 +8,7 @@
       "testing_steps": [
         "Verify go.mod exists with module path github.com/<org>/kahi and minimum Go version 1.26.2",
         "Verify cmd/kahi/main.go exists and contains a main function",
-        "Verify internal/ directory contains subdirectories: config, process, supervisor, api, events, logging, ctl, migrate, fcgi",
+        "Verify internal/ directory contains subdirectories: config, process, supervisor, api, events, logging, ctl, migrate",
         "Run 'go build ./cmd/kahi' and verify it produces a binary with exit code 0",
         "Run 'go vet ./...' and verify zero findings with exit code 0",
         "Verify go.sum file exists after running go mod tidy",
@@ -1333,39 +1333,6 @@
       "dependencies": ["config-migration-tool", "toml-config-parser"]
     },
     {
-      "id": "fastcgi-program-definition",
-      "category": "functional",
-      "title": "FastCGI Program Configuration",
-      "description": "Define FastCGI programs with managed socket configuration supporting both Unix and TCP sockets, passed to child processes via file descriptor inheritance.",
-      "testing_steps": [
-        "Parse a [fcgi_programs.php] section with a Unix socket and verify the program config includes socket management metadata",
-        "Parse a [fcgi_programs.php] section with a TCP socket and verify TCP binding is configured",
-        "Write a test that starts a FastCGI program and verifies the socket is passed via file descriptor inheritance",
-        "Parse a config with a missing socket for an fcgi_program and verify a validation error is returned",
-        "Parse a config with an invalid socket format and verify a validation error is returned",
-        "Verify FastCGI programs support all standard program options (autorestart, numprocs, etc.)"
-      ],
-      "passes": false,
-      "dependencies": ["process-start"]
-    },
-    {
-      "id": "fastcgi-socket-management",
-      "category": "functional",
-      "title": "FastCGI Socket Lifecycle Management",
-      "description": "Create, bind, and manage FastCGI sockets with reference counting for shared socket usage across numprocs instances.",
-      "testing_steps": [
-        "Write a test that starts the first FastCGI process and verifies the socket is created and bound",
-        "Write a test with numprocs=3 that verifies the same socket is shared across all processes with reference count tracking",
-        "Write a test that stops all FastCGI processes and verifies the socket is closed and cleaned up when reference count reaches 0",
-        "Write a test that simulates a socket bind failure and verifies the process goes to FATAL",
-        "Verify Unix sockets support configurable owner and mode (socket_owner, socket_mode)",
-        "Verify the socket is re-created on process restart if it was cleaned up",
-        "Regression (SEC-011): assert a Unix socket opened without socket_mode is chmod-ed to 0700, and that an explicit socket_mode is still honored"
-      ],
-      "passes": false,
-      "dependencies": ["fastcgi-program-definition"]
-    },
-    {
       "id": "cli-health-check",
       "category": "functional",
       "title": "CLI Health and Readiness Check Commands",
@@ -2183,18 +2150,17 @@
       "id": "unix-socket-owner-only-at-bind",
       "category": "functional",
       "title": "Bind Unix Sockets Owner-Only From Creation",
-      "description": "Create the control and FastCGI Unix sockets under a restrictive umask so each is owner-only from the moment it exists, rather than at the inherited umask until a later chmod; set, bind and restore are serialized so concurrent creations never leave the daemon at the temporary umask.",
+      "description": "Create the control Unix socket under a restrictive umask so it is owner-only from the moment it exists, rather than at the inherited umask until a later chmod; set, bind and restore are serialized so concurrent creations never leave the daemon at the temporary umask.",
       "testing_steps": [
         "With syscall.Umask(0) set in the test (restored via t.Cleanup, test not parallel, //go:build unix), call sockutil.ListenUnix on a short /tmp path and verify os.Stat reports mode 0700 with no group or other bits; the pre-fix bind under umask 000 produces 0777",
         "Set a known umask, call sockutil.ListenUnix, and verify the umask read back afterwards (old := syscall.Umask(0); syscall.Umask(old)) equals the original, on success and on bind failure forced by a path inside a missing directory",
         "With an inherited umask of 0277, call sockutil.ListenUnix and verify the socket is created no wider than 0500, proving the temporary mask only adds restriction and never loosens a stricter inherited umask",
         "Using the unexported sockutil.afterUmask test hook, start a second ListenUnix from inside the first call's hook and verify the hook's nesting depth never exceeds 1, so the second creation cannot enter its critical section while the first holds the temporary umask; then verify the final umask equals the original",
-        "Verify TestUnixSocketExplicitModeHonored still passes: a FastCGI socket with explicit socket_mode 0750 is created 0700 by the helper and then widened to 0750 by the post-bind chmod, so an explicit wider mode is still applied after creation",
-        "Add TestUnixControlSocketChmodFailureClosesListener: stub api.chmodSocket to return an error and verify StartUnix returns 'cannot set socket permissions', the server holds no listener, and the socket path accepts no connections; verify the existing fcgi TestUnixSocketChmodFailureClosesListener still passes",
-        "Run 'go test -count=1 ./internal/sockutil/... ./internal/api/... ./internal/fcgi/...'"
+        "Add TestUnixControlSocketChmodFailureClosesListener: stub api.chmodSocket to return an error and verify StartUnix returns 'cannot set socket permissions', the server holds no listener, and the socket path accepts no connections",
+        "Run 'go test -count=1 ./internal/sockutil/... ./internal/api/...'"
       ],
       "passes": true,
-      "dependencies": ["unix-socket-server", "control-socket-owner-only-lockdown", "fastcgi-socket-management"]
+      "dependencies": ["unix-socket-server", "control-socket-owner-only-lockdown"]
     },
     {
       "id": "socket-dir-probe-no-follow",
