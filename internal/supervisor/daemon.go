@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"syscall"
 )
@@ -47,18 +48,18 @@ func ValidateUnprivileged(logger *slog.Logger) error {
 	return nil
 }
 
+// socketDir returns the directory a socket at socketPath is created in.
+//
+// SEC-024: this replaces a hand-written scan for the last "/", which mapped
+// "/kahi.sock" to "." (probing the working directory instead of "/") and left a
+// bare "kahi.sock" as its own "directory", so a valid relative path failed.
+func socketDir(socketPath string) string {
+	return filepath.Dir(socketPath)
+}
+
 // ValidateSocketPermissions checks that the socket directory is writable.
 func ValidateSocketPermissions(socketPath string) error {
-	dir := socketPath
-	for i := len(dir) - 1; i >= 0; i-- {
-		if dir[i] == '/' {
-			dir = dir[:i]
-			break
-		}
-	}
-	if dir == "" {
-		dir = "."
-	}
+	dir := socketDir(socketPath)
 
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -68,14 +69,21 @@ func ValidateSocketPermissions(socketPath string) error {
 		return fmt.Errorf("socket path parent is not a directory: %s", dir)
 	}
 
-	// Check write permission by trying to create a temp file.
-	tmpPath := dir + "/.kahi_perm_check"
-	f, err := os.Create(tmpPath)
+	// SEC-024 / ADR-027: check write permission by creating an exclusive,
+	// randomly named temp file. This runs before the privilege drop, so it must
+	// never open an existing path: a fixed name opened with os.Create (O_TRUNC,
+	// no O_EXCL) follows a symlink planted at that name and truncates its target
+	// as root. os.CreateTemp uses O_CREATE|O_EXCL, which fails on any existing
+	// path including a symlink, under a name that cannot be predicted.
+	f, err := os.CreateTemp(dir, ".kahi_perm_check*")
 	if err != nil {
 		return fmt.Errorf("permission denied: cannot create socket in %s: %w", dir, err)
 	}
+	// A failed close or remove is not fatal: the directory is already proven
+	// writable and the leftover file has a random name nothing else opens.
+	// Removing by name is safe regardless, since unlink(2) never follows links.
 	_ = f.Close()
-	_ = os.Remove(tmpPath)
+	_ = os.Remove(f.Name())
 
 	return nil
 }
