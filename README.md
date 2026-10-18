@@ -26,7 +26,7 @@ Key differences from supervisord:
 - Structured JSON logging via Go's slog
 - REST/JSON API with SSE event streaming (replaces XML-RPC)
 - Prometheus metrics endpoint
-- FIPS 140 build variant for regulated environments
+- FIPS 140-3 mode in every build, for regulated environments
 
 ### Features
 
@@ -39,11 +39,10 @@ Key differences from supervisord:
 - Structured logging with file rotation, ring buffer, syslog forwarding, ANSI stripping
 - Process groups with priority-ordered startup and shutdown
 - Per-process uid/gid, umask, resource limits, environment control
-- FastCGI socket management (Unix and TCP)
 - supervisord.conf migration tool
 - Shell completion (bash, zsh, fish, powershell)
-- Web UI (optional)
-- FIPS 140 enforcing build (`kahi-fips`)
+- Web UI (planned; not yet served by the daemon)
+- FIPS 140-3 mode on by default in every binary (`GOFIPS140=v1.0.0`)
 
 ## Usage Scenarios
 
@@ -72,8 +71,10 @@ configurations. The tool maps INI sections and directives to their TOML
 equivalents; unsupported directives produce warnings.
 
 **Regulated environments.**
-The FIPS 140 build variant (`kahi-fips`) uses Go's FIPS-validated
-cryptographic module for password hashing and TLS.
+Every Kahi binary is built against Go's FIPS 140-3 cryptographic module
+(v1.0.0) with FIPS mode on by default (`fips140=on`), covering password hashing
+and TLS. There is no separate FIPS variant. `fips140=on` keeps non-approved
+algorithms available; set `GODEBUG=fips140=only` to make them fail instead.
 
 ## Installation
 
@@ -81,7 +82,7 @@ cryptographic module for password hashing and TLS.
 
 Download from [GitHub Releases](https://github.com/kahiteam/kahi/releases).
 Archives are available for linux (amd64, arm, arm64, ppc64le, riscv64, s390x)
-and darwin (amd64, arm64). A FIPS variant (`kahi-fips`) is available for linux.
+and darwin (amd64, arm64). Every archive is a FIPS 140-3 build.
 Every archive, `checksums.txt`, and SBOM is signed (see [Verifying releases](#verifying-releases)).
 
 ### go install
@@ -131,7 +132,7 @@ Run `task setup` to install golangci-lint and goreleaser.
 
 [GoReleaser](https://goreleaser.com/) produces cross-compiled archives for
 linux (amd64, arm, arm64, ppc64le, riscv64, s390x) and darwin (amd64, arm64).
-The FIPS variant is built with `GOFIPS140=v1.0.0` for linux only.
+Every target is built with `GOFIPS140=v1.0.0`.
 
 ```sh
 # Local snapshot build (no publish)

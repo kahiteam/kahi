@@ -1345,7 +1345,7 @@
         "Parse a config with an invalid socket format and verify a validation error is returned",
         "Verify FastCGI programs support all standard program options (autorestart, numprocs, etc.)"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-start"]
     },
     {
@@ -1362,7 +1362,7 @@
         "Verify the socket is re-created on process restart if it was cleaned up",
         "Regression (SEC-011): assert a Unix socket opened without socket_mode is chmod-ed to 0700, and that an explicit socket_mode is still honored"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["fastcgi-program-definition"]
     },
     {
@@ -1414,7 +1414,7 @@
         "Verify GET / returns complete HTML with process data even without JavaScript execution",
         "Verify HTML includes viewport meta tag and CSS media queries for responsive layout"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["rest-api-endpoints"]
     },
     {
@@ -1431,7 +1431,7 @@
         "Verify SSE stream sends sequential event IDs for ordered rendering",
         "Verify a message is displayed when no log file is configured for the process"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["sse-streaming", "web-ui-status-page"]
     },
     {
@@ -1447,7 +1447,7 @@
         "Verify Content-Type headers are set correctly based on file extension",
         "Verify caching headers (ETag, Cache-Control) are set for static assets"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["web-ui-status-page"]
     },
     {
@@ -1493,7 +1493,7 @@
         "Verify CSS specifies font-family including monospace for the log viewer",
         "Verify no external URLs in CSS or JavaScript imports"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["web-ui-status-page"]
     },
     {
