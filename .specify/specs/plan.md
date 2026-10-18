@@ -885,6 +885,31 @@ At no instant is the effective umask less strict than the inherited one: it is `
 
 ---
 
+### ADR-028: Cross-Origin Protection via the Standard Library
+
+**Date:** 2026-10-18
+**Status:** Accepted
+
+**Context:** SEC-025. The REST API authenticates with HTTP Basic credentials, which browsers cache per origin and attach to cross-site requests, and it performs no `Origin` or `Sec-Fetch-Site` check. Process and group `start`/`stop`/`restart`, `config/reload` and `shutdown` need no body, and `signal`/`stdin` decode JSON without a `Content-Type` check, so a cross-site form triggers all of them, up to shutting the daemon down. Over TCP, exploitation needs the listener enabled (non-default) and browser-cached credentials. Browsers cannot reach the Unix socket directly, but behind a reverse proxy the socket path skips authentication entirely.
+
+**Decision:** Build the protected handler once in `NewServer` as `s.handler = csrf.Handler(s.mux)`, where `csrf` is an `http.CrossOriginProtection` from the Go standard library. Both `StartUnix` and `StartTCP` serve `s.handler`; neither serves `s.mux` directly. `SetDenyHandler` installs a handler that calls `writeError(w, http.StatusForbidden, "cross-origin request rejected", errorCode(http.StatusForbidden))`, and `errorCode` gains a `403 -> "FORBIDDEN"` case. The message is a fixed string: the deny handler never sees `Check`'s error, which differs between its two rejection paths. `s.mux` stays as the route table, so existing handler-level tests that call `s.mux.ServeHTTP` keep testing handlers. New tests go through `s.handler`, and one sends a cross-site request over a real connection to each server and expects `403`. That has to be behavioural: the protected handler is an `http.HandlerFunc`, and comparing func-typed handlers with `==` panics at runtime. That guards against a later change wiring `s.mux` back in and silently dropping the protection.
+
+`CrossOriginProtection` rejects unsafe-method requests whose `Sec-Fetch-Site` is anything but `same-origin` or `none`, or, when that header is absent, whose `Origin` host[:port] differs from `Host`. Requests carrying neither header are allowed as non-browser or same-origin. So `kahi ctl`, `curl` and scripts are unaffected, and no API client needs to change.
+
+**Alternatives Considered:**
+
+1. **Synchronizer tokens:** Rejected -- Basic auth has no session to bind a token to, so this needs new server-side state, token issuance, and a token in every form and XHR, all for the same property.
+2. **Require a custom request header (e.g. `X-Kahi-Request`) on unsafe methods:** Rejected -- it breaks every existing API client that does not send it, which would be an incompatible change on a patch release.
+3. **A hand-written `Origin` / `Referer` check:** Rejected -- it reimplements `CrossOriginProtection` with more edge cases (missing `Origin`, `null` origins, `Referer` stripping) and no maintenance from upstream.
+4. **A configurable trusted-origin allowlist now:** Deferred -- nothing in 0.1.x needs cross-origin browser access. `AddTrustedOrigin` is available if the 0.2.x Web UI does.
+
+**Consequences:**
+
+- Cross-site browser requests cannot trigger state-changing API calls (enables SEC-025). The planned 0.2.x Web UI, served same-origin, inherits this with no separate CSRF design.
+- Safe methods are always allowed, which makes "no safe-method handler changes state" a standing invariant of the API.
+
+---
+
 ### Implementation Sequencing (Security Hardening + Test Tiles)
 
 This batch (ADR-016..025) has no cross-feature code dependencies that force a strict order; the natural sequencing by blast radius and shared surface is:
