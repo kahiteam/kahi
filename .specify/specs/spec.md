@@ -4183,6 +4183,62 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 ---
 
+### SEC-025: Reject Cross-Origin State-Changing API Requests
+
+**Description:** The REST API must reject state-changing requests that a browser sends on behalf of another site. This was found on 2026-10-18 while analysing v0.1.4's exposure. The API performs no `Origin` or `Sec-Fetch-Site` check. Process and group `start`, `stop` and `restart`, `config/reload` and `shutdown` read no request body, and `signal` and `stdin` decode JSON without checking `Content-Type`, so a cross-site HTML form is enough to trigger any of them (`enctype="text/plain"` produces a body that decodes as JSON for the two JSON routes). When the TCP listener is enabled (it is off by default) and a user has authenticated to the API in a browser, the browser caches the HTTP Basic credentials for that origin and attaches them to cross-site requests. A malicious page the user visits can then start, stop, restart or signal processes and groups, write to process stdin, reload the configuration, or shut the daemon down, stopping every supervised process. Browsers cannot connect to the Unix socket directly; but if an operator puts an HTTP reverse proxy in front of it, the socket path has no authentication at all, and only this protection stops a cross-site request there. Deliverable: wrap the API handler in the Go standard library's `http.CrossOriginProtection`, with a JSON deny response consistent with the rest of the API. Hardens FUNC-026 and FUNC-028.
+
+**Acceptance Criteria:**
+
+- **Given** the TCP listener with valid Basic credentials
+  **When** `POST /api/v1/processes/{name}/stop` arrives carrying `Sec-Fetch-Site: cross-site`
+  **Then** the response is `403` with JSON body `{"error": "cross-origin request rejected", "code": "FORBIDDEN"}`, and the process is not stopped
+
+- **Given** an unsafe-method request with an `Origin` whose host[:port] differs from the `Host` header (a port mismatch counts), and no `Sec-Fetch-Site` header
+  **When** it reaches the API
+  **Then** it is rejected with the same `403` JSON response
+
+- **Given** an unsafe-method request carrying `Sec-Fetch-Site: same-origin` or `Sec-Fetch-Site: none`
+  **When** it reaches the API
+  **Then** it is processed normally
+
+- **Given** an unsafe-method request with neither `Origin` nor `Sec-Fetch-Site` (`kahi ctl`, `curl`, scripts)
+  **When** it reaches the API
+  **Then** it is processed normally, so non-browser clients are unaffected
+
+- **Given** a cross-site `GET` or `HEAD`, including the SSE log and event streams
+  **When** it reaches the API
+  **Then** it is processed normally (safe methods are always allowed)
+
+- **Given** a cross-site `POST /api/v1/shutdown` or `POST /api/v1/groups/{name}/stop`
+  **When** it reaches the API
+  **Then** it is rejected with `403 FORBIDDEN` and the daemon or group is unaffected
+
+- **Given** a cross-site unsafe-method request with *invalid* Basic credentials
+  **When** it reaches the API
+  **Then** the response is `403 FORBIDDEN`, not `401`: the check runs before authentication
+
+- **Given** the Unix and TCP servers are both started
+  **When** a cross-site `POST /api/v1/processes/{name}/stop` is sent to each over a real connection
+  **Then** each returns `403 FORBIDDEN` (a behavioural check: handler identity cannot be compared, because the protected handler is an `http.HandlerFunc`)
+
+**Error Handling:**
+
+| Error Condition                            | Expected Behavior                                 | User-Facing Message                                               |
+| ------------------------------------------ | ------------------------------------------------- | ----------------------------------------------------------------- |
+| Cross-origin request with an unsafe method | `403`; the request is never dispatched to a route | `{"error": "cross-origin request rejected", "code": "FORBIDDEN"}` |
+
+**Edge Cases:**
+
+- Safe methods (`GET`, `HEAD`, `OPTIONS`) are always allowed, so the protection is only sound while no safe-method handler changes state. All ten `GET` handlers were verified read-only on 2026-10-18. Any future `GET` handler must stay read-only
+- The check runs before authentication. A rejected cross-origin request gets `403` whatever its credentials, and reveals nothing about whether they were valid
+- Behind a reverse proxy that rewrites `Host`, modern browsers still send `Sec-Fetch-Site: same-origin` for same-origin requests, which is allowed. Only browsers that lack `Sec-Fetch-Site` fall back to comparing `Origin` with `Host`, and could be denied. No trusted-origin setting is added now; `AddTrustedOrigin` is the extension point if the 0.2.x Web UI needs it
+- The Unix socket serves the same handler. `kahi ctl` sends neither header, so it is unaffected; and behind a reverse proxy, where the socket path skips authentication, the protection is the only thing that stops a cross-site request
+- No route accepts `OPTIONS`; `ServeMux` answers `405`, so allowing `OPTIONS` as a safe method bypasses nothing
+
+**Dependencies:** FUNC-025, FUNC-026, FUNC-028
+
+---
+
 ## Testing Features
 
 ### TEST-001: Unit Test Infrastructure

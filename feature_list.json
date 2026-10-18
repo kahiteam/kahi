@@ -2177,6 +2177,25 @@
       ],
       "passes": true,
       "dependencies": ["unix-socket-server", "log-open-symlink-hardening"]
+    },
+    {
+      "id": "api-cross-origin-protection",
+      "category": "functional",
+      "title": "Reject Cross-Origin State-Changing API Requests",
+      "description": "Wrap the REST API in the standard library's http.CrossOriginProtection so a browser cannot be made to send state-changing requests on behalf of another site: process and group start/stop/restart, signal, stdin, config reload and daemon shutdown. Denials are a JSON 403 FORBIDDEN; non-browser clients that send neither Origin nor Sec-Fetch-Site are unaffected.",
+      "testing_steps": [
+        "TestCrossOriginBlocksStateChange: with srv.authUser/authPass set and valid Basic credentials, send POST /api/v1/processes/web/stop with Sec-Fetch-Site: cross-site through srv.handler and verify 403, Content-Type application/json, body code FORBIDDEN, and that the call-recording process manager saw 0 Stop calls; send the same request through the bare srv.mux and verify 200 with 1 Stop call, proving the route itself is unprotected and the wrapper is what blocks it",
+        "TestCrossOriginOriginMismatch: set req.Host to kahi.local (not a Host header, which httptest ignores) and Origin: http://evil.example with no Sec-Fetch-Site, POST through srv.handler, and verify 403 FORBIDDEN with 0 Stop calls",
+        "TestCrossOriginSameOriginAllowed: verify unsafe-method requests with Sec-Fetch-Site: same-origin and Sec-Fetch-Site: none are processed (200, Stop called)",
+        "TestCrossOriginNonBrowserAllowed: verify an unsafe-method request with neither Origin nor Sec-Fetch-Site, as kahi ctl and curl send, is processed (200, Stop called)",
+        "TestCrossOriginSafeMethodsAllowed: verify a cross-site GET /api/v1/processes returns 200, and a cross-site GET to an SSE stream, issued with a context timeout so it cannot hang, returns 200 text/event-stream rather than 403",
+        "TestCrossOriginCoversAllUnsafeRoutes: verify cross-site POST /api/v1/shutdown and POST /api/v1/groups/{name}/stop return 403 FORBIDDEN and the daemon and group are unaffected",
+        "TestCrossOriginBeforeAuth: send a cross-site POST with invalid Basic credentials and verify 403 FORBIDDEN, not 401",
+        "TestCrossOriginBothServersWired: start a real TCP listener (127.0.0.1:0, auth set) and a real Unix socket, send a cross-site POST /api/v1/processes/web/stop to each, and verify each returns 403 FORBIDDEN; also assert neither http.Server's Handler is a bare *http.ServeMux",
+        "Run 'go test -count=1 -run TestCrossOrigin ./internal/api/...'; every new test is named TestCrossOrigin* so the filter covers steps 1-8"
+      ],
+      "passes": false,
+      "dependencies": ["rest-api-endpoints", "http-basic-auth", "tcp-http-server"]
     }
   ]
 }
