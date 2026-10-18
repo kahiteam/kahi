@@ -4095,6 +4095,95 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 ---
 
+### SEC-023: Bind Unix Sockets Owner-Only From Creation
+
+**Description:** Unix sockets must never exist, even briefly, with wider permissions than intended. The 2026-10-18 whole-project review found that the control socket (`internal/api` `StartUnix`) and the FastCGI socket (`internal/fcgi` `Open`) are created by `net.Listen("unix", ...)` and only afterwards narrowed with `os.Chmod`. Kahi never sets its own umask, so the socket is born at `0777 &^ inherited-umask`. Under the common inherited umask `022` the result is `0755`, which is not exploitable because connecting to a Unix socket requires write permission. Under a permissive inherited umask (any umask with the `002` or `020` bit clear) other local users or group members can connect in the window between `bind()` and `chmod()`, and a connection accepted in that window survives the later chmod. On the control socket that would be a full unauthenticated control session, because Unix-socket peers skip authentication (`isUnixConn`). The review rated this below the reporting threshold (it needs a non-default umask and a microsecond window at daemon start); this feature removes the dependence on the inherited umask as defense-in-depth. Deliverable: create every Unix socket under a restrictive umask so it is owner-only at the moment of creation, then apply the configured mode as today. `internal/fcgi` is not currently imported by the daemon; it is hardened anyway so the property holds if it is wired in. Enforces constitution Security Requirement 2 and hardens SEC-011 and SEC-022.
+
+**Acceptance Criteria:**
+
+- **Given** a Unix platform (`//go:build unix`) and a daemon process running with a permissive umask (e.g. `000`)
+  **When** a Unix socket is created, before any chmod is applied
+  **Then** the socket inode has no group or other bit set at creation
+
+- **Given** a socket is created under the restrictive umask
+  **When** creation completes, successfully or with an error
+  **Then** the process umask is restored to its previous value, so files created afterwards are unaffected
+
+- **Given** a second socket creation begins while a first is between setting the temporary umask and binding
+  **When** both creations complete
+  **Then** the second does not enter its critical section until the first has restored the umask, and the final process umask equals the original value
+
+- **Given** an inherited umask stricter than `077` (e.g. `0277`)
+  **When** a socket is created and any other file is created concurrently by another goroutine
+  **Then** neither is created with a wider mode than the inherited umask alone would produce
+
+- **Given** an explicit FastCGI `socket_mode` wider than `0700`
+  **When** the FastCGI socket is opened
+  **Then** the explicit mode is still applied after creation, as today
+
+**Error Handling:**
+
+| Error Condition                    | Expected Behavior                       | User-Facing Message                              |
+| ---------------------------------- | --------------------------------------- | ------------------------------------------------ |
+| Control socket `bind()` fails      | Restore umask; return the bind error    | "cannot create socket: {path}: {error}"          |
+| Control socket `os.Chmod` fails    | Close the listener (unchanged)          | "cannot set socket permissions: {path}: {error}" |
+| FastCGI socket `bind()` fails      | Restore umask; return the bind error    | "cannot create FastCGI socket: {path}: {error}"  |
+| FastCGI socket `chmodSocket` fails | Close the listener (unchanged, SEC-011) | "cannot chmod FastCGI socket: {path}: {error}"   |
+
+**Edge Cases:**
+
+- The temporary umask is the inherited umask with `077` added (`inherited | 077`), never a fixed value, so it can only add restriction. A file created by another goroutine during the masked window may get a more restrictive mode than requested (a log file opened `0644` under inherited `022` is created `0600`), but never a wider one than the inherited umask would give. This is accepted and recorded in ADR-026
+- Set, bind and restore are serialized by a lock so concurrent socket creations cannot leave the daemon at the temporary umask. The lock serializes callers of the socket helper only; the one other `umask` call site (`process.ApplyUmask`, used in `childinit.go`) runs in the re-exec'd child process, not the daemon, so it cannot interleave
+- On `!unix` builds the helper is plain `net.Listen` and this guarantee does not apply; no shipped target is `!unix` (GoReleaser builds linux and darwin only)
+
+**Dependencies:** FUNC-024, FUNC-075, SEC-011, SEC-022
+
+---
+
+### SEC-024: Socket Directory Probe Must Not Follow Symlinks
+
+**Description:** The socket directory writability check must not be usable to truncate files through a planted symlink. `ValidateSocketPermissions` (`internal/supervisor/daemon.go`) runs as the launching user before any privilege drop (so as root when the daemon is launched as root and drops to `--user` later), and probes the socket directory with `os.Create(dir + "/.kahi_perm_check")`. That open uses `O_TRUNC`, a fixed predictable name and no `O_EXCL` or `O_NOFOLLOW`, so a symlink planted at that name is followed and its target truncated as root. The review rated this below the reporting threshold: the default socket directory `/var/run` is not attacker-writable, the socket path comes from trusted config, and Linux `fs.protected_symlinks` blocks the attack in sticky world-writable directories such as `/tmp`. It remains reachable if an operator points the socket at a non-sticky attacker-writable directory, and on macOS, which has no equivalent protection. This applies the SEC-019 principle (root must not follow attacker-planted symlinks) to the probe. Deliverable: probe with an exclusive, randomly named file so no existing path is ever opened or truncated. The same function also extracts the parent directory by hand, with two bugs: a socket path such as `/kahi.sock` resolves to `.` and probes the current directory instead of `/`, and a bare relative name such as `kahi.sock` (no `/`) leaves the socket path itself as the "directory", so validation fails with "socket directory does not exist" for a valid relative path. Both are corrected by using the real parent directory. Hardens FUNC-024; extends SEC-019.
+
+**Acceptance Criteria:**
+
+- **Given** a symlink at `{socket-dir}/.kahi_perm_check` pointing to an existing file with content
+  **When** the socket directory is validated
+  **Then** the target file's content is unchanged and the symlink itself is not removed or followed
+
+- **Given** a writable socket directory
+  **When** the socket directory is validated
+  **Then** validation succeeds and leaves no probe file behind
+
+- **Given** a socket directory the daemon cannot write to
+  **When** the socket directory is validated
+  **Then** validation fails with the existing permission-denied error
+
+- **Given** a socket path directly under `/` (e.g. `/kahi.sock`)
+  **When** its directory is derived
+  **Then** the directory is `/`, not the current working directory
+
+- **Given** a bare relative socket name (e.g. `kahi.sock`)
+  **When** its directory is derived
+  **Then** the directory is `.` and validation of a writable working directory succeeds
+
+**Error Handling:**
+
+| Error Condition                     | Expected Behavior | User-Facing Message                                         |
+| ----------------------------------- | ----------------- | ----------------------------------------------------------- |
+| Probe file cannot be created        | Refuse to start   | "permission denied: cannot create socket in {dir}: {error}" |
+| Stat of socket directory fails      | Refuse to start   | "socket directory does not exist: {dir}: {error}"           |
+| Socket directory is not a directory | Refuse to start   | "socket path parent is not a directory: {dir}"              |
+
+**Edge Cases:**
+
+- A random probe name created with `O_EXCL` cannot collide with or follow a planted path, so the fix does not depend on `fs.protected_symlinks` and holds on macOS
+- If removing the probe file fails, validation still succeeds: the directory is already proven writable, and the leftover file has a random name that nothing else opens. This matches the existing behavior, which also ignores the remove error. Removing by name is safe even if the file were swapped for a symlink, because `unlink(2)` removes the link itself and never follows it
+- Log rotation's `os.Truncate` in `internal/logging/rotation.go` also follows symlinks, but its `backups == 0` branch is unreachable from config (`ApplyDefaults` replaces `0` with `10`) and the log path is trusted config; it is out of scope here and recorded as a residual. Note that the same defaulting means an operator cannot request zero backups, which supervisord allows; that is a separate compatibility gap, not addressed here
+
+**Dependencies:** FUNC-024, SEC-019
+
+---
+
 ## Testing Features
 
 ### TEST-001: Unit Test Infrastructure

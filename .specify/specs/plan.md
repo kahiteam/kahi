@@ -828,6 +828,62 @@ CodeQL's `BarrierGuard` recognizes only relational comparisons (`<`, `<=`, `>`, 
 
 ---
 
+### ADR-026: Create Unix Sockets Under a Restrictive Umask
+
+**Date:** 2026-10-18
+**Status:** Accepted
+
+**Context:** SEC-023. `net.Listen("unix", ...)` creates the socket inode at `0777 &^ umask`, and the mode is narrowed only afterwards by `os.Chmod`. Kahi inherits its umask from the launcher and never sets one, so under a permissive inherited umask the control and FastCGI sockets are briefly connectable by other users. A connection accepted in that window survives the chmod, and Unix-socket peers skip API authentication. Defense-in-depth: the common umask `022` already defeats it, because connecting requires write permission.
+
+**Decision:** Add a leaf package `internal/sockutil` with `ListenUnix(path)`. On Unix it takes a package-level mutex and then:
+
+1. reads the inherited umask with `old := syscall.Umask(0o777)` -- POSIX has no way to read the umask without setting it, so the read sets the strictest possible mask rather than a looser one;
+2. sets `syscall.Umask(old | 0o077)`, which adds owner-only restriction to the inherited mask and never removes any of its bits;
+3. calls `net.Listen("unix", path)`;
+4. restores `old` with `defer` before releasing the lock.
+
+The socket is therefore created at `0700 &^ old`: exactly `0700` under any umask that leaves owner bits alone, narrower under a stricter one. Both `api.StartUnix` and `fcgi.Socket.Open` call it in place of `net.Listen`; each keeps its own chmod and fail-closed close, so the configured mode is applied afterwards as today and an explicit wider FastCGI `socket_mode` still applies. A `!unix` build falls back to plain `net.Listen`, matching the `open_unix.go` / `open_other.go` precedent from ADR-022.
+
+At no instant is the effective umask less strict than the inherited one: it is `0o777` during the read, `old | 0o077` during the bind, and `old` again afterwards. That is what makes the residual below safe. A fixed `Umask(0o077)` would loosen a stricter inherited mask (e.g. `0277`) and let concurrently created files come out wider than intended.
+
+**Alternatives Considered:**
+
+1. **Bind inside a private `0700` directory, then rename into place:** Rejected -- Go's `UnixListener` unlinks its original bound path on close, so the renamed socket would be left behind and the original path removed; more moving parts for the same property.
+2. **`fchmod` on the socket fd before `listen()`:** Rejected -- `net.Listen` performs bind and listen together with no hook in between, and `fchmod` on a socket fd does not reliably change the bound inode's mode across platforms.
+3. **Unguarded set/restore without a mutex:** Rejected -- two concurrent creations interleave: the second saves the first's temporary mask as its "previous" umask and restores it last, leaving the daemon permanently at the temporary mask.
+4. **Place the helper in `internal/process` (which already wraps `syscall.Umask`):** Rejected -- `process` imports `api` (it implements `api`'s interfaces), so `api` cannot import it. A dependency-free leaf package is cycle-safe for both callers.
+5. **A fixed `Umask(0o077)` instead of `old | 0o077`:** Rejected -- it loosens any inherited umask stricter than `077`, so a concurrently created file could be born wider than the daemon's own umask allows.
+
+**Consequences:**
+
+- Unix sockets are owner-only from creation regardless of the inherited umask (enables SEC-023).
+- **Accepted residual:** the umask is process-wide, so a file created by another goroutine during the bind window may be created more restrictively than requested (a log file opened `0644` under inherited `022` is created `0600`). It is never created more permissively than the inherited umask allows, because the mask is only ever tightened. The control socket is bound before `sup.Run()` starts any children, so in practice this can only affect FastCGI sockets opened at runtime, and `internal/fcgi` is not currently wired into the daemon.
+- The mutex serializes callers of `sockutil` only. The one other `umask` call site, `process.ApplyUmask`, runs in the re-exec'd `__spawn` child (`childinit.go`), a separate process, so it cannot interleave with the daemon's socket creation.
+
+---
+
+### ADR-027: Probe Socket-Directory Writability With an Exclusive Temp File
+
+**Date:** 2026-10-18
+**Status:** Accepted
+
+**Context:** SEC-024. `ValidateSocketPermissions` runs before the privilege drop and probes with `os.Create(dir + "/.kahi_perm_check")`: a fixed name opened with `O_TRUNC` and without `O_EXCL` or `O_NOFOLLOW`, so a planted symlink is followed and its target truncated by root. The socket path is trusted config and the default directory is not attacker-writable, so this is defense-in-depth extending the ADR-022 principle.
+
+**Decision:** Probe with `os.CreateTemp(dir, ".kahi_perm_check*")` and remove the returned file by name. A failed remove is not fatal: the directory is already proven writable, and the leftover file has a random name. Removing by name is safe even if the path were swapped for a symlink, because `unlink(2)` removes the link and never follows it. `os.CreateTemp` opens with `O_CREATE|O_EXCL` under a random name: `O_EXCL` fails on any existing path, symlinks included, and the random name cannot be predicted to plant one. Replace the hand-written parent-directory extraction with `filepath.Dir`, factored into a small `socketDir(path)` helper so the mapping is testable without writing into `/`. It fixes two bugs: `/kahi.sock` now maps to `/` (the old loop produced `.` and probed the working directory), and a bare `kahi.sock` now maps to `.` (the old loop left the socket path itself as the "directory", so a valid relative path failed validation).
+
+**Alternatives Considered:**
+
+1. **`os.OpenFile` with `O_CREATE|O_EXCL|O_NOFOLLOW` at the fixed name:** Rejected -- safe against following, but a planted file or symlink at the fixed name makes validation fail spuriously, which an attacker able to write the directory could use to block startup.
+2. **`unix.Access(dir, W_OK)`:** Rejected -- `access(2)` checks the real rather than the effective UID and does not exercise the create path itself (e.g. quota or filesystem-specific refusals), so it can disagree with what `bind()` will do.
+3. **Keep the fixed name and rely on `fs.protected_symlinks`:** Rejected -- Linux-only, defeated in non-sticky attacker-writable directories, absent on macOS.
+
+**Consequences:**
+
+- The probe cannot truncate or follow any pre-existing path, on any platform (enables SEC-024).
+- **Recorded residual, out of scope:** `internal/logging/rotation.go` truncates with `os.Truncate(path, 0)`, which follows symlinks, when `backups == 0`. That branch is unreachable from config (`ApplyDefaults` replaces `0` with `10`) and the path is trusted, so it is not changed here.
+
+---
+
 ### Implementation Sequencing (Security Hardening + Test Tiles)
 
 This batch (ADR-016..025) has no cross-feature code dependencies that force a strict order; the natural sequencing by blast radius and shared surface is:
