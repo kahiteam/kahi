@@ -17,7 +17,7 @@ env:
 
 jobs:
   goreleaser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -46,7 +46,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   container:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: goreleaser
     outputs:
       digest: ${{ steps.build.outputs.digest }}
@@ -97,7 +97,7 @@ jobs:
         run: cosign attest --yes --type cyclonedx --predicate /tmp/image-sbom.cdx.json "ghcr.io/kahiteam/kahi@${{ steps.build.outputs.digest }}"
 
   verify-signatures:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: [goreleaser, container]
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

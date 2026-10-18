@@ -9,6 +9,9 @@ on:
     # added; the other types are the default pull_request activity set.
     types: [opened, synchronize, reopened, labeled]
 
+# Runner OS labels are pinned to a release, not ubuntu-latest, which GitHub
+# repoints to a new OS on its own schedule. Bumped by hand as a reviewable
+# change; only LTS images exist, so the ladder is 24.04 -> 26.04.
 permissions:
   contents: read
   checks: write
@@ -17,7 +20,7 @@ permissions:
 
 jobs:
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       golang: ${{ steps.filter.outputs.golang }}
     steps:
@@ -35,7 +38,7 @@ jobs:
   golang:
     needs: changes
     if: needs.changes.outputs.golang == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -187,7 +190,7 @@ jobs:
             -f context="coverage"
 
   version-consistency:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - name: Check Go version references agree with go.mod
@@ -228,7 +231,7 @@ jobs:
 
   commit-standards:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -254,7 +257,7 @@ jobs:
   summary:
     if: always()
     needs: [changes, golang, version-consistency, commit-standards]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Check results
         run: |
