@@ -20,3 +20,6 @@ coverage.out
 !.claude/**
 .claude/mind.*
 .claude/*.mv2
+
+# codebase-memory MCP server artifacts (local knowledge-graph cache)
+/.codebase-memory/
