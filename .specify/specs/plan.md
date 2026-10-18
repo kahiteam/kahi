@@ -25,7 +25,6 @@ kahi/
 │   ├── logging/               # Log handlers, rotation, ring buffer, syslog
 │   ├── ctl/                   # CLI control client logic
 │   ├── migrate/               # supervisord.conf parser and converter
-│   ├── fcgi/                  # FastCGI socket management
 │   ├── metrics/               # Prometheus collectors
 │   ├── web/                   # Web UI templates, embedded assets
 │   │   └── static/            # HTML, CSS, JS (go:embed)
@@ -270,7 +269,7 @@ After `init.sh && task setup && task all`:
 
 **Context:** supervisord uses INI format. Modern projects use YAML, JSON, or TOML. The configuration format must be unambiguous, well-specified, and support nested structures.
 
-**Decision:** TOML as the sole configuration format. Named table syntax: `[programs.web]`, `[groups.services]`, `[fcgi_programs.php]`, `[webhooks.slack]`.
+**Decision:** TOML as the sole configuration format. Named table syntax: `[programs.web]`, `[groups.services]`, `[webhooks.slack]`.
 
 **Alternatives Considered:**
 
@@ -551,6 +550,8 @@ CodeQL's `BarrierGuard` recognizes only relational comparisons (`<`, `<=`, `>`, 
 - A small syscall-seam abstraction is added to the privilege path to keep it unit-testable; this is wired into the `task test` QA gate so the wiring cannot silently regress.
 
 ### ADR-014: Secure-by-Default FastCGI Socket Permissions
+
+**Superseded 2026-10-18:** FastCGI was descoped and `internal/fcgi` removed (see FUNC-074/075, SEC-011). Kept for history.
 
 **Date:** 2026-05-26
 **Status:** Accepted
@@ -842,7 +843,7 @@ CodeQL's `BarrierGuard` recognizes only relational comparisons (`<`, `<=`, `>`, 
 3. calls `net.Listen("unix", path)`;
 4. restores `old` with `defer` before releasing the lock.
 
-The socket is therefore created at `0700 &^ old`: exactly `0700` under any umask that leaves owner bits alone, narrower under a stricter one. Both `api.StartUnix` and `fcgi.Socket.Open` call it in place of `net.Listen`; each keeps its own chmod and fail-closed close, so the configured mode is applied afterwards as today and an explicit wider FastCGI `socket_mode` still applies. A `!unix` build falls back to plain `net.Listen`, matching the `open_unix.go` / `open_other.go` precedent from ADR-022.
+The socket is therefore created at `0700 &^ old`: exactly `0700` under any umask that leaves owner bits alone, narrower under a stricter one. `api.StartUnix` calls it in place of `net.Listen` and keeps its own chmod and fail-closed close, so the configured mode is applied afterwards as today. (As first implemented it also served `fcgi.Socket.Open`; FastCGI was descoped on 2026-10-18 and that caller removed with `internal/fcgi`.) A `!unix` build falls back to plain `net.Listen`, matching the `open_unix.go` / `open_other.go` precedent from ADR-022.
 
 At no instant is the effective umask less strict than the inherited one: it is `0o777` during the read, `old | 0o077` during the bind, and `old` again afterwards. That is what makes the residual below safe. A fixed `Umask(0o077)` would loosen a stricter inherited mask (e.g. `0277`) and let concurrently created files come out wider than intended.
 
@@ -857,7 +858,7 @@ At no instant is the effective umask less strict than the inherited one: it is `
 **Consequences:**
 
 - Unix sockets are owner-only from creation regardless of the inherited umask (enables SEC-023).
-- **Accepted residual:** the umask is process-wide, so a file created by another goroutine during the bind window may be created more restrictively than requested (a log file opened `0644` under inherited `022` is created `0600`). It is never created more permissively than the inherited umask allows, because the mask is only ever tightened. The control socket is bound before `sup.Run()` starts any children, so in practice this can only affect FastCGI sockets opened at runtime, and `internal/fcgi` is not currently wired into the daemon.
+- **Accepted residual:** the umask is process-wide, so a file created by another goroutine during the bind window may be created more restrictively than requested (a log file opened `0644` under inherited `022` is created `0600`). It is never created more permissively than the inherited umask allows, because the mask is only ever tightened. Its only caller now is the control socket, which is bound once at startup before `sup.Run()` starts any children or log captures, so in practice no other file is being created during the window.
 - The mutex serializes callers of `sockutil` only. The one other `umask` call site, `process.ApplyUmask`, runs in the re-exec'd `__spawn` child (`childinit.go`), a separate process, so it cannot interleave with the daemon's socket creation.
 
 ---

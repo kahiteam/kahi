@@ -96,3 +96,4 @@ Once established, these principles do not change without explicit human approval
 5. Go plugin loading -- no shared library or go-plugin based extension (event listeners and webhooks cover extension needs)
 6. Service mesh / service discovery -- not a replacement for Consul, etcd, etc.
 7. Python interop -- no Python runtime dependency or compatibility layer
+8. FastCGI program supervision -- supervisord's `[fcgi-program:x]` is not supported; `kahi migrate` warns on such sections and comments them out (descoped 2026-10-18)

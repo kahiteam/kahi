@@ -19,7 +19,6 @@ Kahi is a modern process supervisor for POSIX systems, written in Go. It manages
 - Event system with pub/sub, event listeners, and webhook notifications
 - CLI control, health probes, structured logging
 - supervisord.conf migration tool
-- FastCGI process management
 
 ---
 
@@ -35,7 +34,7 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 - [ ] `go.mod` exists with module path `github.com/<org>/kahi` and Go 1.26.2 minimum
 - [ ] `cmd/kahi/main.go` exists as the single binary entry point
-- [ ] `internal/` directory contains packages: `config`, `process`, `supervisor`, `api`, `events`, `logging`, `ctl`, `migrate`, `fcgi`
+- [ ] `internal/` directory contains packages: `config`, `process`, `supervisor`, `api`, `events`, `logging`, `ctl`, `migrate`
 - [ ] `go build ./cmd/kahi` produces a working binary
 - [ ] `go vet ./...` passes with zero findings
 
@@ -2985,6 +2984,8 @@ This feature adds two complementary mechanisms:
 
 ### FUNC-074: FastCGI Program Definition
 
+**Status:** Descoped 2026-10-18. The `internal/fcgi` package was never wired into the daemon (no config surface, no caller) and has been removed. FastCGI program supervision is now Out of Scope in the constitution; `kahi migrate` warns on `[fcgi-program:x]` sections and comments them out. Retained for history; not to be implemented.
+
 **Description:** Define FastCGI programs with managed socket pools.
 
 **Acceptance Criteria:**
@@ -3018,6 +3019,8 @@ This feature adds two complementary mechanisms:
 ---
 
 ### FUNC-075: FastCGI Socket Management
+
+**Status:** Descoped 2026-10-18. The `internal/fcgi` package was never wired into the daemon (no config surface, no caller) and has been removed. FastCGI program supervision is now Out of Scope in the constitution; `kahi migrate` warns on `[fcgi-program:x]` sections and comments them out. Retained for history; not to be implemented.
 
 **Description:** Create, bind, and manage FastCGI sockets with reference counting.
 
@@ -3715,6 +3718,8 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 ### SEC-011: FastCGI Unix Socket Secure Default Permissions
 
+**Status:** Descoped 2026-10-18. The `internal/fcgi` package was never wired into the daemon (no config surface, no caller) and has been removed. FastCGI program supervision is now Out of Scope in the constitution; `kahi migrate` warns on `[fcgi-program:x]` sections and comments them out. Retained for history; not to be implemented.
+
 **Description:** A FastCGI Unix-domain socket must never be left at the umask-dependent default permission (commonly world-accessible). The 2026-05-26 security review found `Socket.Open` chmod-ed the socket only when `socket_mode` was explicitly set; with `socket_mode` omitted, any local user could connect to the socket and speak FastCGI to the backend it fronts. The constitution already mandates a default socket mode of 0700; this requirement enforces it on the FastCGI path.
 
 **Acceptance Criteria:**
@@ -4097,7 +4102,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 ### SEC-023: Bind Unix Sockets Owner-Only From Creation
 
-**Description:** Unix sockets must never exist, even briefly, with wider permissions than intended. The 2026-10-18 whole-project review found that the control socket (`internal/api` `StartUnix`) and the FastCGI socket (`internal/fcgi` `Open`) are created by `net.Listen("unix", ...)` and only afterwards narrowed with `os.Chmod`. Kahi never sets its own umask, so the socket is born at `0777 &^ inherited-umask`. Under the common inherited umask `022` the result is `0755`, which is not exploitable because connecting to a Unix socket requires write permission. Under a permissive inherited umask (any umask with the `002` or `020` bit clear) other local users or group members can connect in the window between `bind()` and `chmod()`, and a connection accepted in that window survives the later chmod. On the control socket that would be a full unauthenticated control session, because Unix-socket peers skip authentication (`isUnixConn`). The review rated this below the reporting threshold (it needs a non-default umask and a microsecond window at daemon start); this feature removes the dependence on the inherited umask as defense-in-depth. Deliverable: create every Unix socket under a restrictive umask so it is owner-only at the moment of creation, then apply the configured mode as today. `internal/fcgi` is not currently imported by the daemon; it is hardened anyway so the property holds if it is wired in. Enforces constitution Security Requirement 2 and hardens SEC-011 and SEC-022.
+**Description:** Unix sockets must never exist, even briefly, with wider permissions than intended. The 2026-10-18 whole-project review found that the control socket (`internal/api` `StartUnix`) and the FastCGI socket (`internal/fcgi` `Open`) are created by `net.Listen("unix", ...)` and only afterwards narrowed with `os.Chmod`. Kahi never sets its own umask, so the socket is born at `0777 &^ inherited-umask`. Under the common inherited umask `022` the result is `0755`, which is not exploitable because connecting to a Unix socket requires write permission. Under a permissive inherited umask (any umask with the `002` or `020` bit clear) other local users or group members can connect in the window between `bind()` and `chmod()`, and a connection accepted in that window survives the later chmod. On the control socket that would be a full unauthenticated control session, because Unix-socket peers skip authentication (`isUnixConn`). The review rated this below the reporting threshold (it needs a non-default umask and a microsecond window at daemon start); this feature removes the dependence on the inherited umask as defense-in-depth. Deliverable: create every Unix socket under a restrictive umask so it is owner-only at the moment of creation, then apply the configured mode as today. The FastCGI socket was covered too when this was written; FastCGI has since been descoped and `internal/fcgi` removed (FUNC-074/075), so this now governs the control socket. Enforces constitution Security Requirement 2 and hardens SEC-022.
 
 **Acceptance Criteria:**
 
@@ -4117,18 +4122,12 @@ This validates user input at the system boundary and gives CodeQL a second cut p
   **When** a socket is created and any other file is created concurrently by another goroutine
   **Then** neither is created with a wider mode than the inherited umask alone would produce
 
-- **Given** an explicit FastCGI `socket_mode` wider than `0700`
-  **When** the FastCGI socket is opened
-  **Then** the explicit mode is still applied after creation, as today
-
 **Error Handling:**
 
-| Error Condition                    | Expected Behavior                       | User-Facing Message                              |
-| ---------------------------------- | --------------------------------------- | ------------------------------------------------ |
-| Control socket `bind()` fails      | Restore umask; return the bind error    | "cannot create socket: {path}: {error}"          |
-| Control socket `os.Chmod` fails    | Close the listener (unchanged)          | "cannot set socket permissions: {path}: {error}" |
-| FastCGI socket `bind()` fails      | Restore umask; return the bind error    | "cannot create FastCGI socket: {path}: {error}"  |
-| FastCGI socket `chmodSocket` fails | Close the listener (unchanged, SEC-011) | "cannot chmod FastCGI socket: {path}: {error}"   |
+| Error Condition                 | Expected Behavior                    | User-Facing Message                              |
+| ------------------------------- | ------------------------------------ | ------------------------------------------------ |
+| Control socket `bind()` fails   | Restore umask; return the bind error | "cannot create socket: {path}: {error}"          |
+| Control socket `os.Chmod` fails | Close the listener (unchanged)       | "cannot set socket permissions: {path}: {error}" |
 
 **Edge Cases:**
 
@@ -4136,7 +4135,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 - Set, bind and restore are serialized by a lock so concurrent socket creations cannot leave the daemon at the temporary umask. The lock serializes callers of the socket helper only; the one other `umask` call site (`process.ApplyUmask`, used in `childinit.go`) runs in the re-exec'd child process, not the daemon, so it cannot interleave
 - On `!unix` builds the helper is plain `net.Listen` and this guarantee does not apply; no shipped target is `!unix` (GoReleaser builds linux and darwin only)
 
-**Dependencies:** FUNC-024, FUNC-075, SEC-011, SEC-022
+**Dependencies:** FUNC-024, SEC-022
 
 ---
 
