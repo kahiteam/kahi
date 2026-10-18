@@ -34,6 +34,9 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - 'Taskfile.yml'
+              # Workflow edits change the environment the suite runs in
+              # (runner OS, tool versions), so they must run it.
+              - '.github/workflows/**'
 
   golang:
     needs: changes
