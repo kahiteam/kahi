@@ -2194,7 +2194,7 @@
         "TestCrossOriginBothServersWired: start a real TCP listener (127.0.0.1:0, auth set) and a real Unix socket, send a cross-site POST /api/v1/processes/web/stop to each, and verify each returns 403 FORBIDDEN; also assert neither http.Server's Handler is a bare *http.ServeMux",
         "Run 'go test -count=1 -run TestCrossOrigin ./internal/api/...'; every new test is named TestCrossOrigin* so the filter covers steps 1-8"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["rest-api-endpoints", "http-basic-auth", "tcp-http-server"]
     }
   ]

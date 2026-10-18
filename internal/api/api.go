@@ -81,6 +81,7 @@ type Server struct {
 	bus        *events.Bus
 	logger     *slog.Logger
 	mux        *http.ServeMux
+	handler    http.Handler // s.mux behind cross-origin protection; what both servers serve
 	unixLn     net.Listener
 	tcpLn      net.Listener
 	unixServer *http.Server
@@ -113,7 +114,32 @@ func NewServer(cfg Config, pm ProcessManager, gm GroupManager, cm ConfigManager,
 		authPass:  cfg.Password,
 	}
 	s.mux = s.buildMux()
+	s.handler = protectCrossOrigin(s.mux)
 	return s
+}
+
+// protectCrossOrigin wraps the route table so a browser cannot be made to send
+// state-changing requests on behalf of another site.
+//
+// SEC-025 / ADR-028: the API authenticates with HTTP Basic credentials, which a
+// browser caches per origin and attaches to cross-site requests. Process and
+// group actions, config reload and shutdown read no body, and signal and stdin
+// decode JSON without a Content-Type check, so without this a cross-site HTML
+// form could drive any of them, up to shutting the daemon down. The standard
+// library check rejects unsafe-method requests whose Sec-Fetch-Site is anything
+// but same-origin or none, or, lacking that header, whose Origin host[:port]
+// differs from Host. Requests with neither header (kahi ctl, curl, scripts) are
+// allowed. GET, HEAD and OPTIONS always pass, so no safe-method handler may
+// change state.
+//
+// It wraps the whole mux, so it runs before requireAuth: a cross-site request
+// is refused the same way whatever its credentials.
+func protectCrossOrigin(next http.Handler) http.Handler {
+	csrf := http.NewCrossOriginProtection()
+	csrf.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeError(w, http.StatusForbidden, "cross-origin request rejected", errorCode(http.StatusForbidden))
+	}))
+	return csrf.Handler(next)
 }
 
 func (s *Server) buildMux() *http.ServeMux {
@@ -184,7 +210,7 @@ func (s *Server) StartUnix(path string, mode os.FileMode) error {
 	}
 
 	s.unixLn = ln
-	s.unixServer = &http.Server{Handler: s.mux}
+	s.unixServer = &http.Server{Handler: s.handler}
 
 	go func() {
 		if err := s.unixServer.Serve(ln); err != nil && err != http.ErrServerClosed {
@@ -212,7 +238,7 @@ func (s *Server) StartTCP(addr string) error {
 	}
 
 	s.tcpLn = ln
-	s.tcpServer = &http.Server{Handler: s.mux}
+	s.tcpServer = &http.Server{Handler: s.handler}
 
 	// Warn about binding to all interfaces.
 	host, _, _ := net.SplitHostPort(addr)
@@ -745,6 +771,8 @@ func errorCode(status int) string {
 		return "CONFLICT"
 	case http.StatusUnauthorized:
 		return "UNAUTHORIZED"
+	case http.StatusForbidden:
+		return "FORBIDDEN"
 	default:
 		return "SERVER_ERROR"
 	}
