@@ -46,6 +46,11 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # Key the module cache on both modules: without tools/go.sum a
+          # cold runner recompiles goreleaser from source (~46s) every run.
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
       - uses: github/codeql-action/init@v4
         with:
           languages: go
@@ -61,7 +66,11 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+          # Key the module cache on both modules: without tools/go.sum a
+          # cold runner recompiles goreleaser from source (~46s) every run.
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      # govulncheck is pinned in tools/go.mod; `go tool` builds it on demand.
       - name: Run govulncheck
-        run: govulncheck ./...
+        run: go tool -modfile=tools/go.mod govulncheck ./...

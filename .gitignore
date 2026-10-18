@@ -18,8 +18,9 @@ coverage.out
 # Claude Code
 !.claude/
 !.claude/**
-.claude/mind.*
-.claude/*.mv2
+# Unanchored so nested modules (tools/) are covered too.
+**/.claude/mind.*
+**/.claude/*.mv2
 
 # codebase-memory MCP server artifacts (local knowledge-graph cache)
 /.codebase-memory/

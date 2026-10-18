@@ -25,6 +25,11 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # Key the module cache on both modules: without tools/go.sum a
+          # cold runner recompiles goreleaser from source (~46s) every run.
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
       - uses: sigstore/cosign-installer@v4.1.2
         with:
           cosign-release: 'v3.1.3'
@@ -40,7 +45,10 @@ jobs:
           } >> "$GITHUB_ENV"
       - uses: goreleaser/goreleaser-action@v7
         with:
-          version: '~> v2'
+          # Exact, and kept equal to the goreleaser pinned in tools/go.mod so
+          # a local `task` run and the release job use the same builder.
+          # check-tool-parity.sh enforces the match.
+          version: 'v2.18.3'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
