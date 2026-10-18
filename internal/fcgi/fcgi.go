@@ -6,6 +6,8 @@ import (
 	"net"
 	"os"
 	"sync"
+
+	"github.com/kahiteam/kahi/internal/sockutil"
 )
 
 // defaultSocketMode is applied to Unix sockets when no socket_mode is
@@ -62,7 +64,9 @@ func (s *Socket) Open() (*os.File, error) {
 	case ProtocolUnix:
 		// Remove stale socket.
 		_ = os.Remove(s.config.SocketPath)
-		ln, err = net.Listen("unix", s.config.SocketPath)
+		// SEC-023: bind under a tightened umask so the socket is owner-only
+		// from creation; the chmod below then applies the configured mode.
+		ln, err = sockutil.ListenUnix(s.config.SocketPath)
 		if err != nil {
 			return nil, fmt.Errorf("cannot create FastCGI socket: %s: %w", s.config.SocketPath, err)
 		}

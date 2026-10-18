@@ -17,8 +17,12 @@ import (
 
 	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/events"
+	"github.com/kahiteam/kahi/internal/sockutil"
 	"golang.org/x/crypto/bcrypt"
 )
+
+// chmodSocket is a seam over os.Chmod so the fail-closed path is testable.
+var chmodSocket = os.Chmod
 
 // ProcessInfo describes the runtime state of a managed process.
 type ProcessInfo struct {
@@ -165,12 +169,16 @@ func (s *Server) StartUnix(path string, mode os.FileMode) error {
 		return fmt.Errorf("cannot create socket: %s: %w", path, err)
 	}
 
-	ln, err := net.Listen("unix", path)
+	// SEC-023: bind under a tightened umask so the socket is owner-only from
+	// the moment it exists, not only once the chmod below has run. Unix-socket
+	// peers skip authentication, so a connection accepted before the chmod
+	// would be a full control session.
+	ln, err := sockutil.ListenUnix(path)
 	if err != nil {
 		return fmt.Errorf("cannot create socket: %s: %w", path, err)
 	}
 
-	if err := os.Chmod(path, mode); err != nil {
+	if err := chmodSocket(path, mode); err != nil {
 		_ = ln.Close()
 		return fmt.Errorf("cannot set socket permissions: %s: %w", path, err)
 	}

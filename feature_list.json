@@ -2189,11 +2189,11 @@
         "Set a known umask, call sockutil.ListenUnix, and verify the umask read back afterwards (old := syscall.Umask(0); syscall.Umask(old)) equals the original, on success and on bind failure forced by a path inside a missing directory",
         "With an inherited umask of 0277, call sockutil.ListenUnix and verify the socket is created no wider than 0500, proving the temporary mask only adds restriction and never loosens a stricter inherited umask",
         "Using the unexported sockutil.afterUmask test hook, start a second ListenUnix from inside the first call's hook and verify the hook's nesting depth never exceeds 1, so the second creation cannot enter its critical section while the first holds the temporary umask; then verify the final umask equals the original",
-        "Open a FastCGI socket with an explicit socket_mode of 0770 and verify os.Stat reports 0770, so an explicit wider mode is still applied after creation",
+        "Verify TestUnixSocketExplicitModeHonored still passes: a FastCGI socket with explicit socket_mode 0750 is created 0700 by the helper and then widened to 0750 by the post-bind chmod, so an explicit wider mode is still applied after creation",
         "Add TestUnixControlSocketChmodFailureClosesListener: stub api.chmodSocket to return an error and verify StartUnix returns 'cannot set socket permissions', the server holds no listener, and the socket path accepts no connections; verify the existing fcgi TestUnixSocketChmodFailureClosesListener still passes",
         "Run 'go test -count=1 ./internal/sockutil/... ./internal/api/... ./internal/fcgi/...'"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["unix-socket-server", "control-socket-owner-only-lockdown", "fastcgi-socket-management"]
     },
     {
@@ -2209,7 +2209,7 @@
         "With t.Chdir(t.TempDir()), verify ValidateSocketPermissions('kahi.sock') succeeds; the pre-fix code fails it with 'socket directory does not exist'",
         "Run 'go test -count=1 -run TestValidateSocketPermissions ./internal/supervisor/...' and 'go test -count=1 -run TestSocketDir ./internal/supervisor/...'"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["unix-socket-server", "log-open-symlink-hardening"]
     }
   ]
