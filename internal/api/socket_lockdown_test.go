@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -38,6 +40,37 @@ func TestUnixControlSocketOwnerOnlyMode(t *testing.T) {
 // TestUnixControlSocketBindFailureServesNothing covers the acceptance criterion
 // that a failure while binding the socket closes out cleanly and leaves no
 // listener serving, so a world-accessible socket is never exposed.
+// TestUnixControlSocketChmodFailureClosesListener covers the fail-closed path:
+// when the post-bind chmod fails, the listener is closed and nothing is served,
+// so a socket with wider-than-intended permissions never stays in service. The
+// control socket skips authentication, so this matters more here than anywhere.
+// Before SEC-023 added the chmodSocket seam, this path had no test.
+func TestUnixControlSocketChmodFailureClosesListener(t *testing.T) {
+	orig := chmodSocket
+	chmodSocket = func(string, os.FileMode) error { return fmt.Errorf("boom") }
+	t.Cleanup(func() { chmodSocket = orig })
+
+	srv, _, _ := testServer()
+	sockPath := filepath.Join("/tmp", fmt.Sprintf("kahi-chmodfail-%d.sock", os.Getpid()))
+	t.Cleanup(func() { _ = os.Remove(sockPath) })
+
+	err := srv.StartUnix(sockPath, 0o700)
+	if err == nil {
+		_ = srv.Stop(context.Background())
+		t.Fatal("StartUnix must fail when chmod fails (fail closed)")
+	}
+	if !strings.Contains(err.Error(), "cannot set socket permissions") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if addr := srv.UnixAddr(); addr != "" {
+		t.Fatalf("listener must be closed after a chmod failure, got addr %q", addr)
+	}
+	if conn, err := net.Dial("unix", sockPath); err == nil {
+		_ = conn.Close()
+		t.Fatal("socket still accepts connections after a chmod failure")
+	}
+}
+
 func TestUnixControlSocketBindFailureServesNothing(t *testing.T) {
 	srv, _, _ := testServer()
 	// Path inside a directory that does not exist: net.Listen fails, so the

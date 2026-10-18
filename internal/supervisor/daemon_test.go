@@ -145,6 +145,9 @@ func TestValidateSocketPermissionsNotDirectory(t *testing.T) {
 }
 
 func TestValidateSocketPermissionsNoWritePermission(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory mode 0555, so the probe cannot be denied")
+	}
 	dir := t.TempDir()
 	restricted := filepath.Join(dir, "noperm")
 	if err := os.Mkdir(restricted, 0555); err != nil {
