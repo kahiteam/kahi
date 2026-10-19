@@ -3371,6 +3371,9 @@ None specific.
 - Only `POST` routes are registered, so SEC-025's rule that safe methods never change state still holds
 - The call is synchronous: the response is written after the last process has been acted on. `stop` can therefore take up to the sum of `stopwaitsecs`. The API's `http.Server`s set no `WriteTimeout` today (verified 2026-10-18), so the response is not cut short; if a write timeout is ever added, this route must be exempt or the timeout must exceed that sum
 - `start` returns once each process has been asked to start, not after `startsecs` (same semantics as the per-process start route)
+- `start` includes processes with `autostart = false`, as `supervisorctl start all` does; `autostart` only governs daemon startup
+- `stop` waits for each process up to its `stopwaitsecs` plus 5 seconds before moving to the next; a process already STOPPING is waited for, not signalled again; on `start`, a STOPPING process is an `error` entry
+- Skips are decided by checking state before acting, not by interpreting the error a start or stop returns (ADR-030)
 - Group membership does not change the order; only `priority` does, with ties broken by name for determinism
 - `kahi ctl` support (e.g. `kahi ctl stop all`) is not part of this feature
 

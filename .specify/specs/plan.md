@@ -921,3 +921,85 @@ This batch (ADR-016..025) has no cross-feature code dependencies that force a st
 5. **CI tooling (independent):** ADR-025 (test-tile label opt-in) -- `.github/` only, no Go coupling.
 
 Per-feature testing steps and the machine-readable dependency graph are generated in `feature_list.json` by `/cpf:specforge features`.
+
+---
+
+### ADR-029: Web UI Mounted as One Authenticated Subtree of the API Server
+
+**Date:** 2026-10-18
+**Status:** Accepted
+
+**Context:** FUNC-078..080, FUNC-084, SEC-026, STYLE-001. `internal/web` existed with templates, assets and package tests, but nothing imported it: the daemon never served it, and its feature_list entries had been marked passing on package tests alone. Its `RegisterRoutes(mux)` registers bare handlers with no authentication; `app.js` builds buttons with `innerHTML` and inline `onclick` handlers; `log.html` holds an inline `<script>`; `static_dir` replaces the embedded assets wholesale; and the ETag hashes `name+ModTime`, which is constant for embedded files, so browsers keep stale assets after an upgrade. The API server already serves one handler on both the Unix socket and TCP, wrapped in `http.CrossOriginProtection` (ADR-028); `requireAuth` skips authentication for Unix-socket peers and requires Basic credentials on TCP (ADR-017).
+
+**Decision:**
+
+1. **Dependency direction.** `internal/web` does not import `internal/api`, and `internal/api` does not import `internal/web`. `api.Config` gains `UI http.Handler`; `nil` means the UI is disabled. When it is set, `buildMux` registers `GET /ui/` as `s.requireAuth(cfg.UI.ServeHTTP)` and `GET /{$}` as a `302` to `/ui/`. When it is `nil`, neither route exists and both paths `404` as before. `cmd/kahi/daemon.go` builds the web handler and an adapter from `api.ProcessManager.List()` to `web.ProcessLister`, and passes the handler in. One auth wrap covers the whole subtree, so a UI route added later cannot be registered without authentication; SEC-026's "every UI route returns 401 without credentials" holds by construction, and the test exists to catch a refactor that breaks the construction.
+2. **`web.Handler` implements `http.Handler`.** It owns an internal `ServeMux` with `GET /ui/{$}` (status page), `GET /ui/log/{name}/{stream}` (log viewer) and `GET /ui/static/` (assets). `RegisterRoutes` is removed.
+3. **Graceful degradation (Principle 5).** If `web.NewHandler` returns an error, the daemon logs it at error level and passes a handler that answers every request with `503` "web UI unavailable". It still sits behind `requireAuth`. Supervision and the API are unaffected.
+4. **Static assets.** An overlay `fs.FS` tries `os.OpenRoot(static_dir).FS()` first and falls back to the embedded FS when a file is missing (`fs.ErrNotExist`). `os.Root` refuses `..` and symlinks that leave the directory. ETag is the hex sha256 of the file content: computed once at startup for embedded files, per request for overlay files (assets are a few KB). Files are served with `http.ServeContent` after the `ETag` header is set, so the standard library evaluates `If-None-Match` and answers `304`; the current `strings.Contains` check is removed. Templates are never read from `static_dir`.
+5. **Front end.** `app.js` (status page) and a new `log.js` (log viewer). Templates carry no inline `<script>`, `<style>`, event-handler or `style=` attributes; server data reaches scripts only through `data-*` attributes on a server-rendered element. DOM is built with `createElement`, `textContent` and `replaceChildren`. Every name placed in a URL goes through `encodeURIComponent`. The SGR subset parser (FUNC-079) lives in `log.js`. HTML responses carry the CSP and `nosniff` headers from SEC-026; with `script-src 'self'` and no `'unsafe-inline'`, an inline script that slips in is blocked by the browser.
+6. **Config.** `config.ServerConfig` gains `Web WebServerConfig` (`toml:"web"`) with `Enabled bool` and `StaticDir string`. `Validate()` rejects `web.enabled` without `http.enabled`. Both reload paths in `internal/supervisor/runloop.go` (`handleReload` and `Reload`) compare the old and new `Server.Web` and log "server.web changes take effect after restart" when they differ; `Reload` currently discards config warnings, so it logs this one directly. `DefaultConfigTOML` gains a commented `[server.web]` block.
+
+**Alternatives Considered:**
+
+1. **`web` imports `api` and registers itself on the API mux:** Rejected -- it couples the UI to API internals and still leaves each route responsible for its own auth.
+2. **`api` imports `web`:** Rejected -- the API package would carry templates and assets, and could not be built or tested without them.
+3. **Keep `RegisterRoutes(mux)` and pass in an auth-wrap function:** Rejected -- every route has to remember to use it, which is the defect being fixed.
+4. **A separate `http.Server` or listener for the UI:** Rejected -- it needs its own auth and cross-origin wiring and its own config, and the UI's XHRs to `/api/v1/` would become cross-origin.
+5. **A JavaScript test runner for the front end:** Rejected -- it adds a Node toolchain that has to be pinned and checked for drift. Front-end safety is enforced by a Go test that scans the embedded assets for forbidden patterns (`onclick=`, `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `eval(`, `new Function`, `<script>` without `src`, `style=`), plus the CSP.
+6. **Cache overlay ETags by size and mtime:** Deferred -- more code for no measurable gain at asset sizes of a few KB.
+
+**Consequences:**
+
+- The UI inherits authentication and cross-origin protection from the API without a separate design (enables FUNC-084, SEC-026).
+- The UI is served on the Unix socket as well, unauthenticated as the whole API already is there; the docs state that a reverse proxy in front of the socket is unauthenticated.
+- Assets get new ETags whenever their content changes, so upgrades reach browsers (enables FUNC-080).
+- All 12 `web_test.go` requests to `/static/` and `/log/` move to `/ui/static/` and `/ui/log/`.
+- Serving the UI under a different proxy prefix is not supported, because the page uses absolute paths.
+
+---
+
+### ADR-030: Ordered Bulk Process Actions in the Manager
+
+**Date:** 2026-10-18
+**Status:** Accepted
+
+**Context:** FUNC-083. The Web UI's "Start/Stop/Restart All" controls need a server-side bulk action, because only the Manager knows priority order. The Manager has `AutostartAll` (startup) and `StopAll` (shutdown), and neither fits. `AutostartAll` skips processes with `autostart = false` and returns nothing. `StopAll` closes `shutdownCh`, which puts the Manager into shutdown mode. It also sends stops without waiting; `Supervisor.waitForShutdown` waits for the whole set afterwards. `Process.Start` on a RUNNING or STARTING process returns `cannot transition ... to STARTING`, and `Process.Stop` on a STOPPED, EXITED, FATAL or STOPPING process returns `not running`. The only per-process wait, `waitForStopped`, has a fixed 30-second timeout.
+
+**Decision:**
+
+1. **Two new Manager methods** return a result per process. `StartAllOrdered() []ActionResult` and `StopAllOrdered() []ActionResult` both use `sortedProcesses` (start: priority ascending, ties by name ascending; stop: priority descending, ties by name descending). `ActionResult` is `{Name, Status, Error string}`, with `Status` one of `ok`, `skipped`, `error`.
+2. **Skips come from a state check before the call**, so no error string is ever parsed. Start skips RUNNING and STARTING. Stop skips STOPPED, EXITED and FATAL. A STOPPING process gets an error on start, and on stop it is waited for rather than signalled again.
+3. **Start includes processes with `autostart = false`**, as `supervisorctl start all` does. It returns once each process has been asked to start, without waiting for `startsecs`.
+4. **Stop is sequential and waits.** Each process is stopped and waited for before the next begins, so dependents are down before the processes they depend on. `waitForStopped` gains a timeout parameter. The bulk stop passes that process's `stopwaitsecs` plus 5 seconds, which covers the SIGKILL escalation. `Restart` keeps its 30 seconds.
+5. **Restart** is `StopAllOrdered` followed by `StartAllOrdered`. The result list is the start results.
+6. **API.** `api.ProcessManager` gains both methods, and test mocks are updated. `POST /api/v1/all/start`, `/stop` and `/restart` sit behind `requireAuth` and return `200 {"results": [...]}` in the order processes were acted on. The routes are POST-only, so ADR-028's safe-method invariant holds. The API servers set no `WriteTimeout`, so a long sequential stop is not cut off.
+
+**Alternatives Considered:**
+
+1. **Client-side iteration in the browser:** Rejected -- parallel XHRs lose priority order, and every API client would have to repeat the logic.
+2. **Reserve the process name `all`:** Rejected -- names are not validated, so an existing program called `all` would silently change meaning.
+3. **Send all stops, then wait for the set (the shutdown pattern):** Rejected -- it orders only the delivery of signals, not when processes have actually stopped.
+4. **Reuse `AutostartAll` / `StopAll`:** Rejected -- wrong `autostart` semantics, no results, and `StopAll` triggers shutdown mode.
+5. **Treat the transition errors as skips:** Rejected -- matching on error strings is brittle, and a real failure could be hidden as a skip.
+
+**Consequences:**
+
+- Bulk stop can take up to the sum of all `stopwaitsecs` plus 5 seconds per process. The HTTP response arrives when the last process has stopped.
+- The browser shows one notification per failed process (FUNC-078).
+- `kahi ctl` can use the endpoint later; that is not part of FUNC-083.
+
+---
+
+### Implementation Sequencing (0.2.0 Web UI)
+
+Ordered by dependency. Each step lands with its tests red first; the important guards are mutation-checked.
+
+1. **Config:** `WebServerConfig`, validation, `DefaultConfigTOML` block, reload warning (FUNC-084, config part). Isolated to `internal/config` and `internal/supervisor`.
+2. **Manager bulk methods:** `StartAllOrdered`/`StopAllOrdered`, `waitForStopped` timeout parameter (FUNC-083 core, ADR-030). Isolated to `internal/process`. Mutation check: reversing the stop order must fail a test.
+3. **API:** the bulk routes, the `UI` field, the `/ui/` auth wrap, the `/` redirect (FUNC-083, FUNC-084). Mutation check: removing the `requireAuth` wrap on `/ui/` must fail a test.
+4. **Web package:** `ServeHTTP` with the `/ui/` routes; overlay FS and content ETag (FUNC-080); template and JS rewrite, `log.js`, SGR subset, CSP headers, the forbidden-pattern asset scan, `data-label` cells (FUNC-078, FUNC-079, SEC-026, STYLE-001). Mutation check: reverting the ETag to name+mtime must fail a test.
+5. **Daemon wiring:** the adapter, building the handler in `cmd/kahi/daemon.go`, the `503` fallback (FUNC-084).
+6. **End to end:** TEST-006 in `e2e/` (`//go:build e2e`, run by `integration.yml` via `task test-e2e`), using `FreeTCPPort`, not a fixed `listen` address. Then a fresh XSS review of `internal/web` now that it is reachable (SEC-026).
+
+Only after step 6 passes are the Web UI feature_list entries marked `passes: true`.
