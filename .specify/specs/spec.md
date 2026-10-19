@@ -3389,7 +3389,7 @@ None specific.
 
 - **Given** daemon shutdown has begun (the supervisor's `IsShuttingDown()` or the Manager's `ShuttingDown()` is true)
   **When** `POST /api/v1/all/{action}` arrives
-  **Then** it returns `409` with `{"error": "daemon is shutting down", "code": "SHUTTING_DOWN"}`, the same response the per-process start route already gives; and a bulk start already running checks the Manager's `shutdownCh` under the Manager's lock before each process and records each remaining one as `{"status": "error", "error": "daemon is shutting down"}` without starting it
+  **Then** it returns `409` with `{"error": "daemon is shutting down", "code": "SHUTTING_DOWN"}`, the same response the per-process start route already gives; and a bulk start already running checks for shutdown before and after starting each process: a process not yet started is recorded as `{"status": "error", "error": "daemon is shutting down"}` and not started, and one whose start raced the beginning of shutdown is stopped at once and recorded the same way
 
 - **Given** no processes are configured
   **When** `POST /api/v1/all/start` is sent
