@@ -1445,12 +1445,12 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition          | Expected Behavior   | User-Facing Message                 |
-| ------------------------ | ------------------- | ----------------------------------- |
-| Unknown process name     | 404 with JSON error | `{"error": "no such process: web"}` |
-| Invalid signal name      | 400 with JSON error | `{"error": "invalid signal: FOO"}`  |
-| Method not allowed       | 405 with JSON error | `{"error": "method not allowed"}`   |
-| Server in shutdown state | 503 with JSON error | `{"error": "server shutting down"}` |
+| Error Condition          | Expected Behavior   | User-Facing Message                                             |
+| ------------------------ | ------------------- | --------------------------------------------------------------- |
+| Unknown process name     | 404 with JSON error | `{"error": "no such process: web"}`                             |
+| Invalid signal name      | 400 with JSON error | `{"error": "invalid signal: FOO"}`                              |
+| Method not allowed       | 405 with JSON error | `{"error": "method not allowed"}`                               |
+| Server in shutdown state | 409 with JSON error | `{"error": "daemon is shutting down", "code": "SHUTTING_DOWN"}` |
 
 **Edge Cases:**
 
@@ -3126,92 +3126,161 @@ This feature adds two complementary mechanisms:
 
 ### FUNC-078: Web UI Status Page
 
-**Description:** HTML page showing all processes with state, PID, uptime, and action buttons.
+**Description:** HTML page showing all processes with state, PID, uptime, and action buttons. Served at `/ui/` (FUNC-084). **Clarify decisions (resolved 2026-10-18):** actions require JavaScript (no form fallback); "Clear Log" is deferred to a later 0.2.x release because no API can clear a log; "Start/Stop/Restart All" use the bulk endpoint FUNC-083.
 
 **Acceptance Criteria:**
 
-- **Given** Web UI is enabled
-  **When** `GET /` is requested in a browser
-  **Then** an HTML page lists all processes with: name, group, state (color-coded), PID, uptime, description, and action buttons (Start, Stop, Restart, Clear Log, Tail Stdout, Tail Stderr)
+- **Given** Web UI is enabled and the request is authenticated
+  **When** `GET /ui/` is requested in a browser
+  **Then** an HTML page lists all processes with: name, group, state (color-coded), PID, uptime, description, and action buttons (Start, Stop, Restart, Tail Stdout, Tail Stderr). The Tail links are `/ui/log/{name}/stdout` and `/ui/log/{name}/stderr`, with `{name}` escaped by a `pathEscape` template function (`url.PathEscape`)
 
 - **Given** the status page
-  **When** "Stop All" or "Restart All" button is clicked
-  **Then** the corresponding API action is triggered
+  **When** "Start All", "Stop All" or "Restart All" is clicked
+  **Then** the page sends an XHR `POST /api/v1/all/{start|stop|restart}` (FUNC-083), disables every action button until the response arrives, shows one success notification "{Action} all: done" or one error notification per result whose `status` is `error`, and refreshes the table; the browser does not navigate away
+
+- **Given** the status page
+  **When** a per-process Start, Stop or Restart button is clicked
+  **Then** an XHR `POST /api/v1/processes/{name}/{action}` is sent with `{name}` taken from the button's `data-name` and encoded by `encodeURIComponent`, and the result is shown as a notification
+
+- **Given** JavaScript is disabled
+  **When** the page loads
+  **Then** the server-rendered process table is readable, every action button carries the `disabled` attribute (`app.js` removes it on load), and a `<noscript>` element reads "Actions require JavaScript"
+
+- **Given** the status table refresh (`GET /api/v1/processes`) returns a non-200 status or fails at the network level
+  **When** the refresh completes
+  **Then** the error notification is shown and the last rendered table stays in place
 
 **Error Handling:**
 
-| Error Condition        | Expected Behavior          | User-Facing Message                  |
-| ---------------------- | -------------------------- | ------------------------------------ |
-| API call fails from UI | Display error notification | "Failed to {action} {name}: {error}" |
+| Error Condition                       | Expected Behavior                      | User-Facing Message                  |
+| ------------------------------------- | -------------------------------------- | ------------------------------------ |
+| Per-process API call fails            | Display error notification             | "Failed to {action} {name}: {error}" |
+| Status refresh fails                  | Display error notification; keep table | "Failed to refresh status: {error}"  |
+| Bulk result entry has `error`         | One error notification per such entry  | "Failed to {action} {name}: {error}" |
+| Bulk call returns `409 CONFLICT`      | Display error notification             | "Another bulk action is in progress" |
+| Bulk call returns `409 SHUTTING_DOWN` | Display error notification             | "Daemon is shutting down"            |
+| Bulk call fails otherwise             | Display error notification             | "Failed to {action} all: {error}"    |
 
 **Edge Cases:**
 
-- Page auto-refreshes status every 5 seconds via JavaScript
-- Works without JavaScript (static HTML with forms as fallback)
-- Responsive layout for mobile viewing
+- Status updates are driven by `EventSource /api/v1/events/stream`, which sends named events (`event: PROCESS_STATE_*`), so the page registers `addEventListener` for each of the seven `PROCESS_STATE_*` types (`onmessage` never fires). Each such event triggers a refresh, and so does every `open` event, including the one after the browser's built-in reconnect, so changes missed while disconnected are picked up. Reconnection uses `EventSource`'s own retry; there is no custom timer. If `EventSource` is undefined, the page polls every 5 seconds
+- JavaScript-rendered uptime is produced by a `formatUptime(seconds)` function in `app.js` with the same format as the server's `FormatUptime`: `{d}d {h}h {m}m` when days > 0, `{h}h {m}m` when hours > 0, else `{m}m`
+- A bulk call can take as long as a full sequential stop (FUNC-083); the page sets no XHR timeout and keeps the buttons disabled until it answers
+- Without JavaScript the page is read-only (no form fallback: a form POST to the JSON API would navigate the browser to raw JSON)
+- Responsive layout for mobile viewing (STYLE-001)
+- Process names are untrusted for markup purposes: they reach the page only through `html/template` escaping or `textContent`, and reach URLs only through `encodeURIComponent` (JavaScript) or `pathEscape` (templates) (SEC-026)
+- Names containing `/` are encoded like any other character and not special-cased; whether the API's `{name}` route resolves them is FUNC-026's behaviour. Name validation is out of scope for 0.2.0 (it would reject existing configs)
 
-**Dependencies:** FUNC-026
+**Dependencies:** FUNC-026, FUNC-027, FUNC-083
 
 ---
 
 ### FUNC-079: Web UI Log Viewer
 
-**Description:** Browser-based log tailing for process stdout/stderr.
+**Description:** Browser-based log tailing for process stdout/stderr, served at `/ui/log/{name}/{stream}` (`stream` is `stdout` or `stderr`). "Tail Stdout" and "Tail Stderr" are links to separate pages, not an in-page toggle. **Clarify decisions (resolved 2026-10-18):** the initial backlog is read through the existing log-read endpoint; ANSI rendering is a hand-written minimal SGR subset. **Analyze remediation (2026-10-18):** `handleStreamLog` subscribes to the event bus before it flushes the response headers, so the browser's `open` event guarantees the subscription exists.
 
 **Acceptance Criteria:**
 
 - **Given** Web UI is enabled and "Tail Stdout" is clicked for process "web"
   **When** the log viewer page loads
-  **Then** real-time stdout output is streamed to the browser via SSE
+  **Then** the page is `200` HTML with a server-rendered `<main id="log">` element carrying `data-name="web"` and `data-stream="stdout"`; `log.js` opens `EventSource /api/v1/processes/web/log/stdout/stream`, and in its first `open` handler reads `GET /api/v1/processes/web/log/stdout?length=65536`, shows the last 100 complete lines of that response, and then renders streamed output after them
 
-- **Given** the log viewer
-  **When** the user selects stderr
-  **Then** stderr is streamed instead
+- **Given** `handleStreamLog`
+  **When** a stream request arrives
+  **Then** it calls `bus.Subscribe` before it writes and flushes the response headers, so any chunk published after the browser's `open` event is delivered on the stream. A chunk published between the subscription and the backlog read appears twice; this is accepted
+
+- **Given** streamed SSE events, which carry raw output chunks (one event can hold several lines, a partial line, or part of an escape sequence)
+  **When** they arrive
+  **Then** `log.js` appends each chunk to a pending buffer, renders only complete lines (up to and including `\n`), and keeps the remainder until the next chunk
+
+- **Given** output containing SGR sequences for reset (`0`), bold (`1`), and foreground colors `30`-`37` and `90`-`97`
+  **When** it is displayed
+  **Then** it is rendered as `<span>` elements with CSS classes (`sgr-bold`, `sgr-fg-31`, ...), text set with `textContent`, and no `style=` attribute; SGR state carries across lines until a reset, as in a terminal; every other escape sequence (other SGR codes, CSI, OSC) is removed and never shown raw
+
+- **Given** a line containing `<script>` or HTML markup
+  **When** it is displayed
+  **Then** it appears as literal text (no element is created from log content)
+
+- **Given** `GET /ui/log/nosuch/stdout` for a name not in `ListWeb()`, or `GET /ui/log/web/stdin`
+  **When** it is requested
+  **Then** the response is `404` with "No such process: nosuch", or `400` with "invalid stream", respectively
 
 **Error Handling:**
 
-| Error Condition        | Expected Behavior | User-Facing Message                       |
-| ---------------------- | ----------------- | ----------------------------------------- |
-| No log file configured | Display message   | "No log file configured for this process" |
-| SSE connection drops   | Auto-reconnect    | (reconnects silently)                     |
+| Error Condition                              | Expected Behavior                             | User-Facing Message                      |
+| -------------------------------------------- | --------------------------------------------- | ---------------------------------------- |
+| `{stream}` is not `stdout` or `stderr`       | `400` page                                    | "invalid stream"                         |
+| Process not in `ListWeb()`                   | `404` page                                    | "No such process: {name}"                |
+| Backlog read returns `200` with empty body   | Display message, keep streaming               | "No output captured for this stream yet" |
+| Backlog read returns `404` (process removed) | Display message, close the stream             | "No such process: {name}"                |
+| Backlog read returns another status or fails | Display error notification, keep streaming    | "Failed to load log: {error}"            |
+| SSE connection drops                         | `EventSource` built-in retry; no backlog read | (reconnects silently)                    |
 
 **Edge Cases:**
 
-- Log viewer shows last 100 lines on initial load, then streams new lines
-- ANSI escape codes are rendered as colors in the browser
-- Auto-scroll to bottom with manual scroll override
+- The backlog is up to the last 64 KB of the in-memory ring buffer (the read endpoint returns bytes, not lines). If the response is exactly 65536 bytes, the buffer was full and its first line is likely partial, so everything up to and including the first `\n` is dropped (a full response with no `\n` at all is dropped entirely); a trailing line without `\n` goes into the pending buffer. Then the last 100 complete lines are shown, or fewer when fewer exist
+- `EventSource` exposes no HTTP status, so "no such process" is detected from the backlog read only
+- After a reconnect, output written while disconnected is not shown (no backlog re-read, which would duplicate lines); reloading the page re-reads the backlog
+- The SSE log stream drops events when its 64-slot buffer is full (`internal/api/api.go`) and sends no signal to the client, so a very fast writer can leave gaps. Accepted for 0.2.0
+- With `strip_ansi = true` the capture (and so the backlog) is stripped, but the stream publishes raw output, so streamed lines may show colors the backlog does not. Accepted, and documented in the README's Web UI section (FUNC-084)
+- The ring buffer is a fixed 64 KB regardless of `stdout_capture_maxbytes` (a FUNC-082 discrepancy tracked separately)
+- The read endpoint ignores its `offset` parameter; the viewer does not use it
+- `stderr` with `redirect_stderr = true` has no capture and returns an empty body (the "no output" message)
+- Auto-scroll to bottom; scrolling up pauses auto-scroll until the user returns to the bottom
+- The process name is placed in API URLs with `encodeURIComponent(dataset.name)`
 
-**Dependencies:** FUNC-027, FUNC-078
+**Dependencies:** FUNC-027, FUNC-078, FUNC-082
 
 ---
 
 ### FUNC-080: Web UI Embedded Assets
 
-**Description:** Serve Web UI as Go-embedded static files for zero-dependency deployment.
+**Description:** Serve Web UI as Go-embedded static files for zero-dependency deployment, under `/ui/static/`. **Clarify decision (resolved 2026-10-18):** `static_dir` overlays the embedded assets per file; it does not replace them. Only static assets can be overridden; templates are always the embedded ones. The directory reaches the package as `web.Config.StaticDir`, so this feature is testable without the `[server.web]` config table (FUNC-084).
 
 **Acceptance Criteria:**
 
 - **Given** Web UI is enabled
   **When** the binary is deployed with no additional files
-  **Then** HTML, CSS, and JavaScript are served from embedded assets via `go:embed`
+  **Then** HTML, CSS, JavaScript and the favicon are served from embedded assets via `go:embed`
 
-- **Given** `[server.web] static_dir = "/opt/kahi/web"` in config
-  **When** the directory exists
-  **Then** files from the directory override embedded assets (for customization)
+- **Given** the embedded assets
+  **When** they are listed
+  **Then** they are `app.js`, `log.js`, `style.css` and `favicon.svg` (served as `image/svg+xml`); both templates reference the favicon as `<link rel="icon" href="/ui/static/favicon.svg">` and contain no `data:` URI
+
+- **Given** `static_dir = "/opt/kahi/web"` containing only `style.css`
+  **When** `/ui/static/style.css` and `/ui/static/app.js` are requested
+  **Then** `style.css` is served from the directory and `app.js` from the embedded assets (per-file overlay)
+
+- **Given** two builds whose embedded `app.js` differ in content
+  **When** each serves `/ui/static/app.js`
+  **Then** the `ETag` values differ: the ETag is the quoted hex sha256 of the file content, not derived from `ModTime` (embedded files have a zero `ModTime`)
+
+- **Given** a request with `If-None-Match` equal to the current ETag
+  **When** the asset is unchanged
+  **Then** the response is `304 Not Modified`
+
+- **Given** an overlay open of `../web.go`, or of a symlink inside `static_dir` that points outside it
+  **When** the overlay FS is asked for it
+  **Then** it returns an error, and the HTTP response for such a path is `404`; nothing outside `static_dir` or the embedded FS is served (`os.Root` confinement)
 
 **Error Handling:**
 
-| Error Condition             | Expected Behavior                         | User-Facing Message                           |
-| --------------------------- | ----------------------------------------- | --------------------------------------------- |
-| Custom static_dir not found | Fall back to embedded assets with warning | "static_dir not found, using embedded assets" |
+| Error Condition                                 | Expected Behavior                         | User-Facing Message                           |
+| ----------------------------------------------- | ----------------------------------------- | --------------------------------------------- |
+| Custom static_dir not found                     | Fall back to embedded assets with warning | "static_dir not found, using embedded assets" |
+| Custom static_dir is not a directory            | Fall back to embedded assets with warning | "static_dir not found, using embedded assets" |
+| File missing from static_dir (`fs.ErrNotExist`) | Serve the embedded file                   | n/a                                           |
+| Other overlay open error (escape, permission)   | `404`, logged at debug level, no fallback | (standard 404)                                |
+| Asset in neither static_dir nor embed           | `404`                                     | (standard 404)                                |
 
 **Edge Cases:**
 
-- Embedded assets include a favicon and minimal CSS
-- Content-Type headers are set correctly based on file extension
-- Caching headers (ETag, Cache-Control) are set for static assets
+- Content-Type is set from a fixed extension map before `http.ServeContent` (`.js` → `text/javascript; charset=utf-8`, `.css` → `text/css; charset=utf-8`, `.svg` → `image/svg+xml`, `.ico` → `image/x-icon`), replacing the current switch in `web.go` (which sends `application/javascript`); the result therefore does not depend on the host's MIME database (`mime.TypeByExtension` reads system files, and older Linux images map `.js` to `application/javascript`)
+- Caching headers: `ETag` and `Cache-Control: public, max-age=3600`; an overridden file's ETag is derived from its content as read
+- Conditional requests are evaluated by `http.ServeContent` with the `ETag` header preset
+- `static_dir` cannot override templates (`index.html`, `log.html`), so HTML escaping stays under the project's control
 
-**Dependencies:** FUNC-078
+**Dependencies:** FUNC-078, FUNC-079
 
 ---
 
@@ -3278,21 +3347,193 @@ None specific.
 
 ---
 
+### FUNC-083: Bulk Process Actions API
+
+**Description:** Start, stop or restart every configured process with one API call, in priority order. Added 2026-10-18 for the Web UI's "Start/Stop/Restart All" controls (FUNC-078), which until now posted to `/api/v1/processes/all/{action}` and so acted on a process literally named `all`. A server-side endpoint is used instead of client-side iteration because only the Manager can keep priority order (ascending for start, descending for stop); a reserved process name `all` was rejected because names are not validated and an existing program called `all` would break.
+
+**Response shape:** `200` with `{"results": [{"name": "<process>", "status": "ok|skipped|error", "error": "<message>"}]}`. `error` is present only when `status` is `error` (`api.ActionResult`, `json:"error,omitempty"`). `results` is always an array, `[]` when empty, never `null`.
+
+**Acceptance Criteria:**
+
+- **Given** four processes `p10` (priority 10), `a` and `b` (priority 20) and `p30` (priority 30), all STOPPED
+  **When** `POST /api/v1/all/start` is sent with valid credentials
+  **Then** they are started in the order `p10`, `a`, `b`, `p30`, and `results` lists them in that order, each `"status": "ok"`
+
+- **Given** the same processes, all RUNNING
+  **When** `POST /api/v1/all/stop` is sent
+  **Then** they are stopped in the order `p30`, `b`, `a`, `p10`, each stop completing before the next begins
+
+- **Given** running processes
+  **When** `POST /api/v1/all/restart` is sent
+  **Then** the Manager's `RestartAllOrdered` stops all as for `stop`, then starts all as for `start` except those whose stop failed; both passes use one snapshot taken when the call begins, and `results` has exactly one entry per process in start order: the stop error if its stop failed (that process is never started, even if it finishes stopping later, and its entry sits at its start-order position), otherwise the outcome of its start; a process skipped on stop because it was already stopped gets its start outcome
+
+- **Given** processes in each state
+  **When** `POST /api/v1/all/start` is sent
+  **Then** RUNNING, STARTING and BACKOFF processes are `skipped` (BACKOFF is already retrying); STOPPING is an `error` ("process is stopping"); STOPPED, EXITED and FATAL are started
+
+- **Given** processes in each state
+  **When** `POST /api/v1/all/stop` is sent
+  **Then** STOPPED, EXITED and FATAL processes are `skipped`; RUNNING and STARTING are stopped; BACKOFF is moved to STOPPED (`ok`); STOPPING is waited for without a second signal and is `ok` once stopped, or the timeout error
+
+- **Given** a process that does not stop within its `stopwaitsecs` plus 5 seconds
+  **When** `POST /api/v1/all/stop` is sent
+  **Then** its entry is `{"status": "error", "error": "stop timed out after {n}s"}` and the call moves on to the next process
+
+- **Given** one process whose start fails (e.g. command not found)
+  **When** `POST /api/v1/all/start` is sent
+  **Then** the other processes are still started, the response is `200`, and the failing entry has `"status": "error"` and a non-empty `error`
+
+- **Given** a bulk call in progress
+  **When** a second `POST /api/v1/all/{action}` arrives
+  **Then** it returns `409` with `{"error": "bulk action in progress", "code": "CONFLICT"}` and acts on nothing
+
+- **Given** daemon shutdown has begun (the supervisor's `IsShuttingDown()` or the Manager's `ShuttingDown()` is true)
+  **When** `POST /api/v1/all/{action}` arrives
+  **Then** it returns `409` with `{"error": "daemon is shutting down", "code": "SHUTTING_DOWN"}`, the same response the per-process start route already gives; and a bulk start already running checks for shutdown before and after starting each process: a process not yet started is recorded as `{"status": "error", "error": "daemon is shutting down"}` and not started, and one whose start raced the beginning of shutdown is stopped at once and recorded the same way; "daemon is shutting down" wins over any start or stop error for that process
+
+- **Given** no processes are configured
+  **When** `POST /api/v1/all/start` is sent
+  **Then** the response body is exactly `{"results":[]}`
+
+- **Given** a process named `all` in the config
+  **When** `POST /api/v1/processes/all/start` is sent
+  **Then** that single process is started (the per-process route is unchanged)
+
+- **Given** no credentials on TCP, or a cross-site `Sec-Fetch-Site`
+  **When** `POST /api/v1/all/stop` is sent
+  **Then** the response is `401` or `403` respectively, and nothing is stopped (`requireAuth` and SEC-025 apply)
+
+**Error Handling:**
+
+| Error Condition                | Expected Behavior                       | User-Facing Message                                             |
+| ------------------------------ | --------------------------------------- | --------------------------------------------------------------- |
+| Unknown action (`/all/foo`)    | `404` from the mux; nothing acted on    | (standard 404)                                                  |
+| Wrong method (`GET /all/stop`) | `405` from the mux                      | (standard 405)                                                  |
+| A single process action fails  | Continue; record it in `results`; `200` | `"error"` field of that result entry                            |
+| Stop exceeds stopwaitsecs + 5s | Record error; continue                  | "stop timed out after {n}s"                                     |
+| Another bulk call in progress  | `409`; nothing acted on                 | `{"error": "bulk action in progress", "code": "CONFLICT"}`      |
+| Shutdown has begun             | `409`; nothing acted on                 | `{"error": "daemon is shutting down", "code": "SHUTTING_DOWN"}` |
+| No processes configured        | `200` with `{"results":[]}`             | n/a                                                             |
+
+**Edge Cases:**
+
+- Only `POST` routes are registered, so SEC-025's rule that safe methods never change state still holds
+- The call is synchronous: the response is written after the last process has been acted on. `stop` can take up to the sum over processes of `stopwaitsecs` plus 5 seconds. The API's `http.Server`s set no `WriteTimeout` today (verified 2026-10-18), so the response is not cut short; if a write timeout is ever added, this route must be exempt or the timeout must exceed that sum
+- The call keeps running to completion if the client disconnects (it does not use the request context)
+- "One at a time" is one mutex on `api.Server`, shared by `start`, `stop` and `restart` and by both listeners (they serve the same handler)
+- The call takes its order from one snapshot when it begins, then re-resolves each process by name (`Manager.GetProcess`) immediately before acting on it. A process removed by a concurrent config reload since the snapshot is recorded as `{"status": "error", "error": "no such process: {name}"}` and is not acted on, so a detached `*Process` is never started; one added during the call is not acted on. Bulk calls and reloads are not otherwise serialized
+- The shutdown check runs before the bulk lock is taken, so when both a shutdown and a running bulk call apply, the response is `409 SHUTTING_DOWN`
+- On signal-driven shutdown (SIGTERM, SIGINT, SIGQUIT) the supervisor's `IsShuttingDown()` stays false today; the bulk route is still refused there through the Manager's `ShuttingDown()`, which `StopAll` makes true
+- Known gap, pre-existing and tracked separately: `StopAll` stops only RUNNING and STARTING processes and `retryAfterBackoff` does not check for shutdown, so a process in BACKOFF when shutdown begins (for example one whose bulk start just failed) can respawn during or after shutdown. Bulk start does not fix this
+- `start` returns once each process has been asked to start, not after `startsecs` (same semantics as the per-process start route)
+- `start` includes processes with `autostart = false`, as `supervisorctl start all` does; `autostart` only governs daemon startup
+- Skips are decided by checking state before acting, not by interpreting the error a start or stop returns (ADR-030)
+- Group membership does not change the order; only `priority` does, with ties broken by name (ascending for start, descending for stop)
+- `kahi ctl` support (e.g. `kahi ctl stop all`) is not part of this feature
+
+**Dependencies:** FUNC-003, FUNC-008, FUNC-026, FUNC-028, FUNC-066, SEC-025
+
+---
+
+### FUNC-084: Web UI Configuration and Mounting
+
+**Description:** Make the Web UI an optional subsystem toggled in `kahi.toml` (Constitution Architectural Constraint 4) and mount `internal/web` on the API server. Until this feature, nothing imported `internal/web`. **Clarify decisions (resolved 2026-10-18):** a new `[server.web]` table, off by default; the UI is mounted on the shared API mux under the prefix `/ui/`, so it is served on every listener that serves the API; a template failure disables the UI without affecting supervision (Principle 5).
+
+**Configuration:**
+
+```toml
+[server.web]
+enabled = false      # serve the Web UI under /ui/ (requires [server.http] enabled = true)
+static_dir = ""      # optional per-file overlay for /ui/static/ (FUNC-080)
+```
+
+**Acceptance Criteria:**
+
+- **Given** `[server.web]` is absent or `enabled = false`
+  **When** `GET /ui/`, `GET /ui/static/app.js` or `GET /` is requested
+  **Then** each returns `404`, exactly as before this feature
+
+- **Given** `[server.web] enabled = true` and `[server.http] enabled = false`
+  **When** the config is validated (`kahi daemon` or `kahi ctl reload`)
+  **Then** validation fails with `server.web.enabled requires server.http.enabled` (browsers cannot reach a Unix socket, so the UI would be unreachable)
+
+- **Given** `[server.web] enabled = true` and the TCP listener with credentials
+  **When** any path under `/ui/`, or `GET /`, is requested without credentials
+  **Then** the response is `401` with `WWW-Authenticate: Basic`; with valid credentials `/ui/` paths reach the UI handler and `GET /` returns `302` with `Location: /ui/`
+
+- **Given** the UI is enabled
+  **When** `GET /ui` (no trailing slash) is requested
+  **Then** `ServeMux` answers `307` with `Location: /ui/` before authentication (verified on Go 1.27.2); the redirect reveals nothing
+
+- **Given** the UI is enabled
+  **When** a request reaches the Unix socket
+  **Then** the UI is served without authentication, as the whole API already is on the socket
+
+- **Given** the UI is enabled and building the web handler returns an error
+  **When** the daemon starts
+  **Then** an error is logged, the API and process supervision run normally, and every `/ui/` path returns `503` with `Content-Type: text/plain; charset=utf-8` and body "web UI unavailable", still behind `requireAuth`
+
+- **Given** the UI is enabled
+  **When** a response is written by `web.Handler` (page, asset, or its own 400/404) or by the `503` fallback
+  **Then** it carries SEC-026's `Content-Security-Policy` and `X-Content-Type-Options: nosniff` headers, both set through the exported `web.SetSecurityHeaders(http.Header)`; every response not written by `web.Handler` or the `503` fallback is exempt: the `401` from `requireAuth`, the `302` for `GET /`, and the mux's `307` and `405`
+
+- **Given** the UI is enabled
+  **When** the status page is rendered
+  **Then** its process data comes from `api.ProcessManager.List()` through an adapter implementing `web.ProcessLister`, which maps every `api.ProcessInfo` field and computes `StateLower` and `UptimeStr`
+
+- **Given** a config reload whose `[server.web]` differs from the one the daemon started with
+  **When** it is applied (signal-driven `handleReload` or API `Reload`)
+  **Then** the UI keeps the startup setting until a daemon restart, and the reload logs "server.web changes take effect after restart". The comparison is against the `Server.Web` captured in `supervisor.New` from the config the daemon starts with, so the warning repeats on every reload while they differ. `GET /api/v1/config` shows the file's values, not the running UI setting
+
+- **Given** a browser holding an open status or log page (an SSE connection that never ends on its own)
+  **When** the daemon shuts down
+  **Then** `api.Server.Stop` is called with a 5-second context from `cmd/kahi/daemon.go`, and when `Shutdown` returns a context error, `Stop` calls `Close` on each `http.Server`, so open streams are cut and the daemon exits
+
+- **Given** the release documentation
+  **When** this feature ships
+  **Then** `README.md` documents the `[server.web]` table in its configuration reference, lists `/ui/` and `POST /api/v1/all/{action}` among the routes, replaces the "Web UI (planned; not yet served by the daemon)" line, states in its Security section that the Unix socket serves the API and UI without authentication, so a reverse proxy in front of the socket is unauthenticated, and has a Web UI section that notes the `strip_ansi` backlog/stream difference (FUNC-079); and `kahi init` (`config.DefaultConfigTOML`) writes a commented `[server.web]` block
+
+**Error Handling:**
+
+| Error Condition                               | Expected Behavior                           | User-Facing Message                               |
+| --------------------------------------------- | ------------------------------------------- | ------------------------------------------------- |
+| `enabled = true` without `[server.http]`      | Config validation error; daemon won't start | "server.web.enabled requires server.http.enabled" |
+| Building the web handler fails                | Log error; `/ui/` returns `503`             | "web UI unavailable"                              |
+| `[server.web]` on reload differs from startup | Keep startup setting; log warning           | "server.web changes take effect after restart"    |
+
+**Edge Cases:**
+
+- One `requireAuth` wrap covers the whole `/ui/` subtree, so a UI route added later cannot be unauthenticated (SEC-026); the UI sits inside the API's `CrossOriginProtection`
+- Only `GET` routes are added, so SEC-025's safe-method rule holds
+- The page's own links and API calls use absolute paths (`/ui/...`, `/api/v1/...`); serving under a different proxy prefix is not supported in 0.2.0
+- The handler build, the adapter and the `503` fallback live in testable functions outside the daemon's run function (ADR-029), so the failure path can be exercised by injecting a failing constructor
+- When `[server.web]` is disabled, `buildUIHandler` returns an untyped `nil` `http.Handler`. Returning a nil `*web.Handler` inside the interface would make it non-nil, mount `/ui/`, and panic on the first request
+
+**Dependencies:** INFRA-005, FUNC-014, FUNC-016, FUNC-026, FUNC-028, FUNC-078, FUNC-079, FUNC-080, SEC-026
+
+---
+
 ## Style Features
 
 ### STYLE-001: Web UI Visual Design
 
-**Description:** Clean, functional Web UI with status colors and responsive layout.
+**Description:** Clean, functional Web UI with status colors and responsive layout. Colors use the custom properties already defined in `internal/web/static/style.css` (`--color-running`, `--color-fatal`, `--color-starting`, `--color-stopping`, `--color-stopped`).
 
 **Acceptance Criteria:**
 
-- [ ] Process states use distinct colors: RUNNING=green, FATAL=red, STARTING/BACKOFF=yellow, STOPPED/EXITED=gray, STOPPING=orange
-- [ ] Table layout is responsive, collapsing to card layout on screens < 768px
-- [ ] Action buttons are clearly labeled and grouped
+- [ ] Process states use distinct colors: RUNNING=green (`--color-running`), FATAL=red (`--color-fatal`), STARTING/BACKOFF=yellow (`--color-starting`), STOPPED/EXITED=gray (`--color-stopped`), STOPPING=orange (`--color-stopping`); any other state, including `UNKNOWN(n)`, gets the class `state-unknown` and the gray color
+- [ ] Table layout is responsive, collapsing to card layout on screens up to and including 768px wide (`@media (max-width: 768px)`)
+- [ ] Every table cell, server-rendered and JavaScript-rendered, carries the `data-label` attribute the card layout uses for its column labels
+- [ ] A row's Start, Stop, Restart, Tail Stdout and Tail Stderr controls sit in one cell, each with a visible text label; the Start All, Stop All and Restart All controls sit in one toolbar above the table
 - [ ] Log viewer uses monospace font with dark background
+- [ ] SGR colors in the log viewer are CSS classes (`sgr-bold`, `sgr-fg-30` ... `sgr-fg-37`, `sgr-fg-90` ... `sgr-fg-97`) defined in `style.css`, never inline styles
 - [ ] No external CSS/JS dependencies (self-contained)
 
-**Dependencies:** FUNC-078
+**Edge Cases:**
+
+- `StateLower` for a state outside the known seven maps to `unknown`, so the class name never contains `(` or digits
+
+**Dependencies:** FUNC-078, FUNC-079
 
 ---
 
@@ -4239,6 +4480,58 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 ---
 
+### SEC-026: Web UI Authentication and Output Encoding
+
+**Description:** Requirements for making the Web UI reachable (FUNC-084) without opening new exposure; they are met before the UI is mounted. Found by inventory on 2026-10-18: `web.RegisterRoutes` registers bare handlers with no authentication, and `static/app.js` builds per-process buttons with `innerHTML` and inline `onclick="doAction('…')"` handlers, using an `esc()` helper that does not escape `'`, so a process name containing `'` breaks out of the JavaScript string. `log.html` builds the SSE URL from the process name without `encodeURIComponent`. None of this was reachable while nothing mounted the UI; the 2026-10-18 security review's "XSS not reachable" verdict held only for that reason. Process names come from the config (operator-controlled), so this is defense-in-depth, not an exploitable vulnerability; it is still fixed before the UI ships.
+
+**Acceptance Criteria:**
+
+- **Given** the UI is mounted with TCP credentials
+  **When** any path under `/ui/` is requested without credentials
+  **Then** it returns `401`. Authentication holds by construction (one `requireAuth` wrap around the whole subtree, FUNC-084), so this criterion is verified by FUNC-084's tests: at the API mux with a stub UI handler and arbitrary paths (`/ui/`, `/ui/a/b`, `/ui/static/zzz`), and with the real UI handler over TCP for `/ui/`, `/ui/log/web/stdout`, `/ui/static/app.js`, `/ui/static/log.js` and `/ui/static/style.css`
+
+- **Given** a process named `a'b"<c>&d`
+  **When** the status page is rendered server-side
+  **Then** the raw HTML contains its escaped form `a&#39;b&#34;&lt;c&gt;&amp;d` in text and in `data-name`, and never the raw name or an unescaped `<c>` (the Tail `href` holds a separately URL-encoded form)
+
+- **Given** a process named `x y/#?`
+  **When** the status page renders its Tail links
+  **Then** the `href` values are `/ui/log/x%20y%2F%23%3F/stdout` and `/ui/log/x%20y%2F%23%3F/stderr`
+
+- **Given** the shipped `app.js` and `log.js`
+  **When** they are checked
+  **Then** every `/api/v1/processes/` and `/ui/log/` URL they build (including the Tail links `app.js` rebuilds on refresh) applies `encodeURIComponent` to the process name (from `dataset.name`, or from the API JSON for rows rebuilt on refresh)
+
+- **Given** the shipped templates and scripts
+  **When** they are scanned
+  **Then** they contain no inline event-handler attributes (`onclick=`, `onload=`, `onerror=`), no `innerHTML`, `outerHTML` or `insertAdjacentHTML`, no `eval(` or `new Function`, no `style=` attribute, no `<style` element, no `data:` URI, and no `<script>` element without `src`
+
+- **Given** any Go code in `internal/web`
+  **When** it is parsed
+  **Then** it contains no conversion to `template.HTML`, `template.JS`, `template.URL` or `template.HTMLAttr`
+
+- **Given** any response written by `web.Handler`, including its 400 and 404 pages
+  **When** its headers are inspected
+  **Then** it carries `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'` and `X-Content-Type-Options: nosniff`; with `script-src 'self'`, any inline script or handler that slips in is blocked by the browser, and `default-src 'self'` allows the favicon at `/ui/static/favicon.svg`
+
+**Error Handling:**
+
+| Error Condition                  | Expected Behavior                    | User-Facing Message |
+| -------------------------------- | ------------------------------------ | ------------------- |
+| UI route requested without creds | `401` with `WWW-Authenticate: Basic` | (browser prompt)    |
+
+**Edge Cases:**
+
+- Event handlers are attached with `addEventListener`; the process name is carried in a `data-*` attribute rendered by `html/template` or set through `dataset`, never concatenated into markup
+- Templates contain no inline `<script>` or `<style>` blocks and no `style=` attributes, so the CSP needs no `'unsafe-inline'` or nonce. Today `log.html` has an inline `<script>` block (line 31), an inline `data:` favicon (line 8), and `index.html` has inline `onclick` handlers (lines 49-51); the log viewer's script moves to `/ui/static/log.js`, and the process name and stream reach it through `data-*` attributes on a server-rendered element
+- CSRF needs no separate design: the UI is served from the API's origin and its XHR POSTs are same-origin, which SEC-025's `CrossOriginProtection` allows; cross-site POSTs stay rejected
+- `frame-ancestors 'none'` prevents clickjacking of the action buttons
+- XSS review (performed and recorded under TEST-006, not a gate for this feature): once the UI is mounted, the implementing session reviews `internal/web` (templates, `app.js`, `log.js`, handlers) for any path where request or process data reaches markup, a URL or a script without the encodings above, and records the verdict and any findings in the PR description. The automated scans above are the gate; the review is a recorded check, not a human approval step
+
+**Dependencies:** FUNC-028, FUNC-078, FUNC-079, FUNC-080, SEC-025
+
+---
+
 ## Testing Features
 
 ### TEST-001: Unit Test Infrastructure
@@ -4530,6 +4823,63 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 - The renderer remains excluded from `task build`/`vet`/`lint`/`coverage` (dot-directory placement); a unit test may exercise it via `go run` with fixture JUnit files
 
 **Dependencies:** TEST-004
+
+---
+
+### TEST-006: Web UI End-to-End Reachability
+
+**Description:** Prove that the Web UI is reachable from the real daemon, not only from `internal/web`'s package tests. The four Web UI features were once marked passing on package tests alone while nothing imported the package; this test is the bar for marking FUNC-078..080, FUNC-083, FUNC-084, SEC-026 and STYLE-001 as passing. It boots the `kahi` binary as a real daemon process (not an in-process handler) and talks to it over real TCP and Unix-socket connections.
+
+**Acceptance Criteria:**
+
+- **Given** a config with `[server.http]` enabled (bcrypt credentials) on a free port from `testutil.FreeTCPPort`, `[server.web] enabled = true`, and one program `sleeper`
+  **When** the daemon is started, its TCP port accepts connections, and `GET /ui/` is sent over TCP with valid credentials
+  **Then** the response is `200`, `Content-Type: text/html`, and the body contains `sleeper`
+
+- **Given** the same daemon
+  **When** `GET /ui/` is sent over TCP without credentials
+  **Then** the response is `401`
+
+- **Given** the same daemon
+  **When** `GET /ui/` is sent over its Unix socket without credentials
+  **Then** the response is `200` HTML containing `sleeper`
+
+- **Given** the same daemon
+  **When** `GET /ui/static/app.js` and `GET /ui/static/style.css` are sent with credentials
+  **Then** each is `200` with the correct `Content-Type` and a non-empty `ETag`
+
+- **Given** the same daemon
+  **When** `GET /ui/log/sleeper/stdout` is sent with credentials
+  **Then** the response is `200` HTML
+
+- **Given** the same daemon
+  **When** `POST /api/v1/all/stop` and then `POST /api/v1/all/start` are sent with credentials
+  **Then** `sleeper` is STOPPED and then RUNNING again, as seen by `GET /api/v1/processes`
+
+- **Given** a config with `[server.web]` absent
+  **When** the daemon is started and `GET /ui/` is sent with credentials
+  **Then** the response is `404`
+
+- **Given** `[server.web] enabled = true` with `[server.http]` disabled
+  **When** the binary is run with a 10-second context timeout and its stderr captured
+  **Then** it exits non-zero (`*exec.ExitError`) and stderr contains `server.web.enabled requires server.http.enabled`
+
+**Error Handling:**
+
+| Error Condition                   | Expected Behavior                                                                      | User-Facing Message |
+| --------------------------------- | -------------------------------------------------------------------------------------- | ------------------- |
+| Daemon fails to start             | Test fails; the daemon's stderr appears in the test output (`startDaemon` forwards it) | n/a                 |
+| TCP port not accepting within 10s | Test fails with the address it waited on                                               | n/a                 |
+
+**Edge Cases:**
+
+- Lives in `e2e/` (`//go:build e2e`), run by `integration.yml` via `task test-e2e`, on the same Go toolchain as the release build
+- Uses the existing `startDaemon` helper, which keeps its temp dir short (`os.MkdirTemp("", "k-")`) to stay under the 104-byte Unix socket path limit on macOS, and stops the daemon in `t.Cleanup`; `t.TempDir` is not used for the socket. A new helper runs the binary for the invalid-config case with stderr captured into a buffer; it writes the whole config itself, including `[supervisor]` and a `[server.unix] file` inside its own short temp dir, because it does not go through `startDaemon`'s config injection
+- The HTTP client has a 10-second timeout, so no request can hang the suite
+- Browser-side JavaScript behaviour (encoding, notifications) is covered by SEC-026's static checks and package tests, not by this test; no headless browser is added
+- After this test passes, the implementing session performs SEC-026's XSS review of `internal/web` and records the verdict in the PR description
+
+**Dependencies:** TEST-003, FUNC-083, FUNC-084, SEC-026
 
 ---
 
