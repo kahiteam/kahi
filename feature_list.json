@@ -1371,32 +1371,37 @@
       "id": "web-ui-status-page",
       "category": "functional",
       "title": "Web UI HTML Status Page",
-      "description": "HTML page showing all processes with state, PID, uptime, action buttons, and auto-refresh via JavaScript.",
+      "description": "HTML status page at /ui/ listing every process with name, group, color-coded state, PID, uptime and description, with per-process Start/Stop/Restart/Tail buttons and Start/Stop/Restart All controls that call the bulk API (FUNC-083) by XHR. Read-only without JavaScript. Clear Log is deferred. Spec FUNC-078, ADR-029.",
       "testing_steps": [
-        "Send GET / and verify HTML response contains process names and action button elements",
-        "Verify the HTML response includes elements for name, group, state, PID, uptime, and description for each process",
-        "Verify HTML contains button or anchor elements for Start, Stop, Restart, Clear Log, Tail Stdout, Tail Stderr actions",
-        "Send POST to the corresponding API endpoint for Stop All and verify the action is triggered",
-        "Verify HTML response body contains SSE EventSource JavaScript",
-        "Verify GET / returns complete HTML with process data even without JavaScript execution",
-        "Verify HTML includes viewport meta tag and CSS media queries for responsive layout"
+        "TestStatusPage: GET /ui/ through web.Handler with a stub ProcessLister holding 'web' (RUNNING, group 'web', PID 42) and verify 200 text/html with the name, group, state class state-running, PID, uptime and description in the table",
+        "TestStatusPageButtons: verify each row has Start, Stop, Restart, Tail Stdout and Tail Stderr controls, the Tail links point at /ui/log/web/stdout and /ui/log/web/stderr, and the body contains no 'Clear Log' text",
+        "TestStatusPageAllControls: verify the Start All, Stop All and Restart All controls are buttons carrying data-action start|stop|restart, not <form> elements, and that no element posts to /api/v1/processes/all/",
+        "TestStatusPageNoJS: verify the server-rendered table is present in the raw HTML and a <noscript> element says actions require JavaScript",
+        "TestStatusPageScriptReference: verify the page loads /ui/static/app.js via <script src> and contains no inline <script> body",
+        "TestStatusPageNonRootPath: verify GET /ui/unknown returns 404, not the status page",
+        "TestStatusPageListerOrder: with three processes, verify rows appear in the order ListWeb returns them",
+        "Verify by reading internal/web/static/app.js that action, refresh and bulk XHR failures each call the error toast with 'Failed to {action} {name}: {error}' or 'Failed to refresh status: {error}', and that bulk results produce one toast per entry with status 'error'",
+        "Run 'go test -count=1 -run TestStatusPage ./internal/web/...'; every new test is named TestStatusPage* so the filter covers steps 1-7"
       ],
       "passes": false,
-      "dependencies": ["rest-api-endpoints"]
+      "dependencies": ["rest-api-endpoints", "process-bulk-actions"]
     },
     {
       "id": "web-ui-log-viewer",
       "category": "functional",
       "title": "Web UI Browser-Based Log Viewer",
-      "description": "Browser-based real-time log tailing for process stdout/stderr via SSE, with auto-scroll and ANSI color rendering.",
+      "description": "Log viewer at /ui/log/{name}/{stream} (stdout|stderr). log.js opens the SSE log stream first, then reads the existing log endpoint with length=65536 and shows the last 100 lines, then appends streamed lines; boundary duplicates are accepted. Renders a minimal SGR subset (0, 1, 30-37, 90-97) as spans via textContent and strips all other escapes. Spec FUNC-079, ADR-029.",
       "testing_steps": [
-        "Send GET to /api/v1/processes/{name}/log/stdout/stream and verify Content-Type is text/event-stream",
-        "Send GET to /api/v1/processes/{name}/log/stderr/stream and verify Content-Type is text/event-stream",
-        "Verify the log viewer shows last N lines on initial load then streams new lines",
-        "Write a test that simulates SSE connection drop and verify auto-reconnect behavior",
-        "Verify HTML response includes an ANSI-to-HTML rendering library or inline style conversion",
-        "Verify SSE stream sends sequential event IDs for ordered rendering",
-        "Verify a message is displayed when no log file is configured for the process"
+        "TestLogViewerPage: GET /ui/log/web/stdout and verify 200 text/html, a server-rendered element carrying data-name='web' and data-stream='stdout', a <script src='/ui/static/log.js'>, and no inline <script> body",
+        "TestLogViewerStderr: GET /ui/log/web/stderr and verify data-stream='stderr'",
+        "TestLogViewerInvalidStream: GET /ui/log/web/stdin and verify 400",
+        "TestLogViewerNameEscaping: GET /ui/log/a%22b/stdout and verify the name appears only HTML-attribute-escaped in data-name",
+        "TestLogViewerAssetSGR: read the embedded log.js and verify it handles SGR codes 0, 1, 30-37 and 90-97, and that every place it writes log text uses textContent",
+        "TestLogViewerAssetOrder: read the embedded log.js and verify the EventSource is constructed before the backlog XHR to /api/v1/processes/ with length=65536, and that the backlog is trimmed to 100 lines",
+        "TestLogViewerAssetMessages: verify log.js contains the strings 'No output captured for this stream yet', 'No such process:' and 'Failed to load log:'",
+        "TestLogViewerAssetEncoding: verify log.js builds both API URLs with encodeURIComponent applied to the name",
+        "Manual browser check during the SEC-026 review: open the viewer for a process printing '\\x1b[31mred\\x1b[0m <b>x</b>' and confirm red text, literal '<b>x</b>', auto-scroll, and scroll-up pausing auto-scroll",
+        "Run 'go test -count=1 -run TestLogViewer ./internal/web/...'; every new test is named TestLogViewer* so the filter covers steps 1-8"
       ],
       "passes": false,
       "dependencies": ["sse-streaming", "web-ui-status-page"]
@@ -1405,14 +1410,21 @@
       "id": "web-ui-embedded-assets",
       "category": "functional",
       "title": "Web UI go:embed Static Assets",
-      "description": "Serve Web UI HTML, CSS, and JavaScript from go:embed embedded assets with optional override from a custom static directory.",
+      "description": "Serve Web UI assets under /ui/static/ from go:embed, with [server.web] static_dir as a per-file overlay confined by os.Root, content-hash ETags and stdlib conditional handling via http.ServeContent. Templates are never read from static_dir. Spec FUNC-080, ADR-029.",
       "testing_steps": [
-        "Build the binary and deploy it alone and verify HTML/CSS/JS are served from embedded assets",
-        "Configure static_dir='/opt/kahi/web' and verify files from the directory override embedded assets",
-        "Configure static_dir to a nonexistent path and verify fallback to embedded assets with a warning",
-        "Verify embedded assets include a favicon and minimal CSS",
-        "Verify Content-Type headers are set correctly based on file extension",
-        "Verify caching headers (ETag, Cache-Control) are set for static assets"
+        "TestStaticAssetsServed: GET /ui/static/app.js, /ui/static/log.js, /ui/static/style.css and /ui/static/favicon.ico and verify 200 with Content-Type application/javascript (or text/javascript), text/css and image/x-icon (or image/vnd.microsoft.icon)",
+        "TestStaticETagIsContentHash: verify the ETag of app.js equals the quoted hex sha256 of the embedded app.js bytes",
+        "TestStaticETagChangesWithContent: with an overlay dir containing app.js 'A', record the ETag, rewrite it to 'B', and verify the ETag changes",
+        "TestStaticETagCacheHit: send If-None-Match with the current ETag and verify 304 with an empty body; send a different ETag and verify 200",
+        "TestStaticCacheControl: verify Cache-Control is 'public, max-age=3600'",
+        "TestStaticOverlayPerFile: static_dir holds only style.css with distinct content; verify style.css comes from the dir and app.js from the embedded FS",
+        "TestStaticOverlayMissingDir: static_dir is a nonexistent path; verify NewHandler logs 'static_dir not found, using embedded assets' and serves embedded files",
+        "TestStaticOverlayNotADir: static_dir is a regular file; verify the same warning and fallback",
+        "TestStaticOverlayConfined: static_dir contains a symlink to a file outside it, and a request for /ui/static/../web.go is sent; verify neither is served",
+        "TestStaticOverlayNoTemplates: static_dir contains index.html with marker text; verify GET /ui/ does not contain the marker",
+        "TestStaticNotFound: GET /ui/static/nope.js returns 404",
+        "Mutation check: change the ETag back to sha256(name+ModTime) and verify TestStaticETagIsContentHash and TestStaticETagChangesWithContent fail",
+        "Run 'go test -count=1 -run TestStatic ./internal/web/...'; every new test is named TestStatic* so the filter covers steps 1-11"
       ],
       "passes": false,
       "dependencies": ["web-ui-status-page"]
@@ -1454,11 +1466,12 @@
       "title": "Web UI Visual Design and Responsive Layout",
       "description": "Clean, functional Web UI with distinct state colors, responsive table-to-card layout, monospace log viewer, and self-contained CSS/JS.",
       "testing_steps": [
-        "Verify CSS contains color rules for .state-running, .state-stopped, .state-fatal classes",
-        "Verify HTML includes viewport meta tag and CSS media queries for max-width 768px",
-        "Verify action buttons are clearly labeled and grouped logically",
-        "Verify CSS specifies font-family including monospace for the log viewer",
-        "Verify no external URLs in CSS or JavaScript imports"
+        "TestCSSStateColors: verify style.css has color rules for .state-running (green), .state-fatal (red), .state-starting and .state-backoff (yellow), .state-stopped and .state-exited (gray), and .state-stopping (orange)",
+        "TestCSSResponsiveMediaQuery: verify the viewport meta tag in both templates and a max-width 768px media query in style.css",
+        "TestCSSDataLabels: render /ui/ with one process and verify every <td> in the server-rendered table carries a non-empty data-label; verify by reading app.js that the JS-rendered rows set data-label on every cell",
+        "TestCSSMonospaceLogViewer: verify the log viewer rule specifies a monospace font-family and a dark background",
+        "TestCSSNoExternalURLs: verify style.css, app.js, log.js and both templates contain no http:// or https:// URL",
+        "Run 'go test -count=1 -run TestCSS ./internal/web/...'"
       ],
       "passes": false,
       "dependencies": ["web-ui-status-page"]
@@ -2196,6 +2209,90 @@
       ],
       "passes": true,
       "dependencies": ["rest-api-endpoints", "http-basic-auth", "tcp-http-server"]
+    },
+    {
+      "id": "process-bulk-actions",
+      "category": "functional",
+      "title": "Ordered Bulk Start/Stop/Restart API",
+      "description": "POST /api/v1/all/{start|stop|restart} acts on every configured process in priority order (start ascending, stop descending, ties by name) through new Manager methods StartAllOrdered and StopAllOrdered, returning 200 with per-process results ok|skipped|error. Stop is sequential and waits up to each process's stopwaitsecs plus 5s. Start includes autostart=false processes. Skips come from a state check, not error strings. Spec FUNC-083, ADR-030.",
+      "testing_steps": [
+        "TestBulkStartOrder: Manager with MockSpawner and programs at priorities 30, 10, 20 (plus a tie at 20 named 'a' and 'b'), all STOPPED; call StartAllOrdered and verify start order 10, a@20, b@20, 30 and all results status 'ok'",
+        "TestBulkStopOrder: same programs all RUNNING; call StopAllOrdered and verify stop order 30, b@20, a@20, 10, with each process STOPPED before the next one is signalled",
+        "TestBulkStartSkips: with one RUNNING and one STOPPED process, verify StartAllOrdered returns 'skipped' for the RUNNING one and 'ok' for the other, and that Start was never called on the RUNNING one",
+        "TestBulkStopSkips: verify StopAllOrdered returns 'skipped' for STOPPED, EXITED and FATAL processes",
+        "TestBulkStartIncludesNoAutostart: verify a process with autostart=false is started by StartAllOrdered",
+        "TestBulkStartContinuesOnError: one process's spawner returns an error; verify the others are still started and its result is {status: 'error', error: non-empty}",
+        "TestBulkStopWaitTimeout: a process ignoring SIGTERM with stopwaitsecs=1; verify StopAllOrdered moves on after SIGKILL and within stopwaitsecs+5s",
+        "TestBulkStopDoesNotShutdown: after StopAllOrdered, verify the Manager is not in shutdown mode (shutdownCh open) and StartAllOrdered works",
+        "TestBulkAPIRoutes: through srv.handler with credentials, verify POST /api/v1/all/start, /stop and /restart return 200 JSON {results:[...]} from a mock manager, POST /api/v1/all/foo returns 404, and GET /api/v1/all/stop returns 405",
+        "TestBulkAPIAuthAndCSRF: verify POST /api/v1/all/stop over TCP without credentials returns 401 and with Sec-Fetch-Site: cross-site returns 403, each with 0 StopAllOrdered calls",
+        "TestBulkAPIProcessNamedAll: a process named 'all'; verify POST /api/v1/processes/all/start starts only that process",
+        "Mutation check: reverse the sort in StopAllOrdered and verify TestBulkStopOrder fails",
+        "Run 'go test -count=1 -run TestBulk ./internal/process/... ./internal/api/...'; every new test is named TestBulk* so the filter covers steps 1-11"
+      ],
+      "passes": false,
+      "dependencies": ["rest-api-endpoints", "http-basic-auth", "api-cross-origin-protection"]
+    },
+    {
+      "id": "web-ui-config-mounting",
+      "category": "functional",
+      "title": "Web UI Config Toggle and Mounting",
+      "description": "Add [server.web] enabled (default false) and static_dir; validation rejects enabled without [server.http] enabled. When enabled, cmd/kahi/daemon.go builds web.Handler with an api.ProcessManager adapter and passes it as api.Config.UI; buildMux mounts GET /ui/ behind requireAuth and GET /{$} as a 302 to /ui/. If NewHandler fails, /ui/ returns 503 'web UI unavailable' and supervision continues. Changing [server.web] on reload logs a restart-needed warning. Spec FUNC-084, ADR-029.",
+      "testing_steps": [
+        "TestWebConfigDefaults: parse a config without [server.web] and verify Server.Web.Enabled is false and StaticDir is empty",
+        "TestWebConfigRequiresHTTP: validate [server.web] enabled=true with [server.http] enabled=false and verify the error 'server.web.enabled requires server.http.enabled'",
+        "TestDefaultConfigTOMLHasWeb: verify config.DefaultConfigTOML contains a commented [server.web] block and still parses",
+        "TestUIMountDisabled: NewServer with Config.UI nil; verify GET /ui/ and GET / return 404 through srv.handler",
+        "TestUIMountAuth: NewServer with a stub UI handler and TCP credentials; verify GET /ui/, /ui/log/x/stdout and /ui/static/app.js over a real TCP listener return 401 with WWW-Authenticate: Basic without credentials and reach the stub with them",
+        "TestUIMountRedirect: with UI set, verify GET / returns 302 Location: /ui/, and GET /api/v1/processes is unaffected",
+        "TestUIMountUnixSocket: with UI set, verify GET /ui/ over a real Unix socket reaches the stub without credentials",
+        "TestUIUnavailable: build the daemon's UI handler from a NewHandler error and verify every /ui/ path returns 503 with body 'web UI unavailable' while GET /api/v1/processes still returns 200",
+        "TestUIListerAdapter: verify the adapter maps every api.ProcessInfo field (Name, Group, State, PID, Uptime, Description, ExitStatus) to web.ProcessView, with StateLower lowercased",
+        "TestReloadWarnsOnWebChange: run handleReload and Reload with a new config that flips server.web.enabled and verify each logs 'server.web changes take effect after restart' and the served UI is unchanged",
+        "Mutation check: register /ui/ without requireAuth and verify TestUIMountAuth fails",
+        "Run 'go test -count=1 -run \"TestWebConfig|TestDefaultConfigTOMLHasWeb|TestUIMount|TestUIUnavailable|TestUIListerAdapter|TestReloadWarnsOnWebChange\" ./internal/config/... ./internal/api/... ./internal/supervisor/... ./cmd/kahi/...'"
+      ],
+      "passes": false,
+      "dependencies": ["rest-api-endpoints", "http-basic-auth", "web-ui-status-page", "web-ui-log-viewer", "web-ui-embedded-assets"]
+    },
+    {
+      "id": "web-ui-auth-output-encoding",
+      "category": "functional",
+      "title": "Web UI Authentication and Output Encoding",
+      "description": "Every /ui/ route requires authentication on TCP; templates and scripts carry no inline handlers, inline scripts or style attributes; process data reaches the DOM only via html/template escaping or textContent and reaches URLs only via encodeURIComponent; HTML responses send a strict Content-Security-Policy and nosniff. Defense-in-depth before the UI becomes reachable. Spec SEC-026, ADR-029.",
+      "testing_steps": [
+        "TestUISecurityAllRoutesNeedAuth (in cmd/kahi, which wires the real web.Handler into api.Server; internal/api must not import internal/web): enumerate the UI paths /ui/, /ui/log/web/stdout, /ui/static/app.js, /ui/static/log.js and /ui/static/style.css and verify each returns 401 over TCP without credentials",
+        "TestUISecurityHostileName: render /ui/ with a process named a'b\"<c>&d and verify the raw HTML contains only its escaped form, no unescaped '<c>', and a data-name attribute holding the escaped name",
+        "TestUISecurityAssetScan: read every embedded file under templates/ and static/ and verify none contains onclick=, onload=, onerror=, innerHTML, outerHTML, insertAdjacentHTML, eval(, new Function, a style= attribute, or a <script> element without src",
+        "TestUISecurityNoTemplateBypass: parse internal/web/*.go with go/ast and verify no call or conversion to template.HTML, template.JS, template.URL or template.HTMLAttr",
+        "TestUISecurityURLEncoding: verify app.js and log.js pass the process name through encodeURIComponent wherever an /api/v1/processes/ URL is built",
+        "TestUISecurityHeaders: verify GET /ui/ and GET /ui/log/web/stdout send Content-Security-Policy \"default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'\" and X-Content-Type-Options: nosniff",
+        "TestUISecuritySameOriginPost: through the API handler, verify a POST /api/v1/processes/web/start with Sec-Fetch-Site: same-origin and credentials succeeds, and the same with cross-site returns 403",
+        "Mutation check: add onclick=\"x()\" to index.html and verify TestUISecurityAssetScan fails",
+        "Fresh XSS review of internal/web (templates, app.js, log.js, Go handlers) once the UI is mounted; record the verdict in the PR description",
+        "Run 'go test -count=1 -run TestUISecurity ./internal/web/... ./internal/api/... ./cmd/kahi/...'; every new test is named TestUISecurity* so the filter covers steps 1-7"
+      ],
+      "passes": false,
+      "dependencies": ["web-ui-config-mounting", "api-cross-origin-protection"]
+    },
+    {
+      "id": "web-ui-e2e-reachability",
+      "category": "testing",
+      "title": "Web UI End-to-End Reachability Test",
+      "description": "An e2e test (build tag e2e, run by integration.yml via task test-e2e) that builds and boots the real kahi binary with [server.http] and [server.web] enabled on a free TCP port and proves the UI is served, authenticated and wired to the bulk API. The bar for marking the Web UI entries passing. Spec TEST-006.",
+      "testing_steps": [
+        "TestWebUIE2EServed: start the daemon with bcrypt credentials, [server.web] enabled=true, one program 'sleeper', listen on testutil.FreeTCPPort; GET /ui/ with credentials and verify 200 text/html containing 'sleeper'",
+        "TestWebUIE2EAuth: GET /ui/ without credentials and verify 401",
+        "TestWebUIE2EAssets: GET /ui/static/app.js and /ui/static/style.css with credentials and verify 200, correct Content-Type and a non-empty ETag",
+        "TestWebUIE2ELogViewer: GET /ui/log/sleeper/stdout with credentials and verify 200 text/html",
+        "TestWebUIE2EBulk: POST /api/v1/all/stop then wait for 'sleeper' STOPPED via GET /api/v1/processes, then POST /api/v1/all/start and wait for RUNNING",
+        "TestWebUIE2EDisabled: start a daemon without [server.web] and verify GET /ui/ with credentials returns 404",
+        "TestWebUIE2EInvalidConfig: start a daemon with [server.web] enabled=true and [server.http] disabled and verify it exits non-zero with stderr containing 'server.web.enabled requires server.http.enabled'",
+        "Verify each test uses t.TempDir for config, socket and logs and stops the daemon in t.Cleanup",
+        "Run 'go test -race -count=1 -tags=e2e -run TestWebUIE2E ./e2e/...'"
+      ],
+      "passes": false,
+      "dependencies": ["process-bulk-actions", "web-ui-config-mounting", "web-ui-auth-output-encoding"]
     }
   ]
 }
