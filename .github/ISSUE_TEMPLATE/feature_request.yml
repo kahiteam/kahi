@@ -1,13 +1,13 @@
 name: Feature Request
 description: Suggest a new feature or improvement
-labels: ["enhancement"]
+labels: ['enhancement']
 body:
   - type: textarea
     id: problem
     attributes:
       label: Problem statement
       description: What problem does this feature solve? What is the current limitation?
-      placeholder: "When I try to ..., I cannot ..."
+      placeholder: 'When I try to ..., I cannot ...'
     validations:
       required: true
 
