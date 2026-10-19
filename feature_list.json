@@ -1127,7 +1127,7 @@
         "Verify metric names follow Prometheus naming conventions (snake_case, _total for counters)",
         "Configure metrics disabled and verify /metrics returns 404"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["tcp-http-server"]
     },
     {
@@ -1142,7 +1142,7 @@
         "Verify metrics survive config reload and counters are not reset",
         "Verify removed processes have their metrics cleaned up after retention period"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["prometheus-metrics-endpoint"]
     },
     {
@@ -1157,7 +1157,7 @@
         "Trigger a failed config reload and verify kahi_supervisor_config_reload_errors_total counter increments",
         "Verify kahi_info{version=...,go_version=...,fips=...} is a constant 1 gauge with build metadata labels"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["prometheus-metrics-endpoint"]
     },
     {
