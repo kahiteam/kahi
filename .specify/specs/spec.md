@@ -3166,7 +3166,7 @@ This feature adds two complementary mechanisms:
 - Process names are untrusted for markup purposes: they reach the page only through `html/template` escaping or `textContent`, and reach URLs only through `encodeURIComponent` (SEC-026)
 - A process name containing `/` cannot be addressed through the `{name}` path segment of the API; the UI shows it but its actions fail with the API's 404. Name validation is out of scope for 0.2.0 (it would reject existing configs)
 
-**Dependencies:** FUNC-026, FUNC-083, FUNC-084
+**Dependencies:** FUNC-026, FUNC-083
 
 ---
 
@@ -3211,7 +3211,7 @@ This feature adds two complementary mechanisms:
 - Auto-scroll to bottom; scrolling up pauses auto-scroll until the user returns to the bottom
 - The process name is placed in API URLs with `encodeURIComponent`
 
-**Dependencies:** FUNC-027, FUNC-078, FUNC-084
+**Dependencies:** FUNC-027, FUNC-078
 
 ---
 
@@ -3256,7 +3256,7 @@ This feature adds two complementary mechanisms:
 - Caching headers (`ETag`, `Cache-Control: max-age=3600`) are set for static assets; an overridden file's ETag is derived from its content as read
 - `static_dir` cannot override templates (`index.html`, `log.html`), so HTML escaping stays under the project's control
 
-**Dependencies:** FUNC-078, FUNC-084
+**Dependencies:** FUNC-078
 
 ---
 
@@ -4445,6 +4445,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 **Edge Cases:**
 
 - Event handlers are attached with `addEventListener`; the process name is carried in a `data-*` attribute set through the DOM (`dataset`), not concatenated into markup
+- Templates contain no inline `<script>` or `<style>` blocks and no `style=` attributes, so the CSP needs no `'unsafe-inline'` or nonce. Today `log.html` has an inline `<script>` block (line 31) and `index.html` has inline `onclick` handlers (lines 49-51); the log viewer's script moves to a file under `/ui/static/`, and the process name and stream reach it through `data-*` attributes on a server-rendered element
 - CSRF needs no separate design: the UI is served from the API's origin and its XHR POSTs are same-origin, which SEC-025's `CrossOriginProtection` allows; cross-site POSTs stay rejected
 - `frame-ancestors 'none'` prevents clickjacking of the action buttons
 - A fresh XSS review of `internal/web` is part of this feature's verification, run once the UI is reachable
