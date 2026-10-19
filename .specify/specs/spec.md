@@ -4213,7 +4213,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
   **When** it reaches the API
   **Then** it is rejected with `403 FORBIDDEN` and the daemon or group is unaffected
 
-- **Given** a cross-site unsafe-method request with *invalid* Basic credentials
+- **Given** a cross-site unsafe-method request with _invalid_ Basic credentials
   **When** it reaches the API
   **Then** the response is `403 FORBIDDEN`, not `401`: the check runs before authentication
 

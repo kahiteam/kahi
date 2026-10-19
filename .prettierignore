@@ -9,3 +9,10 @@ LICENSE
 # Git hooks (no extension -- Prettier cannot determine parser)
 scripts/hooks/pre-commit
 scripts/hooks/commit-msg
+
+# Go html/template files: {{ }} actions inside attributes are not HTML, so the
+# HTML parser rejects them and a rewrite could change the rendered output
+internal/web/templates/
+
+# npm lockfile is written by npm, not by hand
+package-lock.json

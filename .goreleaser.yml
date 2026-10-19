@@ -19,7 +19,7 @@ builds:
       - ppc64le
       - s390x
     goarm:
-      - "7"
+      - '7'
     ignore:
       - goos: darwin
         goarch: arm
@@ -41,36 +41,36 @@ archives:
   - id: kahi
     ids:
       - kahi
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
     files:
       - README.md
       - LICENSE
       - cmd/kahi/kahi.toml
 
 checksum:
-  name_template: "checksums.txt"
+  name_template: 'checksums.txt'
   algorithm: sha512
 
 sboms:
   - id: archive
     artifacts: archive
     documents:
-      - "${artifact}.cdx.json"
+      - '${artifact}.cdx.json'
     cmd: syft
     args:
-      - "$artifact"
-      - "--output"
-      - "cyclonedx-json@1.5=$document"
+      - '$artifact'
+      - '--output'
+      - 'cyclonedx-json@1.5=$document'
 
 signs:
   - id: keyless
     cmd: cosign
-    signature: "${artifact}.sigstore.json"
+    signature: '${artifact}.sigstore.json'
     args:
       - sign-blob
-      - "--yes"
-      - "--bundle=${signature}"
-      - "${artifact}"
+      - '--yes'
+      - '--bundle=${signature}'
+      - '${artifact}'
     artifacts: all
     output: true
 
@@ -78,16 +78,16 @@ changelog:
   sort: asc
   groups:
     - title: Features
-      regexp: "^feat"
+      regexp: '^feat'
     - title: Bug Fixes
-      regexp: "^fix"
+      regexp: '^fix'
     - title: Performance
-      regexp: "^perf"
+      regexp: '^perf'
     - title: Other
       order: 999
   filters:
     exclude:
-      - "^Merge"
+      - '^Merge'
 
 release:
   github:
@@ -95,5 +95,5 @@ release:
     name: kahi
   draft: true
   prerelease: auto
-  name_template: "{{.ProjectName}} v{{.Version}}"
-  footer: "{{ .Env.KAHI_RELEASE_FOOTER }}"
+  name_template: '{{.ProjectName}} v{{.Version}}'
+  footer: '{{ .Env.KAHI_RELEASE_FOOTER }}'

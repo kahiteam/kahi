@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "description": "Pinned development tooling for Kahi; not a Node package.",
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "3.9.10"
+  }
+}

@@ -2160,7 +2160,10 @@
         "Run 'go test -count=1 ./internal/sockutil/... ./internal/api/...'"
       ],
       "passes": true,
-      "dependencies": ["unix-socket-server", "control-socket-owner-only-lockdown"]
+      "dependencies": [
+        "unix-socket-server",
+        "control-socket-owner-only-lockdown"
+      ]
     },
     {
       "id": "socket-dir-probe-no-follow",
@@ -2195,7 +2198,11 @@
         "Run 'go test -count=1 -run TestCrossOrigin ./internal/api/...'; every new test is named TestCrossOrigin* so the filter covers steps 1-8"
       ],
       "passes": true,
-      "dependencies": ["rest-api-endpoints", "http-basic-auth", "tcp-http-server"]
+      "dependencies": [
+        "rest-api-endpoints",
+        "http-basic-auth",
+        "tcp-http-server"
+      ]
     }
   ]
 }
