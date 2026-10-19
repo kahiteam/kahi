@@ -40,7 +40,7 @@ Key differences from supervisord:
 - Per-process uid/gid, umask, resource limits, environment control
 - supervisord.conf migration tool
 - Shell completion (bash, zsh, fish, powershell)
-- Web UI (planned; not yet served by the daemon)
+- Web UI under `/ui/`: process status, actions and live log tailing (off by default; see [Web UI](#web-ui))
 - FIPS 140-3 mode on by default in every binary (`GOFIPS140=v1.0.0`)
 
 ## Usage Scenarios
@@ -266,6 +266,10 @@ kahi init -o kahi.toml        # write to file
 # username = ""                 # HTTP Basic Auth username (required when enabled)
 # password = ""                 # bcrypt hash from `kahi hash-password` -- plaintext is rejected
 
+# [server.web]                  # Web UI under /ui/ (requires [server.http])
+# enabled = false               # serve the Web UI
+# static_dir = ""               # optional per-file overlay for /ui/static/
+
 # Process definitions
 # [programs.example]
 # command = "/usr/bin/example"  # REQUIRED: command to run
@@ -336,6 +340,36 @@ include = ["/etc/kahi/conf.d/*.toml"]
 
 Glob patterns are supported. Circular includes are detected and rejected.
 
+### Web UI
+
+The Web UI is off by default. Enable it together with the TCP listener, which
+it requires (browsers cannot reach the Unix socket). Set `username` and
+`password` under `[server.http]` as in the sample config above; the password is
+a bcrypt hash printed by `kahi hash-password`.
+
+```toml
+[server.http]
+enabled = true
+listen = "127.0.0.1:9876"
+
+[server.web]
+enabled = true
+# static_dir = "/opt/kahi/web"  # optional: files here replace embedded assets one by one
+```
+
+Then open `http://127.0.0.1:9876/ui/` (`/` redirects there) and sign in with the
+HTTP credentials. The status page lists every process with Start, Stop,
+Restart and Tail controls, plus Start/Stop/Restart All, which call
+`POST /api/v1/all/{start,stop,restart}` and act in priority order. The log
+viewer at `/ui/log/{name}/{stdout,stderr}` shows the last 100 lines of the
+in-memory buffer, then streams new output. Actions need JavaScript; without
+it the page is read-only. Changes to `[server.web]` take effect after a daemon
+restart, not on reload.
+
+With `strip_ansi = true` the buffered backlog is stripped of colour codes but
+the live stream is not, so streamed lines can show colours that the backlog
+does not.
+
 ## Security
 
 Kahi is secure by default:
@@ -345,6 +379,15 @@ Kahi is secure by default:
   `chmod` or a `chown`. The TCP API is disabled by default; enabling it requires
   an HTTP Basic Auth username and a bcrypt-hashed password (loopback included) --
   the daemon refuses to start otherwise. Plaintext passwords are rejected.
+- **Unix socket is unauthenticated.** Peers on the Unix socket skip
+  authentication for the whole API and the Web UI: socket permissions are the
+  access control. Do not put a reverse proxy in front of the Unix socket unless
+  the proxy authenticates; such a proxy would expose every control action
+  without credentials.
+- **Web UI.** Every `/ui/` route requires the TCP credentials. Pages carry a
+  strict Content-Security-Policy (no inline script or style) and
+  `X-Content-Type-Options: nosniff`, and state-changing requests from other
+  sites are rejected.
 - **Config secrets.** `GET /api/v1/config` returns a redacted view: passwords,
   process environment values, and webhook auth headers are masked.
 - **Privilege separation.** The daemon can drop privileges (`-u`), and per-process

@@ -5,13 +5,18 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/kahiteam/kahi/internal/api"
 	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/logging"
 	"github.com/kahiteam/kahi/internal/supervisor"
+	"github.com/kahiteam/kahi/internal/web"
 	"github.com/spf13/cobra"
 )
+
+// apiStopTimeout bounds API server shutdown when the daemon exits.
+const apiStopTimeout = 5 * time.Second
 
 var (
 	configFlag    string
@@ -96,7 +101,9 @@ func daemonRun(cmd *cobra.Command, args []string) error {
 		Logger:     logger,
 	})
 
-	// Build API server config.
+	// Build API server config. The Web UI, when enabled, is mounted on the
+	// same server under /ui/ (FUNC-084).
+	mgr := sup.Manager()
 	socketMode := parseSocketMode(cfg.Server.Unix.Chmod)
 	apiCfg := api.Config{
 		UnixSocket: socketPath,
@@ -105,9 +112,9 @@ func daemonRun(cmd *cobra.Command, args []string) error {
 		TCPEnabled: cfg.Server.HTTP.Enabled,
 		Username:   cfg.Server.HTTP.Username,
 		Password:   cfg.Server.HTTP.Password,
+		UI:         buildUIHandler(cfg.Server.Web, mgr, web.NewHandler, logger),
 	}
 
-	mgr := sup.Manager()
 	server := api.NewServer(apiCfg, mgr, mgr, sup, sup, sup.Bus(), logger)
 
 	// Start listeners.
@@ -121,7 +128,13 @@ func daemonRun(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
-	defer func() { _ = server.Stop(context.Background()) }()
+	// Bounded: an open SSE stream (a UI page, a log tail) never ends on its
+	// own, and Stop closes what is left once the timeout expires.
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), apiStopTimeout)
+		defer cancel()
+		_ = server.Stop(ctx)
+	}()
 
 	// Optional privilege drop (after binding sockets).
 	if userFlag != "" {
