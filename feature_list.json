@@ -1382,7 +1382,8 @@
         "TestStatusPageListerOrder: with three processes, verify rows appear in the order ListWeb returns them",
         "TestStatusPageUnknownState: a stub process with State 'UNKNOWN(9)' and StateLower 'unknown' renders with class state-unknown and the text 'UNKNOWN(9)'",
         "TestStatusPageAssetMessages: read the embedded app.js and verify it contains 'Failed to refresh status: ', 'Failed to ', ' all: ', 'Another bulk action is in progress', 'Daemon is shutting down', 'all: done', '/api/v1/all/', '.disabled = true', 'state-unknown', addEventListener calls for all seven PROCESS_STATE_* event names and for 'open', and the 5000 ms polling interval used when EventSource is undefined",
-        "Run 'go test -count=1 -run TestStatusPage ./internal/web/...'; every test above is named TestStatusPage* so the filter covers steps 1-9"
+        "TestEventStreamSubscribesBeforeFlush (internal/api): serve GET /api/v1/events/stream through srv.handler with a ResponseWriter whose Flush records the bus subscriber count for PROCESS_STATE_RUNNING, cancel the request context after the first Flush, and verify the recorded count is 1; mutation check: moving the subscribe loop after flusher.Flush() in handleEventStream makes it fail",
+        "Run 'go test -count=1 -run TestStatusPage ./internal/web/...' (covers steps 1-9) and 'go test -count=1 -run TestEventStreamSubscribesBeforeFlush ./internal/api/...'"
       ],
       "passes": false,
       "dependencies": ["rest-api-endpoints", "sse-streaming", "process-bulk-actions"]

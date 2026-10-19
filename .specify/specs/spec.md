@@ -1450,7 +1450,7 @@ This feature adds two complementary mechanisms:
 | Unknown process name     | 404 with JSON error | `{"error": "no such process: web"}` |
 | Invalid signal name      | 400 with JSON error | `{"error": "invalid signal: FOO"}`  |
 | Method not allowed       | 405 with JSON error | `{"error": "method not allowed"}`   |
-| Server in shutdown state | 503 with JSON error | `{"error": "server shutting down"}` |
+| Server in shutdown state | 409 with JSON error | `{"error": "daemon is shutting down", "code": "SHUTTING_DOWN"}` |
 
 **Edge Cases:**
 
