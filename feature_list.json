@@ -1381,8 +1381,8 @@
         "TestStatusPageNonRootPath (renamed from TestHandleIndexNonRootPath): verify GET /ui/unknown returns 404, not the status page",
         "TestStatusPageListerOrder: with three processes, verify rows appear in the order ListWeb returns them",
         "TestStatusPageUnknownState: a stub process with State 'UNKNOWN(9)' and StateLower 'unknown' renders with class state-unknown and the text 'UNKNOWN(9)'",
-        "TestStatusPageAssetMessages: read the embedded app.js and verify it contains 'Failed to refresh status: ', 'Failed to ', ' all: ', 'Another bulk action is in progress', 'Daemon is shutting down', 'all: done', '/api/v1/all/', '.disabled = true', 'state-unknown', addEventListener calls for all seven PROCESS_STATE_* event names and for 'open', and the 5000 ms polling interval used when EventSource is undefined",
-        "TestEventStreamSubscribesBeforeFlush (internal/api): serve GET /api/v1/events/stream through srv.handler with a ResponseWriter whose Flush records the bus subscriber count for PROCESS_STATE_RUNNING, cancel the request context after the first Flush, and verify the recorded count is 1; mutation check: moving the subscribe loop after flusher.Flush() in handleEventStream makes it fail",
+        "TestStatusPageAssetMessages: read the embedded app.js and verify it contains 'Failed to refresh status: ', 'Failed to ', ' all: ', 'Another bulk action is in progress', 'Daemon is shutting down', 'all: done', '/api/v1/all/', '.disabled = true', '.disabled = false', 'state-unknown', addEventListener calls for all seven PROCESS_STATE_* event names and for 'open', a formatUptime function containing the 'd ', 'h ' and 'm' branches, and the literal 5000 for the polling interval used when EventSource is undefined",
+        "TestEventStreamSubscribesBeforeFlush (internal/api): on a fresh events.NewBus(), serve GET /api/v1/events/stream through srv.handler with a ResponseWriter whose Flush records the bus subscriber count for PROCESS_STATE_RUNNING, cancel the request context after the first Flush, and verify the recorded count is 1; mutation check: moving the subscribe loop after flusher.Flush() in handleEventStream makes it fail",
         "Run 'go test -count=1 -run TestStatusPage ./internal/web/...' (covers steps 1-9) and 'go test -count=1 -run TestEventStreamSubscribesBeforeFlush ./internal/api/...'"
       ],
       "passes": false,
@@ -1398,22 +1398,26 @@
       "title": "Web UI Browser-Based Log Viewer",
       "description": "Log viewer at /ui/log/{name}/{stream} (stdout|stderr; separate pages). log.js opens the SSE log stream and, in its first open handler, reads the log endpoint with length=65536 and shows the last 100 complete lines; streamed chunks are line-buffered. handleStreamLog subscribes before flushing headers so nothing published after open is lost. Renders a minimal SGR subset as CSS-class spans via textContent. Unknown process 404, invalid stream 400. Spec FUNC-079, ADR-029.",
       "testing_steps": [
-        "TestLogViewerPage: GET /ui/log/web/stdout with 'web' in the stub lister and verify 200 text/html, an element carrying data-name=\"web\" and data-stream=\"stdout\", <script src=\"/ui/static/log.js\">, and no <script> element without src",
+        "TestLogViewerPage: GET /ui/log/web/stdout with 'web' in the stub lister and verify 200 text/html, a <main id=\"log\"> element carrying data-name=\"web\" and data-stream=\"stdout\", <script src=\"/ui/static/log.js\">, and no <script> element without src",
         "TestLogViewerStderr: GET /ui/log/web/stderr and verify data-stream=\"stderr\"",
         "TestLogViewerInvalidStream: GET /ui/log/web/stdin and verify 400 with a body containing 'invalid stream'",
         "TestLogViewerUnknownProcess: GET /ui/log/nosuch/stdout with 'nosuch' absent from ListWeb and verify 404 with a body containing 'No such process: nosuch'",
         "TestLogViewerNameEscaping: with a process named a\"b in the lister, GET /ui/log/a%22b/stdout and verify the body contains data-name=\"a&#34;b\" and no unescaped a\"b inside an attribute",
         "TestLogViewerAssetSGR: read the embedded log.js and verify it contains the class prefixes 'sgr-fg-' and 'sgr-bold', the range checks '>= 30 && ' with '<= 37' and '>= 90 && ' with '<= 97', an escape-sequence regexp starting with '\\x1b' or '\\u001b', and 'textContent'",
         "TestLogViewerAssetOrder: in the embedded log.js, verify the index of 'new EventSource(' is lower than the index of \"addEventListener('open'\", which is lower than the index of 'length=65536'; and that it contains 'slice(-100)', '=== 65536' (the full-buffer first-line drop), and \"split('\\n')\" with '.pop()' (the pending partial line kept across chunks)",
-        "TestLogViewerAssetMessages: verify log.js contains 'No output captured for this stream yet', 'No such process: ' and 'Failed to load log: '",
+        "TestLogViewerAssetMessages: verify log.js contains 'No output captured for this stream yet', 'No such process: ' and 'Failed to load log: ' and '.close()' (the stream is closed when the backlog read returns 404)",
         "TestLogViewerAssetEncoding: verify every line of log.js containing '/api/v1/processes/' also contains 'encodeURIComponent('",
-        "TestStreamLogSubscribesBeforeFlush (internal/api): serve GET /api/v1/processes/web/log/stdout/stream through srv.handler with a ResponseWriter whose Flush records the bus subscriber count for the stream's event type, cancel the request context after the first Flush, and verify the recorded count is 1",
+        "TestStreamLogSubscribesBeforeFlush (internal/api): on a fresh events.NewBus(), serve GET /api/v1/processes/web/log/stdout/stream through srv.handler with a ResponseWriter whose Flush records the bus subscriber count for the stream's event type, cancel the request context after the first Flush, and verify the recorded count is 1",
         "Mutation check: move bus.Subscribe after flusher.Flush() in handleStreamLog and verify TestStreamLogSubscribesBeforeFlush fails",
         "PR checklist item (not a passes gate): in a browser, tail a process printing '\\x1b[31mred\\x1b[0m <b>x</b>' and confirm red text, literal '<b>x</b>', auto-scroll, and scroll-up pausing auto-scroll",
         "Run 'go test -count=1 -run TestLogViewer ./internal/web/...' and 'go test -count=1 -run TestStreamLogSubscribesBeforeFlush ./internal/api/...'"
       ],
       "passes": false,
-      "dependencies": ["sse-streaming", "web-ui-status-page"]
+      "dependencies": [
+        "sse-streaming",
+        "web-ui-status-page",
+        "process-output-ring-buffer"
+      ]
     },
     {
       "id": "web-ui-embedded-assets",
@@ -1421,7 +1425,7 @@
       "title": "Web UI go:embed Static Assets",
       "description": "Serve app.js, log.js, style.css and favicon.svg under /ui/static/ from go:embed, with web.Config.StaticDir as a per-file overlay confined by os.Root (only fs.ErrNotExist falls back; other open errors are 404), content-hash ETags, and conditional handling via http.ServeContent. Templates link the favicon file and carry no data: URI; templates are never read from static_dir. Spec FUNC-080, ADR-029.",
       "testing_steps": [
-        "TestStaticAssetsServed: GET /ui/static/app.js, /ui/static/log.js, /ui/static/style.css and /ui/static/favicon.svg and verify 200 with Content-Type text/javascript (charset allowed; set by http.ServeContent from the extension, the current application/javascript switch is removed), text/css and image/svg+xml",
+        "TestStaticAssetsServed: GET /ui/static/app.js, /ui/static/log.js, /ui/static/style.css and /ui/static/favicon.svg and verify 200 with Content-Type text/javascript ; charset=utf-8, text/css; charset=utf-8 and image/svg+xml, from the fixed extension map",
         "TestStaticETagIsContentHash: verify the ETag of /ui/static/app.js equals the quoted lowercase hex sha256 of the embedded app.js bytes",
         "TestStaticETagChangesWithContent: overlay dir with app.js 'AAAA'; record the ETag and the file's ModTime; rewrite it to 'BBBB' and restore the original ModTime with os.Chtimes; verify the ETag changes",
         "TestStaticETagCacheHit: send If-None-Match with the current ETag and verify 304 with an empty body; send a different ETag and verify 200",
@@ -1433,6 +1437,7 @@
         "TestStaticOverlayNoTemplates: static_dir contains index.html with marker text; verify GET /ui/ does not contain the marker",
         "TestStaticNotFound: GET /ui/static/nope.js returns 404",
         "TestStaticTemplatesFavicon: verify both embedded templates contain <link rel=\"icon\" href=\"/ui/static/favicon.svg\"> and neither contains 'data:'",
+        "TestStaticContentTypeMap: call mime.AddExtensionType(\".js\", \"application/javascript\") (simulating a host MIME database that maps .js that way), then GET /ui/static/app.js and verify Content-Type is still text/javascript; charset=utf-8",
         "Mutation check: change the ETag to sha256(name+ModTime.String()) and verify TestStaticETagIsContentHash and TestStaticETagChangesWithContent fail",
         "Run 'go test -count=1 -run TestStatic ./internal/web/...'; the existing TestStaticDirFallback and TestStaticCustomDir also match the filter"
       ],
@@ -2235,21 +2240,24 @@
       "title": "Ordered Bulk Start/Stop/Restart API",
       "description": "POST /api/v1/all/{start|stop|restart} acts on every configured process in priority order through new Manager methods StartAllOrdered and StopAllOrdered returning []api.ActionResult (name, status ok|skipped|error, error omitempty; never null). Restart is RestartAllOrdered (a failed stop is never started). Stop is sequential, waiting up to stopwaitsecs+5s, with a timeout error. Start includes autostart=false and stops at shutdown. One bulk call at a time (409 CONFLICT); none during shutdown (409 SHUTTING_DOWN, as the per-process route). Spec FUNC-083, ADR-030.",
       "testing_steps": [
-        "Test harness (internal/process, same package): configs start from defaultProgramConfig() (it sets Stopsignal TERM) with startsecs=0, startretries=0, stopasgroup=false, killasgroup=false and a distinct Command each; SpawnFn records spawns in its own mutex-guarded slice (MockSpawner.SpawnCalls is unlocked and is never read) and returns NewMockProcess with a signalFn that records the name and runs 'go p.HandleExit(0)', where p is the *Process from Manager.GetProcess(name) (never synchronously: Signal runs under p.mu); a STARTING fixture uses startsecs=60; a BACKOFF fixture uses startretries=100 and is stopped in t.Cleanup; stubborn processes use a signalFn that ignores SIGTERM",
+        "Test harness (internal/process, same package): configs start from defaultProgramConfig() (it sets Stopsignal TERM) with startsecs=0, startretries=0, stopasgroup=false, killasgroup=false and a distinct Command each; SpawnFn records spawns in its own mutex-guarded slice (MockSpawner.Spawn also gains a mutex around SpawnCalls, but tests count through their own slice) and returns NewMockProcess with a signalFn that records the name and runs 'go p.HandleExit(0)', where p is looked up once with Manager.GetProcess after LoadConfig and captured in a map the closure reads (never looked up inside signalFn, and never run synchronously: Signal runs under p.mu); a STARTING fixture uses startsecs=60; a BACKOFF fixture uses startretries=100, spawns are counted only immediately before and after the bulk call, and the fixture is stopped right after the call; stubborn processes use a signalFn that ignores SIGTERM",
         "TestBulkStartOrder: four STOPPED programs p10 (priority 10), a and b (priority 20), p30 (priority 30); call StartAllOrdered and verify spawn order p10, a, b, p30 and results in that order, all status 'ok'",
         "TestBulkStopOrder: the same four RUNNING; call StopAllOrdered and verify signal order p30, b, a, p10, and that at the moment each process is signalled the previously signalled one is already STOPPED",
-        "TestBulkStartSkips: RUNNING, STARTING and BACKOFF processes get 'skipped' and are never spawned again; a STOPPING process gets {status: 'error', error: 'process is stopping'}",
-        "TestBulkStopSkips: STOPPED, EXITED and FATAL processes get 'skipped'; a BACKOFF process gets 'ok' and ends STOPPED; a process already STOPPING (signalled by a prior Stop whose signalFn delays HandleExit by 200ms) is not signalled again and gets 'ok' once STOPPED",
+        "TestBulkStartSkips: RUNNING, STARTING and BACKOFF processes get 'skipped' and are never spawned again; a STOPPING process gets {status: 'error', error: 'process is stopping'}; STOPPED, EXITED and FATAL processes are started and get 'ok'",
+        "TestBulkStopSkips: STOPPED, EXITED and FATAL processes get 'skipped'; a BACKOFF process gets 'ok' and ends STOPPED; a process already STOPPING (signalled by a prior Stop whose signalFn delays HandleExit by 200ms) is not signalled again and gets 'ok' once STOPPED; a STARTING process (startsecs=60) is stopped and gets 'ok'; a STOPPING process whose signalFn never exits it gets the timeout error",
         "TestBulkStartIncludesNoAutostart: a STOPPED process with autostart=false is started by StartAllOrdered",
         "TestBulkStartContinuesOnError: SpawnFn returns an error for one Command; verify the others are started and that entry is {status: 'error', error: non-empty}",
         "TestBulkStopWaitTimeout: stopwaitsecs=1 and a signalFn that ignores SIGTERM but exits on SIGKILL; verify the next process is signalled within 6s and the entry is 'ok'; with a signalFn that ignores all signals, verify the entry is {status: 'error', error: 'stop timed out after 6s'}",
         "TestBulkStopDoesNotShutdown: after StopAllOrdered, verify ShuttingDown() is false and StartAllOrdered starts the processes again",
-        "TestBulkStartDuringShutdown: call StopAll (which closes shutdownCh), then StartAllOrdered; verify ShuttingDown() is true, every entry is {status: 'error', error: 'daemon is shutting down'} and SpawnFn is not called; then, on a fresh Manager, have SpawnFn for p10 close m.shutdownCh directly (same package) and verify p10 is stopped again and recorded as {status: 'error', error: 'daemon is shutting down'}, and a, b and p30 are the same error and never spawned",
+        "TestBulkStartDuringShutdown: call StopAll (which closes shutdownCh), then StartAllOrdered; verify ShuttingDown() is true, every entry is {status: 'error', error: 'daemon is shutting down'} and SpawnFn is not called; then, on a fresh Manager, have SpawnFn for p10 close m.shutdownCh directly (same package) and verify p10 is stopped again and recorded as {status: 'error', error: 'daemon is shutting down'}, and a, b and p30 are the same error and never spawned; that Manager gets no StopAll call or cleanup, because shutdownCh is already closed",
+        "TestBulkRemovedProcess: SpawnFn for p10 calls m.RemoveProcess(\"a\") before returning; verify StartAllOrdered records a as {status: 'error', error: 'no such process: a'}, never spawns a, and starts b and p30",
         "TestBulkEmpty: with no programs, verify StartAllOrdered, StopAllOrdered and RestartAllOrdered return a non-nil empty slice",
         "TestBulkAPIRoutes (internal/api, mock manager): with credentials through srv.handler, POST /api/v1/all/start, /stop and /restart call StartAllOrdered, StopAllOrdered and RestartAllOrdered once each and return 200 JSON {results:[...]} with the mock's entries in order; POST /api/v1/all/foo returns 404; GET /api/v1/all/stop returns 405; 'ok' entries have no 'error' key; with the mock returning an empty slice the body, trimmed of its trailing newline, is exactly {\"results\":[]}",
-        "TestBulkRestartSkipsFailedStop: call the unexported start pass startAllOrdered(skip) with skip={'x'} while 'x' and 'y' are STOPPED; verify 'x' is never spawned and is absent from the start results, and 'y' is started; then verify RestartAllOrdered with a process 'x' that ignores all signals (stopwaitsecs=1) returns x: {status: 'error', error: 'stop timed out after 6s'} and never spawns it again",
+        "TestBulkRestartSkipsFailedStop: call the unexported start pass startAllOrdered(skip) with skip={'x'} while 'x' and 'y' are STOPPED; verify 'x' is never spawned and is absent from the start results, and 'y' is started; then verify RestartAllOrdered with a process 'x' that ignores all signals (stopwaitsecs=1) returns x: {status: 'error', error: 'stop timed out after 6s'} and never spawns it again; with p10 and b RUNNING and a STOPPED, verify RestartAllOrdered returns exactly three entries in start order p10, a, b, and that a (skipped on stop) gets its start outcome 'ok'",
         "TestBulkAPIConflict: mock StopAllOrdered closes an 'entered' channel and then blocks on a 'release' channel; after 'entered' is closed, a second POST /api/v1/all/start returns 409 with code CONFLICT and 'bulk action in progress'; close 'release' and verify the first returns 200",
+        "TestBulkAPIClientDisconnect: mock StopAllOrdered closes 'entered', blocks on 'release', then sets a completed flag; cancel the first request's context after 'entered', close 'release', and verify the flag is set and a following POST /api/v1/all/stop returns 200 (the bulk mutex was released)",
         "TestBulkAPIShutdown: with the mock DaemonInfo's IsShuttingDown true, and separately with the mock manager's ShuttingDown true, POST /api/v1/all/start returns 409 with code SHUTTING_DOWN and 'daemon is shutting down', and StartAllOrdered is not called",
+        "TestBulkAPIShutdownBeforeConflict: while a first bulk call holds the mutex (mock blocked as in TestBulkAPIConflict) and the mock DaemonInfo's IsShuttingDown is true, a second POST returns 409 with code SHUTTING_DOWN, not CONFLICT",
         "TestBulkAPIAuthAndCSRF: over a real TCP listener (StartTCP 127.0.0.1:0) POST /api/v1/all/stop without credentials returns 401; through srv.handler with Sec-Fetch-Site: cross-site it returns 403; StopAllOrdered is called 0 times",
         "TestBulkAPIProcessNamedAll: with a process named 'all', POST /api/v1/processes/all/start calls Start('all') once and StartAllOrdered 0 times",
         "Mutation check: make StopAllOrdered call sortedProcesses(true) and verify TestBulkStopOrder fails",
@@ -2260,7 +2268,9 @@
         "rest-api-endpoints",
         "http-basic-auth",
         "api-cross-origin-protection",
-        "priority-ordering"
+        "priority-ordering",
+        "process-stop",
+        "graceful-shutdown"
       ]
     },
     {
@@ -2277,13 +2287,14 @@
         "TestUIMountTrailingSlash: with UI set and TCP credentials configured, GET /ui without credentials (redirects not followed) returns 307 with Location /ui/",
         "TestUIMountUnixSocket: with UI set, StartUnix on a /tmp/kahi-<random>.sock path (short, as socket_lockdown_test.go does) and verify GET /ui/ without credentials reaches the stub",
         "TestUIMountRealHandlerAuth (cmd/kahi): a process.Manager with a MockSpawner and program 'web' loaded; buildUIHandler with web.NewHandler passed as api.Config.UI, StartTCP on 127.0.0.1:0; verify /ui/, /ui/log/web/stdout, /ui/static/app.js, /ui/static/log.js and /ui/static/style.css return 401 without credentials and 200 with them",
-        "TestUIUnavailable (cmd/kahi): buildUIHandler with a constructor returning an error; verify an error is logged, GET /ui/ and /ui/static/app.js return 503, Content-Type text/plain; charset=utf-8, body 'web UI unavailable', and carry the headers set by web.SetSecurityHeaders; mounted in api.Server over TCP, verify 401 without credentials and that GET /api/v1/processes still returns 200",
-        "TestUIListerAdapter (cmd/kahi): verify uiLister maps Name, Group, State, PID, Uptime, Description and ExitStatus from api.ProcessInfo, sets StateLower 'running' for RUNNING and 'unknown' for 'UNKNOWN(9)', and UptimeStr '1h 2m' for Uptime 3720",
-        "TestReloadWarnsOnWebChange (internal/supervisor): both configs carry [server.http] enabled=true with the same username and bcrypt password, and differ only in [server.web]; start with server.web disabled, reload twice through handleReload and once through Reload with server.web enabled in the file; verify a capturing slog handler records 'server.web changes take effect after restart' on each reload, and that Reload's added/changed/removed and error equal those of the same reload without the web change",
-        "TestREADMEDocumentsWebUI (cmd/kahi, reads ../../README.md): verify it contains '[server.web]', '/ui/' and '/api/v1/all/', that the text between the '## Security' heading and the next '## ' heading contains both 'reverse proxy' and 'Unix socket', and that it does not contain 'planned; not yet served'",
+        "TestUIUnavailable (cmd/kahi): buildUIHandler with a constructor returning an error; verify an error is logged, GET /ui/ and /ui/static/app.js return 503, Content-Type text/plain; charset=utf-8, body 'web UI unavailable', and carry the headers set by web.SetSecurityHeaders; mounted in api.Server over TCP, verify 401 without credentials and that GET /api/v1/processes with credentials still returns 200",
+        "TestBuildUIHandlerDisabled (cmd/kahi): buildUIHandler with Enabled=false returns h where h == nil as an untyped http.Handler (compare with a nil interface, not a typed nil), and api.NewServer with Config.UI set to h answers GET /ui/ with 404",
+        "TestUIListerAdapter (cmd/kahi): verify uiLister maps Name, Group, State, PID, Uptime, Description and ExitStatus from api.ProcessInfo, sets StateLower to the lowercase name for each of the seven known states (table test) and 'unknown' for 'UNKNOWN(9)', and UptimeStr '1h 2m' for Uptime 3720",
+        "TestReloadWarnsOnWebChange (internal/supervisor): both configs carry [server.http] enabled=true with the same username and bcrypt password, and differ only in [server.web]; start with server.web enabled (captured in supervisor.New), reload twice through handleReload and once through Reload with server.web disabled in the file; verify a capturing slog handler records 'server.web changes take effect after restart' on each reload, that GetConfig() reports the file's value (server.web disabled) while the captured startup value stays enabled, and that Reload's added/changed/removed and error equal those of the same reload without the web change",
+        "TestREADMEDocumentsWebUI (cmd/kahi, reads ../../README.md): verify it contains '[server.web]', '/ui/' and '/api/v1/all/', that the text between the '## Security' heading and the next '## ' heading contains both 'reverse proxy' and 'Unix socket', that the README mentions 'strip_ansi' in its Web UI section, and that it does not contain 'planned; not yet served'",
         "TestStopClosesOpenStreams (internal/api): connect a client to GET /api/v1/events/stream over TCP, call srv.Stop with a 200ms context, and verify Stop returns within 1s and the client's body read ends with an error or EOF",
         "Mutation check: register /ui/ without requireAuth and verify TestUIMountAuth fails",
-        "Run 'go test -count=1 -run \"TestWebConfig|TestDefaultConfigTOMLHasWeb|TestUIMount|TestUIUnavailable|TestUIListerAdapter|TestReloadWarnsOnWebChange|TestREADMEDocumentsWebUI|TestStopClosesOpenStreams\" ./internal/config/... ./internal/api/... ./internal/supervisor/... ./cmd/kahi/...'"
+        "Run 'go test -count=1 -run \"TestWebConfig|TestDefaultConfigTOMLHasWeb|TestUIMount|TestUIUnavailable|TestBuildUIHandlerDisabled|TestUIListerAdapter|TestReloadWarnsOnWebChange|TestREADMEDocumentsWebUI|TestStopClosesOpenStreams\" ./internal/config/... ./internal/api/... ./internal/supervisor/... ./cmd/kahi/...'"
       ],
       "passes": false,
       "dependencies": [
