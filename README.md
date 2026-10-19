@@ -25,7 +25,6 @@ Key differences from supervisord:
 - TOML configuration instead of INI (typed values, nested tables)
 - Structured JSON logging via Go's slog
 - REST/JSON API with SSE event streaming (replaces XML-RPC)
-- Prometheus metrics endpoint
 - FIPS 140-3 mode in every build, for regulated environments
 
 ### Features
@@ -34,7 +33,7 @@ Key differences from supervisord:
 - TOML configuration with variable expansion, glob-based includes, hot reload
 - REST/JSON API with HTTP Basic Auth, SSE streaming for logs and events
 - CLI control client (`kahi ctl`) with all standard operations
-- Prometheus metrics, liveness and readiness probes
+- Liveness and readiness probes (`/healthz`, `/readyz`)
 - Event system with pub/sub, event listeners, webhook notifications
 - Structured logging with file rotation, ring buffer, syslog forwarding, ANSI stripping
 - Process groups with priority-ordered startup and shutdown
