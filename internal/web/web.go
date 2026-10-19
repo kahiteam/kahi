@@ -2,16 +2,18 @@
 package web
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"embed"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
-	"path/filepath"
-	"strings"
+	"path"
 	"time"
 )
 
@@ -50,124 +52,196 @@ type ProcessLister interface {
 	ListWeb() []ProcessView
 }
 
-// Handler serves the Kahi web UI.
+// Config configures the web handler.
+type Config struct {
+	StaticDir string // per-file overlay for the embedded static assets
+}
+
+// contentSecurityPolicy allows only same-origin resources and no inline script
+// or style, so markup that slips past escaping cannot run (SEC-026).
+const contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; " +
+	"object-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+
+// SetSecurityHeaders sets the headers every Web UI response carries. It is
+// exported so a handler standing in for the UI (the daemon's 503 fallback)
+// sends the same ones.
+func SetSecurityHeaders(h http.Header) {
+	h.Set("Content-Security-Policy", contentSecurityPolicy)
+	h.Set("X-Content-Type-Options", "nosniff")
+}
+
+// contentTypes is fixed rather than taken from mime.TypeByExtension, which
+// reads the host's MIME database and maps .js differently on some systems.
+var contentTypes = map[string]string{
+	".js":  "text/javascript; charset=utf-8",
+	".css": "text/css; charset=utf-8",
+	".svg": "image/svg+xml",
+	".ico": "image/x-icon",
+}
+
+// Handler serves the Kahi web UI under /ui/.
 type Handler struct {
 	lister    ProcessLister
 	templates *template.Template
-	staticFS  http.FileSystem
+	assets    *assets
+	mux       *http.ServeMux
 	logger    *slog.Logger
 }
 
-// Config configures the web handler.
-type Config struct {
-	StaticDir string // override embedded assets with files from this directory
-}
-
-// NewHandler creates a web UI handler.
+// NewHandler creates a web UI handler. It fails only if the embedded
+// templates do not parse.
 func NewHandler(lister ProcessLister, cfg Config, logger *slog.Logger) (*Handler, error) {
-	tmpl, err := template.ParseFS(templateFS, "templates/*.html")
+	tmpl, err := template.New("").Funcs(template.FuncMap{"pathEscape": url.PathEscape}).
+		ParseFS(templateFS, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("cannot parse templates: %w", err)
 	}
-
-	var sfs http.FileSystem
-	if cfg.StaticDir != "" {
-		if info, err := os.Stat(cfg.StaticDir); err != nil || !info.IsDir() {
-			logger.Warn("static_dir not found, using embedded assets", "path", cfg.StaticDir)
-			sub, _ := fs.Sub(staticFS, "static")
-			sfs = http.FS(sub)
-		} else {
-			sfs = http.Dir(cfg.StaticDir)
-		}
-	} else {
-		sub, _ := fs.Sub(staticFS, "static")
-		sfs = http.FS(sub)
+	a, err := newAssets(cfg.StaticDir, logger)
+	if err != nil {
+		return nil, err
 	}
 
-	return &Handler{
-		lister:    lister,
-		templates: tmpl,
-		staticFS:  sfs,
-		logger:    logger,
-	}, nil
+	h := &Handler{lister: lister, templates: tmpl, assets: a, logger: logger}
+	h.mux = http.NewServeMux()
+	h.mux.HandleFunc("GET /ui/{$}", h.handleIndex)
+	h.mux.HandleFunc("GET /ui/log/{name}/{stream}", h.handleLog)
+	h.mux.HandleFunc("GET /ui/static/{file...}", h.handleStatic)
+	return h, nil
 }
 
-// RegisterRoutes adds web UI routes to the given mux.
-func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /", h.handleIndex)
-	mux.HandleFunc("GET /log/{name}/{stream}", h.handleLog)
-	mux.Handle("GET /static/", http.StripPrefix("/static/", h.staticHandler()))
+// ServeHTTP serves the UI routes; every response carries the security headers.
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	SetSecurityHeaders(w.Header())
+	h.mux.ServeHTTP(w, r)
+}
+
+func (h *Handler) processes() []ProcessView {
+	if h.lister == nil {
+		return nil
+	}
+	return h.lister.ListWeb()
 }
 
 func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-
-	var data StatusPageData
-	if h.lister != nil {
-		data.Processes = h.lister.ListWeb()
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.templates.ExecuteTemplate(w, "index.html", data); err != nil {
-		h.logger.Error("template render error", "error", err)
-	}
+	h.render(w, "index.html", StatusPageData{Processes: h.processes()})
 }
 
 func (h *Handler) handleLog(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	stream := r.PathValue("stream")
 	if stream != "stdout" && stream != "stderr" {
+		http.Error(w, "invalid stream", http.StatusBadRequest)
+		return
+	}
+	known := false
+	for _, p := range h.processes() {
+		if p.Name == name {
+			known = true
+			break
+		}
+	}
+	if !known {
+		http.Error(w, "No such process: "+name, http.StatusNotFound)
+		return
+	}
+	h.render(w, "log.html", LogPageData{Name: name, Stream: stream})
+}
+
+func (h *Handler) render(w http.ResponseWriter, name string, data any) {
+	var buf bytes.Buffer
+	if err := h.templates.ExecuteTemplate(&buf, name, data); err != nil {
+		h.logger.Error("template render error", "template", name, "error", err)
+		http.Error(w, "template error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(buf.Bytes())
+}
+
+func (h *Handler) handleStatic(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("file")
+	data, etag, err := h.assets.read(name)
+	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-
-	data := LogPageData{
-		Name:   name,
-		Stream: stream,
+	if ct, ok := contentTypes[path.Ext(name)]; ok {
+		w.Header().Set("Content-Type", ct)
 	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.templates.ExecuteTemplate(w, "log.html", data); err != nil {
-		h.logger.Error("template render error", "error", err)
-	}
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(data))
 }
 
-func (h *Handler) staticHandler() http.Handler {
-	fileServer := http.FileServer(h.staticFS)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Set content type and caching headers.
-		ext := filepath.Ext(r.URL.Path)
-		switch ext {
-		case ".css":
-			w.Header().Set("Content-Type", "text/css; charset=utf-8")
-		case ".js":
-			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-		case ".svg":
-			w.Header().Set("Content-Type", "image/svg+xml")
-		case ".ico":
-			w.Header().Set("Content-Type", "image/x-icon")
-		}
+// assets reads static files from an optional static_dir overlay, falling back
+// per file to the embedded copies. The overlay is opened with os.Root, so
+// neither ".." nor a symlink leaving the directory can reach outside it.
+type assets struct {
+	overlay  fs.FS // nil when no usable static_dir is configured
+	embedded fs.FS
+	etags    map[string]string // embedded file -> ETag, computed once
+	logger   *slog.Logger
+}
 
-		// ETag based on file content.
-		f, err := h.staticFS.Open(r.URL.Path)
+func newAssets(staticDir string, logger *slog.Logger) (*assets, error) {
+	embedded, err := fs.Sub(staticFS, "static")
+	if err != nil {
+		return nil, err
+	}
+	a := &assets{embedded: embedded, etags: map[string]string{}, logger: logger}
+	entries, err := fs.ReadDir(embedded, ".")
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		data, err := fs.ReadFile(embedded, e.Name())
+		if err != nil {
+			return nil, err
+		}
+		a.etags[e.Name()] = contentETag(data)
+	}
+
+	if staticDir != "" {
+		if info, err := os.Stat(staticDir); err != nil || !info.IsDir() {
+			logger.Warn("static_dir not found, using embedded assets", "path", staticDir)
+		} else if root, err := os.OpenRoot(staticDir); err != nil {
+			logger.Warn("static_dir not found, using embedded assets", "path", staticDir, "error", err)
+		} else {
+			a.overlay = root.FS()
+		}
+	}
+	return a, nil
+}
+
+// read returns a static file and its ETag. A file missing from the overlay
+// comes from the embedded assets; any other overlay error (an escape attempt,
+// a permission problem) is returned as is, with no fallback. Invalid names
+// such as "../x" are rejected by both file systems, as fs.FS requires.
+func (a *assets) read(name string) ([]byte, string, error) {
+	if a.overlay != nil {
+		data, err := fs.ReadFile(a.overlay, name)
 		if err == nil {
-			defer func() { _ = f.Close() }()
-			if info, err := f.Stat(); err == nil && !info.IsDir() {
-				etag := fmt.Sprintf(`"%x"`, sha256.Sum256([]byte(info.Name()+info.ModTime().String())))
-				w.Header().Set("ETag", etag)
-				w.Header().Set("Cache-Control", "public, max-age=3600")
-				if match := r.Header.Get("If-None-Match"); match != "" && strings.Contains(match, etag) {
-					w.WriteHeader(http.StatusNotModified)
-					return
-				}
-			}
+			return data, contentETag(data), nil
 		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			a.logger.Debug("static_dir file not served", "file", name, "error", err)
+			return nil, "", err
+		}
+	}
+	data, err := fs.ReadFile(a.embedded, name)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, a.etags[name], nil
+}
 
-		fileServer.ServeHTTP(w, r)
-	})
+// contentETag derives a strong ETag from file content, so a changed asset gets
+// a new tag even though embedded files carry no modification time.
+func contentETag(data []byte) string {
+	return fmt.Sprintf(`"%x"`, sha256.Sum256(data))
 }
 
 // FormatUptime formats seconds into a human-readable duration.
