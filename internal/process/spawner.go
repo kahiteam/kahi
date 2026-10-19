@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"sync"
 	"syscall"
 )
 
@@ -137,15 +138,22 @@ func (p *execProcess) StderrPipe() io.ReadCloser       { return p.stderr }
 type MockSpawner struct {
 	SpawnFn    func(cfg SpawnConfig) (SpawnedProcess, error)
 	SpawnCalls []SpawnConfig
+
+	// mu guards SpawnCalls: backoff retries call Spawn from their own
+	// goroutines.
+	mu sync.Mutex
 }
 
 // Spawn records the call and delegates to SpawnFn.
 func (m *MockSpawner) Spawn(cfg SpawnConfig) (SpawnedProcess, error) {
+	m.mu.Lock()
 	m.SpawnCalls = append(m.SpawnCalls, cfg)
+	n := len(m.SpawnCalls)
+	m.mu.Unlock()
 	if m.SpawnFn != nil {
 		return m.SpawnFn(cfg)
 	}
-	return &MockProcess{pid: 1000 + len(m.SpawnCalls)}, nil
+	return &MockProcess{pid: 1000 + n}, nil
 }
 
 // MockProcess is a test double for SpawnedProcess.
