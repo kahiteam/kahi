@@ -71,6 +71,7 @@ type GroupConfig struct {
 type ServerConfig struct {
 	Unix UnixServerConfig `toml:"unix"`
 	HTTP HTTPServerConfig `toml:"http"`
+	Web  WebServerConfig  `toml:"web"`
 }
 
 // UnixServerConfig holds Unix domain socket settings.
@@ -86,6 +87,13 @@ type HTTPServerConfig struct {
 	Listen   string `toml:"listen"`
 	Username string `toml:"username" json:"-"`
 	Password string `toml:"password" json:"-"`
+}
+
+// WebServerConfig holds Web UI settings. The UI is served under /ui/ on the
+// API listeners and is off by default.
+type WebServerConfig struct {
+	Enabled   bool   `toml:"enabled"`
+	StaticDir string `toml:"static_dir"`
 }
 
 // WebhookConfig holds per-webhook settings.

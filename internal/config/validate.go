@@ -84,6 +84,12 @@ func Validate(cfg *Config) []error {
 
 	errs = append(errs, validateUnixServer(&cfg.Server.Unix)...)
 
+	// Browsers cannot reach the Unix socket, so a Web UI without the TCP
+	// listener would be unreachable configuration.
+	if cfg.Server.Web.Enabled && !cfg.Server.HTTP.Enabled {
+		errs = append(errs, fmt.Errorf("server.web.enabled requires server.http.enabled"))
+	}
+
 	return errs
 }
 
