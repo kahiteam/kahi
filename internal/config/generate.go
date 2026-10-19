@@ -25,6 +25,10 @@ const DefaultConfigTOML = `# Kahi configuration file
 # username = ""                 # HTTP Basic Auth username
 # password = ""                 # bcrypt-hashed password
 
+# [server.web]                  # Web UI under /ui/ (requires [server.http])
+# enabled = false               # serve the Web UI
+# static_dir = ""               # optional per-file overlay for /ui/static/
+
 # Process definitions
 # [programs.example]
 # command = "/usr/bin/example"  # REQUIRED: command to run
