@@ -1386,7 +1386,11 @@
         "Run 'go test -count=1 -run TestStatusPage ./internal/web/...' (covers steps 1-9) and 'go test -count=1 -run TestEventStreamSubscribesBeforeFlush ./internal/api/...'"
       ],
       "passes": false,
-      "dependencies": ["rest-api-endpoints", "sse-streaming", "process-bulk-actions"]
+      "dependencies": [
+        "rest-api-endpoints",
+        "sse-streaming",
+        "process-bulk-actions"
+      ]
     },
     {
       "id": "web-ui-log-viewer",
@@ -2181,7 +2185,10 @@
         "Run 'go test -count=1 ./internal/sockutil/... ./internal/api/...'"
       ],
       "passes": true,
-      "dependencies": ["unix-socket-server", "control-socket-owner-only-lockdown"]
+      "dependencies": [
+        "unix-socket-server",
+        "control-socket-owner-only-lockdown"
+      ]
     },
     {
       "id": "socket-dir-probe-no-follow",
@@ -2216,7 +2223,11 @@
         "Run 'go test -count=1 -run TestCrossOrigin ./internal/api/...'; every new test is named TestCrossOrigin* so the filter covers steps 1-8"
       ],
       "passes": true,
-      "dependencies": ["rest-api-endpoints", "http-basic-auth", "tcp-http-server"]
+      "dependencies": [
+        "rest-api-endpoints",
+        "http-basic-auth",
+        "tcp-http-server"
+      ]
     },
     {
       "id": "process-bulk-actions",
@@ -2245,7 +2256,12 @@
         "Run 'go test -count=1 -run TestBulk ./internal/process/... ./internal/api/...'; every test above is named TestBulk*"
       ],
       "passes": false,
-      "dependencies": ["rest-api-endpoints", "http-basic-auth", "api-cross-origin-protection", "priority-ordering"]
+      "dependencies": [
+        "rest-api-endpoints",
+        "http-basic-auth",
+        "api-cross-origin-protection",
+        "priority-ordering"
+      ]
     },
     {
       "id": "web-ui-config-mounting",
@@ -2270,7 +2286,17 @@
         "Run 'go test -count=1 -run \"TestWebConfig|TestDefaultConfigTOMLHasWeb|TestUIMount|TestUIUnavailable|TestUIListerAdapter|TestReloadWarnsOnWebChange|TestREADMEDocumentsWebUI|TestStopClosesOpenStreams\" ./internal/config/... ./internal/api/... ./internal/supervisor/... ./cmd/kahi/...'"
       ],
       "passes": false,
-      "dependencies": ["rest-api-endpoints", "http-basic-auth", "toml-config-parser", "default-config-generation", "config-hot-reload", "web-ui-status-page", "web-ui-log-viewer", "web-ui-embedded-assets", "web-ui-auth-output-encoding"]
+      "dependencies": [
+        "rest-api-endpoints",
+        "http-basic-auth",
+        "toml-config-parser",
+        "default-config-generation",
+        "config-hot-reload",
+        "web-ui-status-page",
+        "web-ui-log-viewer",
+        "web-ui-embedded-assets",
+        "web-ui-auth-output-encoding"
+      ]
     },
     {
       "id": "web-ui-auth-output-encoding",
@@ -2290,7 +2316,13 @@
         "Run 'go test -count=1 -run TestUISecurity ./internal/web/... ./internal/api/...'; every test above is named TestUISecurity*"
       ],
       "passes": false,
-      "dependencies": ["web-ui-status-page", "web-ui-log-viewer", "web-ui-embedded-assets", "http-basic-auth", "api-cross-origin-protection"]
+      "dependencies": [
+        "web-ui-status-page",
+        "web-ui-log-viewer",
+        "web-ui-embedded-assets",
+        "http-basic-auth",
+        "api-cross-origin-protection"
+      ]
     },
     {
       "id": "web-ui-e2e-reachability",
@@ -2309,7 +2341,12 @@
         "Run 'go test -race -count=1 -tags=e2e -run TestWebUIE2E ./e2e/...'"
       ],
       "passes": false,
-      "dependencies": ["e2e-test-infrastructure", "process-bulk-actions", "web-ui-config-mounting", "web-ui-auth-output-encoding"]
+      "dependencies": [
+        "e2e-test-infrastructure",
+        "process-bulk-actions",
+        "web-ui-config-mounting",
+        "web-ui-auth-output-encoding"
+      ]
     }
   ]
 }

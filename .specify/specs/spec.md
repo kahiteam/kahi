@@ -1445,11 +1445,11 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition          | Expected Behavior   | User-Facing Message                 |
-| ------------------------ | ------------------- | ----------------------------------- |
-| Unknown process name     | 404 with JSON error | `{"error": "no such process: web"}` |
-| Invalid signal name      | 400 with JSON error | `{"error": "invalid signal: FOO"}`  |
-| Method not allowed       | 405 with JSON error | `{"error": "method not allowed"}`   |
+| Error Condition          | Expected Behavior   | User-Facing Message                                             |
+| ------------------------ | ------------------- | --------------------------------------------------------------- |
+| Unknown process name     | 404 with JSON error | `{"error": "no such process: web"}`                             |
+| Invalid signal name      | 400 with JSON error | `{"error": "invalid signal: FOO"}`                              |
+| Method not allowed       | 405 with JSON error | `{"error": "method not allowed"}`                               |
 | Server in shutdown state | 409 with JSON error | `{"error": "daemon is shutting down", "code": "SHUTTING_DOWN"}` |
 
 **Edge Cases:**
@@ -3152,14 +3152,14 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition                    | Expected Behavior                      | User-Facing Message                  |
-| ---------------------------------- | -------------------------------------- | ------------------------------------ |
-| Per-process API call fails         | Display error notification             | "Failed to {action} {name}: {error}" |
-| Status refresh fails               | Display error notification; keep table | "Failed to refresh status: {error}"  |
-| Bulk result entry has `error`      | One error notification per such entry  | "Failed to {action} {name}: {error}" |
-| Bulk call returns `409 CONFLICT`   | Display error notification             | "Another bulk action is in progress" |
-| Bulk call returns `409 SHUTTING_DOWN` | Display error notification          | "Daemon is shutting down"            |
-| Bulk call fails otherwise          | Display error notification             | "Failed to {action} all: {error}"    |
+| Error Condition                       | Expected Behavior                      | User-Facing Message                  |
+| ------------------------------------- | -------------------------------------- | ------------------------------------ |
+| Per-process API call fails            | Display error notification             | "Failed to {action} {name}: {error}" |
+| Status refresh fails                  | Display error notification; keep table | "Failed to refresh status: {error}"  |
+| Bulk result entry has `error`         | One error notification per such entry  | "Failed to {action} {name}: {error}" |
+| Bulk call returns `409 CONFLICT`      | Display error notification             | "Another bulk action is in progress" |
+| Bulk call returns `409 SHUTTING_DOWN` | Display error notification             | "Daemon is shutting down"            |
+| Bulk call fails otherwise             | Display error notification             | "Failed to {action} all: {error}"    |
 
 **Edge Cases:**
 
@@ -3207,14 +3207,14 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition                               | Expected Behavior                             | User-Facing Message                       |
-| --------------------------------------------- | --------------------------------------------- | ----------------------------------------- |
-| `{stream}` is not `stdout` or `stderr`        | `400` page                                    | "invalid stream"                          |
-| Process not in `ListWeb()`                    | `404` page                                    | "No such process: {name}"                 |
-| Backlog read returns `200` with empty body    | Display message, keep streaming               | "No output captured for this stream yet"  |
-| Backlog read returns `404` (process removed)  | Display message, close the stream             | "No such process: {name}"                 |
-| Backlog read returns another status or fails  | Display error notification, keep streaming    | "Failed to load log: {error}"             |
-| SSE connection drops                          | `EventSource` built-in retry; no backlog read | (reconnects silently)                     |
+| Error Condition                              | Expected Behavior                             | User-Facing Message                      |
+| -------------------------------------------- | --------------------------------------------- | ---------------------------------------- |
+| `{stream}` is not `stdout` or `stderr`       | `400` page                                    | "invalid stream"                         |
+| Process not in `ListWeb()`                   | `404` page                                    | "No such process: {name}"                |
+| Backlog read returns `200` with empty body   | Display message, keep streaming               | "No output captured for this stream yet" |
+| Backlog read returns `404` (process removed) | Display message, close the stream             | "No such process: {name}"                |
+| Backlog read returns another status or fails | Display error notification, keep streaming    | "Failed to load log: {error}"            |
+| SSE connection drops                         | `EventSource` built-in retry; no backlog read | (reconnects silently)                    |
 
 **Edge Cases:**
 
@@ -3265,13 +3265,13 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition                                        | Expected Behavior                            | User-Facing Message                           |
-| ------------------------------------------------------ | -------------------------------------------- | --------------------------------------------- |
-| Custom static_dir not found                            | Fall back to embedded assets with warning    | "static_dir not found, using embedded assets" |
-| Custom static_dir is not a directory                   | Fall back to embedded assets with warning    | "static_dir not found, using embedded assets" |
-| File missing from static_dir (`fs.ErrNotExist`)        | Serve the embedded file                      | n/a                                           |
-| Other overlay open error (escape, permission)          | `404`, logged at debug level, no fallback    | (standard 404)                                |
-| Asset in neither static_dir nor embed                  | `404`                                        | (standard 404)                                |
+| Error Condition                                 | Expected Behavior                         | User-Facing Message                           |
+| ----------------------------------------------- | ----------------------------------------- | --------------------------------------------- |
+| Custom static_dir not found                     | Fall back to embedded assets with warning | "static_dir not found, using embedded assets" |
+| Custom static_dir is not a directory            | Fall back to embedded assets with warning | "static_dir not found, using embedded assets" |
+| File missing from static_dir (`fs.ErrNotExist`) | Serve the embedded file                   | n/a                                           |
+| Other overlay open error (escape, permission)   | `404`, logged at debug level, no fallback | (standard 404)                                |
+| Asset in neither static_dir nor embed           | `404`                                     | (standard 404)                                |
 
 **Edge Cases:**
 
@@ -3405,15 +3405,15 @@ None specific.
 
 **Error Handling:**
 
-| Error Condition                | Expected Behavior                         | User-Facing Message                                            |
-| ------------------------------ | ----------------------------------------- | -------------------------------------------------------------- |
-| Unknown action (`/all/foo`)    | `404` from the mux; nothing acted on      | (standard 404)                                                 |
-| Wrong method (`GET /all/stop`) | `405` from the mux                        | (standard 405)                                                 |
-| A single process action fails  | Continue; record it in `results`; `200`   | `"error"` field of that result entry                           |
-| Stop exceeds stopwaitsecs + 5s | Record error; continue                    | "stop timed out after {n}s"                                    |
-| Another bulk call in progress  | `409`; nothing acted on                   | `{"error": "bulk action in progress", "code": "CONFLICT"}`     |
-| Shutdown has begun             | `409`; nothing acted on                   | `{"error": "daemon is shutting down", "code": "SHUTTING_DOWN"}` |
-| No processes configured        | `200` with `{"results":[]}`               | n/a                                                            |
+| Error Condition                | Expected Behavior                       | User-Facing Message                                             |
+| ------------------------------ | --------------------------------------- | --------------------------------------------------------------- |
+| Unknown action (`/all/foo`)    | `404` from the mux; nothing acted on    | (standard 404)                                                  |
+| Wrong method (`GET /all/stop`) | `405` from the mux                      | (standard 405)                                                  |
+| A single process action fails  | Continue; record it in `results`; `200` | `"error"` field of that result entry                            |
+| Stop exceeds stopwaitsecs + 5s | Record error; continue                  | "stop timed out after {n}s"                                     |
+| Another bulk call in progress  | `409`; nothing acted on                 | `{"error": "bulk action in progress", "code": "CONFLICT"}`      |
+| Shutdown has begun             | `409`; nothing acted on                 | `{"error": "daemon is shutting down", "code": "SHUTTING_DOWN"}` |
+| No processes configured        | `200` with `{"results":[]}`             | n/a                                                             |
 
 **Edge Cases:**
 
@@ -3492,11 +3492,11 @@ static_dir = ""      # optional per-file overlay for /ui/static/ (FUNC-080)
 
 **Error Handling:**
 
-| Error Condition                                    | Expected Behavior                           | User-Facing Message                               |
-| -------------------------------------------------- | ------------------------------------------- | ------------------------------------------------- |
-| `enabled = true` without `[server.http]`           | Config validation error; daemon won't start | "server.web.enabled requires server.http.enabled" |
-| Building the web handler fails                     | Log error; `/ui/` returns `503`             | "web UI unavailable"                              |
-| `[server.web]` on reload differs from startup      | Keep startup setting; log warning           | "server.web changes take effect after restart"    |
+| Error Condition                               | Expected Behavior                           | User-Facing Message                               |
+| --------------------------------------------- | ------------------------------------------- | ------------------------------------------------- |
+| `enabled = true` without `[server.http]`      | Config validation error; daemon won't start | "server.web.enabled requires server.http.enabled" |
+| Building the web handler fails                | Log error; `/ui/` returns `503`             | "web UI unavailable"                              |
+| `[server.web]` on reload differs from startup | Keep startup setting; log warning           | "server.web changes take effect after restart"    |
 
 **Edge Cases:**
 
@@ -4450,7 +4450,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
   **When** it reaches the API
   **Then** it is rejected with `403 FORBIDDEN` and the daemon or group is unaffected
 
-- **Given** a cross-site unsafe-method request with *invalid* Basic credentials
+- **Given** a cross-site unsafe-method request with _invalid_ Basic credentials
   **When** it reaches the API
   **Then** the response is `403 FORBIDDEN`, not `401`: the check runs before authentication
 
@@ -4862,10 +4862,10 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Error Condition                    | Expected Behavior                                      | User-Facing Message |
-| ---------------------------------- | ------------------------------------------------------ | ------------------- |
-| Daemon fails to start              | Test fails; the daemon's stderr appears in the test output (`startDaemon` forwards it) | n/a |
-| TCP port not accepting within 10s  | Test fails with the address it waited on               | n/a                 |
+| Error Condition                   | Expected Behavior                                                                      | User-Facing Message |
+| --------------------------------- | -------------------------------------------------------------------------------------- | ------------------- |
+| Daemon fails to start             | Test fails; the daemon's stderr appears in the test output (`startDaemon` forwards it) | n/a                 |
+| TCP port not accepting within 10s | Test fails with the address it waited on                                               | n/a                 |
 
 **Edge Cases:**
 
