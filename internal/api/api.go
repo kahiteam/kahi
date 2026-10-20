@@ -599,8 +599,12 @@ func (s *Server) handleStreamLog(w http.ResponseWriter, r *http.Request) {
 // writeSSEData writes data as one SSE "data:" field per line, ended by a single
 // blank line. Emitting each line separately means embedded newlines or
 // "event:"/"data:" prefixes in (untrusted) process output are carried as literal
-// data and cannot inject additional SSE frames. See SEC-013.
+// data and cannot inject additional SSE frames. See SEC-013. SSE also ends a
+// line at CR or CRLF, so both are normalized to LF first.
+var sseLineEnds = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+
 func writeSSEData(w io.Writer, data string) {
+	data = sseLineEnds.Replace(data)
 	for line := range strings.SplitSeq(data, "\n") {
 		_, _ = fmt.Fprintf(w, "data: %s\n", line)
 	}
