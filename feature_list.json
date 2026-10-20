@@ -1385,7 +1385,7 @@
         "TestEventStreamSubscribesBeforeFlush (internal/api): on a fresh events.NewBus(), serve GET /api/v1/events/stream through srv.handler with a ResponseWriter whose Flush records the bus subscriber count for PROCESS_STATE_RUNNING, cancel the request context after the first Flush, and verify the recorded count is 1; mutation check: moving the subscribe loop after flusher.Flush() in handleEventStream makes it fail",
         "Run 'go test -count=1 -run TestStatusPage ./internal/web/...' (covers steps 1-9) and 'go test -count=1 -run TestEventStreamSubscribesBeforeFlush ./internal/api/...'"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "rest-api-endpoints",
         "sse-streaming",
@@ -1413,7 +1413,7 @@
         "PR checklist item (not a passes gate): in a browser, tail a process printing '\\x1b[31mred\\x1b[0m <b>x</b>' and confirm red text, literal '<b>x</b>', auto-scroll, and scroll-up pausing auto-scroll",
         "Run 'go test -count=1 -run TestLogViewer ./internal/web/...' and 'go test -count=1 -run TestStreamLogSubscribesBeforeFlush ./internal/api/...'"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "sse-streaming",
         "web-ui-status-page",
@@ -1443,7 +1443,7 @@
         "Mutation check: change the ETag to sha256(name+ModTime.String()) and verify TestStaticETagIsContentHash and TestStaticETagChangesWithContent fail",
         "Run 'go test -count=1 -run TestStatic ./internal/web/...'; the existing TestStaticDirFallback and TestStaticCustomDir also match the filter"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["web-ui-status-page", "web-ui-log-viewer"]
     },
     {
@@ -1492,7 +1492,7 @@
         "TestCSSNoExternalURLs: verify style.css, app.js, log.js and both templates contain no http:// or https:// URL (favicon.svg is exempt: it carries the SVG namespace URI)",
         "Run 'go test -count=1 -run TestCSS ./internal/web/...'"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["web-ui-status-page", "web-ui-log-viewer"]
     },
     {
@@ -2265,7 +2265,7 @@
         "Mutation check: make StopAllOrdered call sortedProcesses(true) and verify TestBulkStopOrder fails",
         "Run 'go test -count=1 -run TestBulk ./internal/process/... ./internal/api/...'; every test above is named TestBulk*"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "rest-api-endpoints",
         "http-basic-auth",
@@ -2298,7 +2298,7 @@
         "Mutation check: register /ui/ without requireAuth and verify TestUIMountAuth fails",
         "Run 'go test -count=1 -run \"TestWebConfig|TestDefaultConfigTOMLHasWeb|TestUIMount|TestUIUnavailable|TestBuildUIHandlerDisabled|TestUIListerAdapter|TestReloadWarnsOnWebChange|TestREADMEDocumentsWebUI|TestStopClosesOpenStreams\" ./internal/config/... ./internal/api/... ./internal/supervisor/... ./cmd/kahi/...'"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "rest-api-endpoints",
         "http-basic-auth",
@@ -2328,7 +2328,7 @@
         "Recorded review (by the implementing session, not a human approval gate): after mounting, review templates, app.js, log.js and the handlers for any path where request or process data reaches markup, a URL or a script without the encodings above, and record the verdict and findings in the PR description",
         "Run 'go test -count=1 -run TestUISecurity ./internal/web/... ./internal/api/...'; every test above is named TestUISecurity*"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "web-ui-status-page",
         "web-ui-log-viewer",
@@ -2353,7 +2353,7 @@
         "TestWebUIE2EInvalidConfig: with a new helper that runs the binary via exec.CommandContext (10s timeout) with stderr captured in a bytes.Buffer, start a config with [server.web] enabled=true and [server.http] disabled; verify the error is an *exec.ExitError with a non-zero code and stderr contains 'server.web.enabled requires server.http.enabled'",
         "Run 'go test -race -count=1 -tags=e2e -run TestWebUIE2E ./e2e/...'"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "e2e-test-infrastructure",
         "process-bulk-actions",
