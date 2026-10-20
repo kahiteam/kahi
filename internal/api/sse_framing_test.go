@@ -27,6 +27,21 @@ func TestWriteSSEDataFramesEachLine(t *testing.T) {
 	}
 }
 
+// SSE also ends a line at a bare CR, so CR and CRLF in output must be framed
+// like LF or they could start an event:, id: or retry: field.
+func TestWriteSSEDataCarriageReturns(t *testing.T) {
+	var buf bytes.Buffer
+	writeSSEData(&buf, "x\revent: foo\r\rretry: 99999\r\ny")
+
+	want := "data: x\ndata: event: foo\ndata: \ndata: retry: 99999\ndata: y\n\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("framing mismatch:\n got: %q\nwant: %q", got, want)
+	}
+	if strings.Contains(buf.String(), "\r") {
+		t.Fatalf("a carriage return reached the stream: %q", buf.String())
+	}
+}
+
 func TestWriteSSEDataSingleLine(t *testing.T) {
 	var buf bytes.Buffer
 	writeSSEData(&buf, "hello")
