@@ -112,7 +112,7 @@ func TestUISecurityHeaders(t *testing.T) {
 			t.Errorf("GET %s: X-Content-Type-Options %q", path, got)
 		}
 	}
-	want := "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+	want := "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 	if contentSecurityPolicy != want {
 		t.Errorf("policy %q, want %q", contentSecurityPolicy, want)
 	}

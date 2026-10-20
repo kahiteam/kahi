@@ -91,7 +91,7 @@ func TestStaticETagCacheHit(t *testing.T) {
 }
 
 func TestStaticCacheControl(t *testing.T) {
-	if got := get(newTestHandler(t, view("web")), "/ui/static/app.js").Header().Get("Cache-Control"); got != "public, max-age=3600" {
+	if got := get(newTestHandler(t, view("web")), "/ui/static/app.js").Header().Get("Cache-Control"); got != "private, max-age=3600" {
 		t.Errorf("Cache-Control %q", got)
 	}
 }
@@ -123,6 +123,27 @@ func assertFallbackWarning(t *testing.T, dir string) {
 	}
 }
 
+// Only the asset types the UI uses are served from static_dir: an overlay
+// .html or extension-less file would otherwise run same-origin script.
+func TestStaticOverlayAllowlist(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "x.html"), "<script src=x.js></script>")
+	writeFile(t, filepath.Join(dir, "x.js"), "alert(1)")
+	writeFile(t, filepath.Join(dir, "noext"), "<html>")
+	writeFile(t, filepath.Join(dir, "style.css"), "/* ok */")
+	h := overlayHandler(t, dir)
+	for _, path := range []string{"/ui/static/x.html", "/ui/static/noext"} {
+		if w := get(h, path); w.Code != http.StatusNotFound {
+			t.Errorf("GET %s: status %d, want 404 (type not allowed)", path, w.Code)
+		}
+	}
+	for _, path := range []string{"/ui/static/x.js", "/ui/static/style.css"} {
+		if w := get(h, path); w.Code != http.StatusOK {
+			t.Errorf("GET %s: status %d, want 200 (allowed type)", path, w.Code)
+		}
+	}
+}
+
 func TestStaticOverlayMissingDir(t *testing.T) {
 	assertFallbackWarning(t, filepath.Join(t.TempDir(), "nonexistent"))
 }
@@ -137,7 +158,7 @@ func TestStaticOverlayConfined(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "secret.txt")
 	writeFile(t, outside, "outside")
 	dir := t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(dir, "escape")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(dir, "escape.js")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -145,14 +166,14 @@ func TestStaticOverlayConfined(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"../web.go", "escape"} {
+	for _, name := range []string{"../web.go", "escape.js"} {
 		data, _, err := a.read(name)
 		if err == nil || errors.Is(err, fs.ErrNotExist) || len(data) != 0 {
 			t.Errorf("read(%q) = %d bytes, err %v; want a non-ErrNotExist error and no data", name, len(data), err)
 		}
 	}
-	if w := get(overlayHandler(t, dir), "/ui/static/escape"); w.Code != http.StatusNotFound {
-		t.Errorf("GET /ui/static/escape: status %d, want 404", w.Code)
+	if w := get(overlayHandler(t, dir), "/ui/static/escape.js"); w.Code != http.StatusNotFound {
+		t.Errorf("GET /ui/static/escape.js: status %d, want 404", w.Code)
 	}
 }
 

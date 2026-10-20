@@ -19,6 +19,10 @@
   var name = root.dataset.name;
   var stream = root.dataset.stream;
 
+  // The oldest lines are dropped beyond this, so a long-open viewer on a
+  // chatty process does not grow without bound.
+  var MAX_LINES = 5000;
+
   var pending = ''; // partial line carried across chunks
   var queued = []; // chunks streamed before the backlog arrived
   var backlogDone = false;
@@ -72,6 +76,9 @@
     appendText(div, line.slice(last));
     if (!div.firstChild) div.textContent = ' '; // keep empty lines visible
     output.appendChild(div);
+    while (output.childElementCount > MAX_LINES) {
+      output.removeChild(output.firstElementChild);
+    }
   }
 
   function scrollToEnd() {

@@ -244,6 +244,11 @@ func TestLogViewerAssetOrder(t *testing.T) {
 	requireContains(t, "log.js", js, "slice(-100)", "=== 65536", `split('\n')`, ".pop()")
 }
 
+// A long-open viewer must not grow without bound: the oldest lines go.
+func TestLogViewerAssetLineCap(t *testing.T) {
+	requireContains(t, "log.js", embedded(t, "static/log.js"), "MAX_LINES = 5000", "removeChild(")
+}
+
 func TestLogViewerAssetMessages(t *testing.T) {
 	requireContains(t, "log.js", embedded(t, "static/log.js"),
 		"'No output captured for this stream yet'", "'No such process: '",

@@ -58,9 +58,10 @@ type Config struct {
 }
 
 // contentSecurityPolicy allows only same-origin resources and no inline script
-// or style, so markup that slips past escaping cannot run (SEC-026).
+// or style, so markup that slips past escaping cannot run (SEC-026). The UI has
+// no forms, so form-action (not covered by default-src) is closed too.
 const contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; " +
-	"object-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+	"object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 
 // SetSecurityHeaders sets the headers every Web UI response carries. It is
 // exported so a handler standing in for the UI (the daemon's 503 fallback)
@@ -169,7 +170,8 @@ func (h *Handler) handleStatic(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", ct)
 	}
 	w.Header().Set("ETag", etag)
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	// private: responses to authenticated requests must not sit in shared caches.
+	w.Header().Set("Cache-Control", "private, max-age=3600")
 	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(data))
 }
 
@@ -216,12 +218,15 @@ func newAssets(staticDir string, logger *slog.Logger) (*assets, error) {
 	return a, nil
 }
 
-// read returns a static file and its ETag. A file missing from the overlay
-// comes from the embedded assets; any other overlay error (an escape attempt,
-// a permission problem) is returned as is, with no fallback. Invalid names
-// such as "../x" are rejected by both file systems, as fs.FS requires.
+// read returns a static file and its ETag. The overlay is consulted only for
+// the asset types the UI uses (contentTypes): an overlay .html or
+// extension-less file would be served as HTML and could run same-origin
+// script. A file missing from the overlay comes from the embedded assets; any
+// other overlay error (an escape attempt, a permission problem) is returned as
+// is, with no fallback. Invalid names such as "../x" are rejected by both file
+// systems, as fs.FS requires.
 func (a *assets) read(name string) ([]byte, string, error) {
-	if a.overlay != nil {
+	if _, allowed := contentTypes[path.Ext(name)]; a.overlay != nil && allowed {
 		data, err := fs.ReadFile(a.overlay, name)
 		if err == nil {
 			return data, contentETag(data), nil
