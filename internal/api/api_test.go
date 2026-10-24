@@ -92,6 +92,10 @@ func (m *mockProcessManager) ReadLog(name string, stream string, offset int64, l
 	}
 	return []byte("log output\n"), nil
 }
+func (m *mockProcessManager) StartAllOrdered() []ActionResult   { return []ActionResult{} }
+func (m *mockProcessManager) StopAllOrdered() []ActionResult    { return []ActionResult{} }
+func (m *mockProcessManager) RestartAllOrdered() []ActionResult { return []ActionResult{} }
+func (m *mockProcessManager) ShuttingDown() bool                { return false }
 
 type mockGroupManager struct {
 	groups []string

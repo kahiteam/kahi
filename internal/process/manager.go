@@ -476,17 +476,18 @@ func (m *Manager) Restart(name string) error {
 	return p.Start()
 }
 
-// waitForStopped polls until the process reaches a terminal state.
-func (m *Manager) waitForStopped(p *Process, timeout time.Duration) {
+// waitForStopped polls until the process reaches a terminal state. It reports
+// false if the timeout expired first.
+func (m *Manager) waitForStopped(p *Process, timeout time.Duration) bool {
 	deadline := time.After(timeout)
 	for {
 		state := p.State()
 		if state == Stopped || state == Exited || state == Fatal {
-			return
+			return true
 		}
 		select {
 		case <-deadline:
-			return
+			return false
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
