@@ -46,6 +46,30 @@ type ProcessManager interface {
 	Signal(name string, sig string) error
 	WriteStdin(name string, data []byte) error
 	ReadLog(name string, stream string, offset int64, length int) ([]byte, error)
+
+	// Bulk actions over every configured process, in priority order
+	// (ascending for start, descending for stop). Each returns one result per
+	// process acted on, never nil.
+	StartAllOrdered() []ActionResult
+	StopAllOrdered() []ActionResult
+	RestartAllOrdered() []ActionResult
+	// ShuttingDown reports whether process shutdown has begun.
+	ShuttingDown() bool
+}
+
+// ActionResult statuses.
+const (
+	ActionOK      = "ok"
+	ActionSkipped = "skipped"
+	ActionError   = "error"
+)
+
+// ActionResult is the outcome of a bulk action for one process. Error is set
+// only when Status is ActionError.
+type ActionResult struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
 }
 
 // GroupManager provides group-level operations.
