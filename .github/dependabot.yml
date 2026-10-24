@@ -33,11 +33,12 @@ updates:
           - 'minor'
           - 'patch'
 
-  # Docker
+  # Docker. Daily: the golang base image is how a new Go release (often a
+  # security fix) reaches this repo, and weekly checks lagged one by six days.
   - package-ecosystem: 'docker'
     directory: '/'
     schedule:
-      interval: 'weekly'
+      interval: 'daily'
     groups:
       minor-and-patch:
         update-types:
