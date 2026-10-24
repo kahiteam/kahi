@@ -3227,6 +3227,7 @@ This feature adds two complementary mechanisms:
 - The read endpoint ignores its `offset` parameter; the viewer does not use it
 - `stderr` with `redirect_stderr = true` has no capture and returns an empty body (the "no output" message)
 - Auto-scroll to bottom; scrolling up pauses auto-scroll until the user returns to the bottom
+- The viewer keeps at most 5000 rendered lines and drops the oldest beyond that, so a long-open tab on a chatty process does not grow without bound (2026-10-19 security review)
 - The process name is placed in API URLs with `encodeURIComponent(dataset.name)`
 
 **Dependencies:** FUNC-027, FUNC-078, FUNC-082
@@ -3276,7 +3277,8 @@ This feature adds two complementary mechanisms:
 **Edge Cases:**
 
 - Content-Type is set from a fixed extension map before `http.ServeContent` (`.js` → `text/javascript; charset=utf-8`, `.css` → `text/css; charset=utf-8`, `.svg` → `image/svg+xml`, `.ico` → `image/x-icon`), replacing the current switch in `web.go` (which sends `application/javascript`); the result therefore does not depend on the host's MIME database (`mime.TypeByExtension` reads system files, and older Linux images map `.js` to `application/javascript`)
-- Caching headers: `ETag` and `Cache-Control: public, max-age=3600`; an overridden file's ETag is derived from its content as read
+- Caching headers: `ETag` and `Cache-Control: private, max-age=3600` (`private`: responses to authenticated requests must not be stored by shared caches); an overridden file's ETag is derived from its content as read
+- `static_dir` is consulted only for the asset types the UI uses (`.js`, `.css`, `.svg`, `.ico`); other files in it, such as an `.html` file or one without an extension, are never served, because they would be served as HTML and could run same-origin script (2026-10-19 security review)
 - Conditional requests are evaluated by `http.ServeContent` with the `ETag` header preset
 - `static_dir` cannot override templates (`index.html`, `log.html`), so HTML escaping stays under the project's control
 
@@ -4513,7 +4515,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 - **Given** any response written by `web.Handler`, including its 400 and 404 pages
   **When** its headers are inspected
-  **Then** it carries `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'` and `X-Content-Type-Options: nosniff`; with `script-src 'self'`, any inline script or handler that slips in is blocked by the browser, and `default-src 'self'` allows the favicon at `/ui/static/favicon.svg`
+  **Then** it carries `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` and `X-Content-Type-Options: nosniff`; with `script-src 'self'`, any inline script or handler that slips in is blocked by the browser, and `default-src 'self'` allows the favicon at `/ui/static/favicon.svg`
 
 **Error Handling:**
 
