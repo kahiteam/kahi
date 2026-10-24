@@ -31,6 +31,10 @@ type Supervisor struct {
 	shutdownCh chan struct{}
 	doneCh     chan struct{}
 	pidFile    string
+
+	// startupWeb is the [server.web] the daemon started with. The UI is
+	// built once at startup, so reloads compare against this value.
+	startupWeb config.WebServerConfig
 }
 
 // SupervisorConfig configures the supervisor.
@@ -47,7 +51,13 @@ func New(cfg SupervisorConfig) *Supervisor {
 	spawner := &process.ExecSpawner{}
 	mgr := process.NewManager(spawner, bus, cfg.Logger)
 
+	var startupWeb config.WebServerConfig
+	if cfg.Config != nil {
+		startupWeb = cfg.Config.Server.Web
+	}
+
 	return &Supervisor{
+		startupWeb: startupWeb,
 		config:     cfg.Config,
 		configPath: cfg.ConfigPath,
 		manager:    mgr,
@@ -183,6 +193,7 @@ func (s *Supervisor) handleReload() {
 
 	added, changed, removed := process.ConfigDiff(s.config, newCfg)
 	s.logger.Info("config diff", "added", added, "changed", changed, "removed", removed)
+	s.warnWebChange(newCfg)
 
 	// Remove deleted programs.
 	for _, name := range removed {
@@ -377,7 +388,16 @@ func (s *Supervisor) Reload() (added, changed, removed []string, err error) {
 	}
 
 	added, changed, removed = process.ConfigDiff(s.config, newCfg)
+	s.warnWebChange(newCfg)
 	s.config = newCfg
 	s.manager.LoadConfig(newCfg)
 	return added, changed, removed, nil
+}
+
+// warnWebChange logs when a reloaded [server.web] differs from the one the
+// daemon started with: the UI is not rebuilt on reload.
+func (s *Supervisor) warnWebChange(newCfg *config.Config) {
+	if newCfg.Server.Web != s.startupWeb {
+		s.logger.Warn("server.web changes take effect after restart")
+	}
 }
