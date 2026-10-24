@@ -356,15 +356,29 @@ func (p *Process) watchStop(stopCh <-chan struct{}) {
 		p.mu.Lock()
 		if p.sm.State() == Stopping && p.spawned != nil {
 			p.logger.Warn("escalating to SIGKILL", "pid", p.spawned.Pid())
-			if p.config.Killasgroup {
-				_ = syscall.Kill(-p.spawned.Pid(), syscall.SIGKILL)
-			} else {
-				_ = p.spawned.Signal(syscall.SIGKILL)
-			}
+			p.killLocked()
 		}
 		p.mu.Unlock()
 	case <-stopCh:
 		// Process exited before timeout.
+	}
+}
+
+// Kill sends SIGKILL to the process if it has a live child, honoring
+// killasgroup. The daemon uses it when shutdown stops waiting.
+func (p *Process) Kill() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.spawned != nil {
+		p.killLocked()
+	}
+}
+
+func (p *Process) killLocked() {
+	if p.config.Killasgroup {
+		_ = syscall.Kill(-p.spawned.Pid(), syscall.SIGKILL)
+	} else {
+		_ = p.spawned.Signal(syscall.SIGKILL)
 	}
 }
 
