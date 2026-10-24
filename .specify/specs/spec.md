@@ -4046,6 +4046,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 **Edge Cases:**
 
 - A blank line in output is framed as a bare `data:` line (empty field), never as the blank line that ends an SSE event; e.g. output `line1\n\nline3` is written as `data: line1` / `data:` / `data: line3` followed by one terminating blank line
+- SSE also ends a line at a bare CR or at CRLF, so both are normalized to LF before framing; output `x\revent: foo` is written as `data: x` / `data: event: foo` (found by the 2026-10-19 Web UI security review). A carriage-return progress bar is shown as separate lines
 - Scope is the log SSE endpoint only; the event stream endpoint (`/api/v1/events/stream`) already JSON-encodes its payload and is unaffected
 
 **Dependencies:** FUNC-027
