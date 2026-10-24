@@ -48,7 +48,7 @@ jobs:
           # Exact, and kept equal to the goreleaser pinned in tools/go.mod so
           # a local `task` run and the release job use the same builder.
           # check-tool-parity.sh enforces the match.
-          version: 'v2.18.3'
+          version: 'v2.19.0'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
