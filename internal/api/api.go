@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kahiteam/kahi/internal/config"
@@ -110,6 +111,10 @@ type Server struct {
 	tcpLn      net.Listener
 	unixServer *http.Server
 	tcpServer  *http.Server
+	ui         http.Handler // Web UI under /ui/; nil when disabled
+
+	// bulkMu allows one bulk action at a time across both listeners.
+	bulkMu sync.Mutex
 
 	authUser string
 	authPass string // bcrypt hash
@@ -123,6 +128,9 @@ type Config struct {
 	TCPEnabled bool
 	Username   string
 	Password   string // bcrypt hash
+
+	// UI serves the Web UI under /ui/ behind requireAuth; nil disables it.
+	UI http.Handler
 }
 
 // NewServer creates an API server with the given dependencies.
@@ -134,6 +142,7 @@ func NewServer(cfg Config, pm ProcessManager, gm GroupManager, cm ConfigManager,
 		daemon:    di,
 		bus:       bus,
 		logger:    logger,
+		ui:        cfg.UI,
 		authUser:  cfg.Username,
 		authPass:  cfg.Password,
 	}
@@ -196,6 +205,20 @@ func (s *Server) buildMux() *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/version", s.requireAuth(s.handleVersion))
 
 	mux.HandleFunc("GET /api/v1/events/stream", s.requireAuth(s.handleEventStream))
+
+	// Bulk actions (FUNC-083). POST only, so no safe-method route changes state.
+	mux.HandleFunc("POST /api/v1/all/start", s.requireAuth(s.handleBulk(func() []ActionResult { return s.processes.StartAllOrdered() })))
+	mux.HandleFunc("POST /api/v1/all/stop", s.requireAuth(s.handleBulk(func() []ActionResult { return s.processes.StopAllOrdered() })))
+	mux.HandleFunc("POST /api/v1/all/restart", s.requireAuth(s.handleBulk(func() []ActionResult { return s.processes.RestartAllOrdered() })))
+
+	// Web UI (FUNC-084, ADR-029): one authenticated subtree, so a UI route
+	// cannot be registered without authentication.
+	if s.ui != nil {
+		mux.HandleFunc("GET /ui/", s.requireAuth(s.ui.ServeHTTP))
+		mux.HandleFunc("GET /{$}", s.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/ui/", http.StatusFound)
+		}))
+	}
 
 	return mux
 }
@@ -280,17 +303,22 @@ func (s *Server) StartTCP(addr string) error {
 	return nil
 }
 
-// Stop gracefully shuts down all listeners.
+// Stop gracefully shuts down all listeners. Shutdown waits for active
+// handlers, and an SSE stream only ends when its client goes away, so once ctx
+// expires the remaining connections are closed.
 func (s *Server) Stop(ctx context.Context) error {
 	var errs []error
-	if s.unixServer != nil {
-		if err := s.unixServer.Shutdown(ctx); err != nil {
-			errs = append(errs, err)
+	for _, srv := range []*http.Server{s.unixServer, s.tcpServer} {
+		if srv == nil {
+			continue
 		}
-	}
-	if s.tcpServer != nil {
-		if err := s.tcpServer.Shutdown(ctx); err != nil {
+		if err := srv.Shutdown(ctx); err != nil {
 			errs = append(errs, err)
+			if ctx.Err() != nil {
+				if cerr := srv.Close(); cerr != nil {
+					errs = append(errs, cerr)
+				}
+			}
 		}
 	}
 	if len(errs) > 0 {
@@ -483,6 +511,31 @@ func (s *Server) handleReadLog(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
+// handleBulk runs one bulk action (FUNC-083). The shutdown check comes before
+// the lock, so SHUTTING_DOWN wins over CONFLICT. The supervisor's flag covers
+// API-triggered shutdown; the manager's covers signal-driven shutdown, where
+// the supervisor's flag is never set. The action ignores the request context,
+// so a client disconnect does not abort it.
+func (s *Server) handleBulk(action func() []ActionResult) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if (s.daemon != nil && s.daemon.IsShuttingDown()) || s.processes.ShuttingDown() {
+			writeError(w, http.StatusConflict, "daemon is shutting down", "SHUTTING_DOWN")
+			return
+		}
+		if !s.bulkMu.TryLock() {
+			writeError(w, http.StatusConflict, "bulk action in progress", errorCode(http.StatusConflict))
+			return
+		}
+		defer s.bulkMu.Unlock()
+
+		results := action()
+		if results == nil {
+			results = []ActionResult{}
+		}
+		writeJSON(w, http.StatusOK, map[string][]ActionResult{"results": results})
+	}
+}
+
 func (s *Server) handleStreamLog(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	stream := r.PathValue("stream")
@@ -503,12 +556,6 @@ func (s *Server) handleStreamLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	flusher.Flush()
-
 	// Determine the event type based on stream.
 	var eventType events.EventType
 	if stream == "stdout" {
@@ -517,7 +564,9 @@ func (s *Server) handleStreamLog(w http.ResponseWriter, r *http.Request) {
 		eventType = events.ProcessLogStderr
 	}
 
-	// Use a channel to serialize writes to the response writer.
+	// Subscribe before flushing the headers: a client that reads its backlog
+	// once the stream is open (the Web UI log viewer) then cannot miss a chunk
+	// published in between. A channel serializes writes to the response.
 	ch := make(chan string, 64)
 	id := s.bus.Subscribe(eventType, func(e events.Event) {
 		if e.Data["name"] != name {
@@ -529,6 +578,12 @@ func (s *Server) handleStreamLog(w http.ResponseWriter, r *http.Request) {
 		}
 	})
 	defer s.bus.Unsubscribe(id)
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher.Flush()
 
 	for {
 		select {
@@ -544,8 +599,12 @@ func (s *Server) handleStreamLog(w http.ResponseWriter, r *http.Request) {
 // writeSSEData writes data as one SSE "data:" field per line, ended by a single
 // blank line. Emitting each line separately means embedded newlines or
 // "event:"/"data:" prefixes in (untrusted) process output are carried as literal
-// data and cannot inject additional SSE frames. See SEC-013.
+// data and cannot inject additional SSE frames. See SEC-013. SSE also ends a
+// line at CR or CRLF, so both are normalized to LF first.
+var sseLineEnds = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+
 func writeSSEData(w io.Writer, data string) {
+	data = sseLineEnds.Replace(data)
 	for line := range strings.SplitSeq(data, "\n") {
 		_, _ = fmt.Fprintf(w, "data: %s\n", line)
 	}
@@ -634,12 +693,6 @@ func (s *Server) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	flusher.Flush()
-
 	// Parse type filter.
 	typesParam := r.URL.Query().Get("types")
 	var typeFilter map[events.EventType]bool
@@ -687,6 +740,14 @@ func (s *Server) handleEventStream(w http.ResponseWriter, r *http.Request) {
 			s.bus.Unsubscribe(id)
 		}
 	}()
+
+	// Headers go out only after subscribing, so an event published once the
+	// client sees the stream open is delivered (FUNC-078 refreshes on open).
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher.Flush()
 
 	for {
 		select {
