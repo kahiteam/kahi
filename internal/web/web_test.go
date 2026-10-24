@@ -1,414 +1,285 @@
 package web
 
 import (
+	"bytes"
+	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
 
-type mockLister struct {
-	processes []ProcessView
+type stubLister []ProcessView
+
+func (s stubLister) ListWeb() []ProcessView { return s }
+
+func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+// view returns a RUNNING process with the derived fields already set; their
+// computation belongs to the daemon's adapter, not to this package.
+func view(name string) ProcessView {
+	return ProcessView{
+		Name: name, Group: name, State: "RUNNING", StateLower: "running",
+		PID: 42, Uptime: 3720, UptimeStr: "1h 2m", Description: "Web server",
+	}
 }
 
-func (m *mockLister) ListWeb() []ProcessView {
-	return m.processes
-}
-
-func newTestHandler(t *testing.T, lister ProcessLister) *Handler {
+func newTestHandler(t *testing.T, procs ...ProcessView) *Handler {
 	t.Helper()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	h, err := NewHandler(lister, Config{}, logger)
+	h, err := NewHandler(stubLister(procs), Config{}, quietLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
 	return h
 }
 
-func TestStatusPage(t *testing.T) {
-	lister := &mockLister{
-		processes: []ProcessView{
-			{Name: "web", Group: "default", State: "RUNNING", StateLower: "running", PID: 1234, UptimeStr: "1h 5m"},
-			{Name: "worker", Group: "default", State: "STOPPED", StateLower: "stopped"},
-		},
+func get(h http.Handler, path string, headers ...string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	for i := 0; i+1 < len(headers); i += 2 {
+		req.Header.Set(headers[i], headers[i+1])
 	}
-	h := newTestHandler(t, lister)
-
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	req := httptest.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	resp := w.Result()
-	if resp.StatusCode != 200 {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
-
-	body := w.Body.String()
-
-	// Process names present.
-	if !strings.Contains(body, "web") {
-		t.Error("missing process name 'web'")
-	}
-	if !strings.Contains(body, "worker") {
-		t.Error("missing process name 'worker'")
-	}
-
-	// State elements present.
-	if !strings.Contains(body, "state-running") {
-		t.Error("missing state-running class")
-	}
-	if !strings.Contains(body, "state-stopped") {
-		t.Error("missing state-stopped class")
-	}
-
-	// Action buttons present.
-	if !strings.Contains(body, "Start") {
-		t.Error("missing Start button")
-	}
-	if !strings.Contains(body, "Stop") {
-		t.Error("missing Stop button")
-	}
-	if !strings.Contains(body, "Restart") {
-		t.Error("missing Restart button")
-	}
-	if !strings.Contains(body, "Tail Stdout") {
-		t.Error("missing Tail Stdout link")
-	}
-	if !strings.Contains(body, "Tail Stderr") {
-		t.Error("missing Tail Stderr link")
-	}
-
-	// SSE JavaScript is loaded via app.js.
-	if !strings.Contains(body, "app.js") {
-		t.Error("missing app.js script reference")
-	}
-
-	// Viewport meta tag for responsive layout.
-	if !strings.Contains(body, "viewport") {
-		t.Error("missing viewport meta tag")
-	}
-
-	// PID and uptime columns.
-	if !strings.Contains(body, "1234") {
-		t.Error("missing PID value")
-	}
-	if !strings.Contains(body, "1h 5m") {
-		t.Error("missing uptime value")
-	}
+	h.ServeHTTP(w, req)
+	return w
 }
 
-func TestStatusPageNoJS(t *testing.T) {
-	lister := &mockLister{
-		processes: []ProcessView{
-			{Name: "web", State: "RUNNING", StateLower: "running"},
-		},
+func mustGet(t *testing.T, h http.Handler, path string) string {
+	t.Helper()
+	w := get(h, path)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET %s: status %d, body %s", path, w.Code, w.Body)
 	}
-	h := newTestHandler(t, lister)
-
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	req := httptest.NewRequest("GET", "/", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	body := w.Body.String()
-
-	// Verify process data is in HTML even without JS execution.
-	if !strings.Contains(body, "web") {
-		t.Error("process data should be in HTML without JS")
-	}
+	return w.Body.String()
 }
 
-func TestLogViewerPage(t *testing.T) {
-	h := newTestHandler(t, &mockLister{})
-
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	req := httptest.NewRequest("GET", "/log/web/stdout", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Result().StatusCode != 200 {
-		t.Fatalf("status = %d, want 200", w.Result().StatusCode)
+// embedded returns an embedded file such as "static/app.js".
+func embedded(t *testing.T, name string) string {
+	t.Helper()
+	var src fs.FS = staticFS
+	if strings.HasPrefix(name, "templates/") {
+		src = templateFS
 	}
-
-	body := w.Body.String()
-
-	// Log page should contain process name and stream.
-	if !strings.Contains(body, "web") {
-		t.Error("missing process name in log page")
-	}
-	if !strings.Contains(body, "stdout") {
-		t.Error("missing stream name in log page")
-	}
-
-	// EventSource for SSE.
-	if !strings.Contains(body, "EventSource") {
-		t.Error("missing EventSource in log page")
-	}
-
-	// ANSI rendering present.
-	if !strings.Contains(body, "renderAnsi") {
-		t.Error("missing ANSI rendering function")
-	}
-
-	// Auto-scroll checkbox.
-	if !strings.Contains(body, "autoscroll") {
-		t.Error("missing auto-scroll control")
-	}
-}
-
-func TestLogViewerStderr(t *testing.T) {
-	h := newTestHandler(t, &mockLister{})
-
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	req := httptest.NewRequest("GET", "/log/web/stderr", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Result().StatusCode != 200 {
-		t.Fatalf("status = %d, want 200", w.Result().StatusCode)
-	}
-
-	body := w.Body.String()
-	if !strings.Contains(body, "stderr") {
-		t.Error("missing stderr stream name")
-	}
-	if !strings.Contains(body, "web") {
-		t.Error("missing process name on stderr page")
-	}
-}
-
-func TestLogViewerInvalidStream(t *testing.T) {
-	h := newTestHandler(t, &mockLister{})
-
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	req := httptest.NewRequest("GET", "/log/web/invalid", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Result().StatusCode != 404 {
-		t.Fatalf("status = %d, want 404", w.Result().StatusCode)
-	}
-}
-
-func TestStaticAssetsServed(t *testing.T) {
-	h := newTestHandler(t, &mockLister{})
-
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	// CSS file.
-	req := httptest.NewRequest("GET", "/static/style.css", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Result().StatusCode != 200 {
-		t.Fatalf("CSS status = %d, want 200", w.Result().StatusCode)
-	}
-	ct := w.Result().Header.Get("Content-Type")
-	if !strings.Contains(ct, "text/css") {
-		t.Errorf("CSS Content-Type = %q, want text/css", ct)
-	}
-
-	// Caching headers.
-	if w.Result().Header.Get("Cache-Control") == "" {
-		t.Error("missing Cache-Control header")
-	}
-	if w.Result().Header.Get("ETag") == "" {
-		t.Error("missing ETag header")
-	}
-
-	// JS file.
-	req = httptest.NewRequest("GET", "/static/app.js", nil)
-	w = httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Result().StatusCode != 200 {
-		t.Fatalf("JS status = %d, want 200", w.Result().StatusCode)
-	}
-	ct = w.Result().Header.Get("Content-Type")
-	if !strings.Contains(ct, "javascript") {
-		t.Errorf("JS Content-Type = %q, want javascript", ct)
-	}
-}
-
-func TestStaticDirFallback(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	h, err := NewHandler(&mockLister{}, Config{StaticDir: "/nonexistent/path"}, logger)
+	data, err := fs.ReadFile(src, name)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Should fall back to embedded assets without error.
-	if h.staticFS == nil {
-		t.Error("staticFS should not be nil after fallback")
-	}
+	return string(data)
 }
 
-func TestCSSStateColors(t *testing.T) {
-	h := newTestHandler(t, &mockLister{})
-
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	req := httptest.NewRequest("GET", "/static/style.css", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	css := w.Body.String()
-
-	requiredClasses := []string{
-		".state-running",
-		".state-stopped",
-		".state-fatal",
-		".state-starting",
-		".state-stopping",
-	}
-	for _, cls := range requiredClasses {
-		if !strings.Contains(css, cls) {
-			t.Errorf("CSS missing class %q", cls)
+func requireContains(t *testing.T, label, s string, subs ...string) {
+	t.Helper()
+	for _, sub := range subs {
+		if !strings.Contains(s, sub) {
+			t.Errorf("%s does not contain %q", label, sub)
 		}
 	}
 }
 
-func TestCSSResponsiveMediaQuery(t *testing.T) {
-	h := newTestHandler(t, &mockLister{})
+var scriptTag = regexp.MustCompile(`<script[^>]*>`)
 
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	req := httptest.NewRequest("GET", "/static/style.css", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	css := w.Body.String()
-
-	if !strings.Contains(css, "max-width: 768px") {
-		t.Error("CSS missing responsive media query for 768px")
+func requireNoInlineScript(t *testing.T, label, body string) {
+	t.Helper()
+	for _, tag := range scriptTag.FindAllString(body, -1) {
+		if !strings.Contains(tag, "src=") {
+			t.Errorf("%s has a <script> element without src: %s", label, tag)
+		}
 	}
 }
 
-func TestCSSNoExternalURLs(t *testing.T) {
-	h := newTestHandler(t, &mockLister{})
+// --- Status page (FUNC-078) ---
 
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
+func TestStatusPage(t *testing.T) {
+	body := mustGet(t, newTestHandler(t, view("web")), "/ui/")
+	requireContains(t, "status page", body,
+		`<td class="col-name" data-label="Name">web</td>`,
+		`<td class="col-group" data-label="Group">web</td>`,
+		`class="state state-running"`, ">42<", "1h 2m", "Web server")
+}
 
-	req := httptest.NewRequest("GET", "/static/style.css", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	css := w.Body.String()
-	if strings.Contains(css, "http://") || strings.Contains(css, "https://") {
-		t.Error("CSS should not contain external URLs")
+func TestStatusPageContentType(t *testing.T) {
+	w := get(newTestHandler(t, view("web")), "/ui/")
+	if ct := w.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Errorf("Content-Type = %q", ct)
 	}
 }
 
-func TestCSSMonospaceLogViewer(t *testing.T) {
-	h := newTestHandler(t, &mockLister{})
+func TestStatusPageButtons(t *testing.T) {
+	body := mustGet(t, newTestHandler(t, view("web")), "/ui/")
+	for _, action := range []string{"start", "stop", "restart"} {
+		requireContains(t, "status page", body, `data-name="web" data-action="`+action+`"`)
+	}
+	requireContains(t, "status page", body, `href="/ui/log/web/stdout"`, `href="/ui/log/web/stderr"`)
+	if strings.Contains(body, "Clear Log") {
+		t.Error("the status page still offers Clear Log")
+	}
+}
 
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
+func TestStatusPageAllControls(t *testing.T) {
+	body := mustGet(t, newTestHandler(t, view("web")), "/ui/")
+	start := strings.Index(body, `class="header-actions toolbar"`)
+	if start < 0 {
+		t.Fatal("no toolbar element")
+	}
+	toolbar := body[start : start+strings.Index(body[start:], "</div>")]
+	for _, action := range []string{"start", "stop", "restart"} {
+		requireContains(t, "toolbar", toolbar, `<button type="button"`, `data-bulk="`+action+`"`)
+	}
+	if strings.Contains(body, "<form") {
+		t.Error("the status page has a <form> element")
+	}
+	if strings.Contains(body, "/api/v1/processes/all/") {
+		t.Error("the status page still posts to /api/v1/processes/all/")
+	}
+}
 
-	req := httptest.NewRequest("GET", "/static/style.css", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
+func TestStatusPageNoJS(t *testing.T) {
+	body := mustGet(t, newTestHandler(t, view("web")), "/ui/")
+	requireContains(t, "status page", body, `<tbody id="process-list">`, `<td class="col-name" data-label="Name">web</td>`)
+	for _, tag := range regexp.MustCompile(`<button[^>]*>`).FindAllString(body, -1) {
+		if !strings.Contains(tag, " disabled") {
+			t.Errorf("button is not rendered disabled: %s", tag)
+		}
+	}
+	noscript := regexp.MustCompile(`(?s)<noscript>.*</noscript>`).FindString(body)
+	requireContains(t, "noscript", noscript, "Actions require JavaScript")
+}
 
-	css := w.Body.String()
-	if !strings.Contains(css, "monospace") {
-		t.Error("CSS missing monospace font for log viewer")
+func TestStatusPageScriptReference(t *testing.T) {
+	body := mustGet(t, newTestHandler(t, view("web")), "/ui/")
+	requireContains(t, "status page", body, `<script src="/ui/static/app.js"></script>`)
+	requireNoInlineScript(t, "status page", body)
+}
+
+func TestStatusPageNonRootPath(t *testing.T) {
+	if w := get(newTestHandler(t, view("web")), "/ui/unknown"); w.Code != http.StatusNotFound {
+		t.Errorf("GET /ui/unknown: status %d, want 404", w.Code)
+	}
+}
+
+func TestStatusPageListerOrder(t *testing.T) {
+	body := mustGet(t, newTestHandler(t, view("zeta"), view("alpha"), view("mid")), "/ui/")
+	var got []string
+	for _, m := range regexp.MustCompile(`<tr data-name="([^"]+)">`).FindAllStringSubmatch(body, -1) {
+		got = append(got, m[1])
+	}
+	if strings.Join(got, ",") != "zeta,alpha,mid" {
+		t.Errorf("row order %v, want the lister's order [zeta alpha mid]", got)
+	}
+}
+
+func TestStatusPageUnknownState(t *testing.T) {
+	p := view("odd")
+	p.State, p.StateLower = "UNKNOWN(9)", "unknown"
+	body := mustGet(t, newTestHandler(t, p), "/ui/")
+	requireContains(t, "status page", body, `<span class="state state-unknown">UNKNOWN(9)</span>`)
+}
+
+func TestStatusPageAssetMessages(t *testing.T) {
+	js := embedded(t, "static/app.js")
+	requireContains(t, "app.js", js,
+		"'Failed to refresh status: '", "'Failed to '", "' all: '",
+		"'Another bulk action is in progress'", "'Daemon is shutting down'", "' all: done'",
+		"'/api/v1/all/'", ".disabled = true", ".disabled = false", "'state-unknown'",
+		"addEventListener('open'", "function formatUptime(", "'d '", "'h '", "'m'", "5000")
+	for _, ev := range []string{"STOPPED", "STARTING", "RUNNING", "BACKOFF", "STOPPING", "EXITED", "FATAL"} {
+		requireContains(t, "app.js", js, "'PROCESS_STATE_"+ev+"'")
+	}
+	requireContains(t, "app.js", js, "source.addEventListener(STATE_EVENTS[i]")
+}
+
+// --- Log viewer (FUNC-079) ---
+
+func TestLogViewerPage(t *testing.T) {
+	body := mustGet(t, newTestHandler(t, view("web")), "/ui/log/web/stdout")
+	requireContains(t, "log page", body,
+		`<main id="log" data-name="web" data-stream="stdout">`,
+		`<script src="/ui/static/log.js"></script>`)
+	requireNoInlineScript(t, "log page", body)
+}
+
+func TestLogViewerStderr(t *testing.T) {
+	body := mustGet(t, newTestHandler(t, view("web")), "/ui/log/web/stderr")
+	requireContains(t, "log page", body, `data-stream="stderr"`)
+}
+
+func TestLogViewerInvalidStream(t *testing.T) {
+	w := get(newTestHandler(t, view("web")), "/ui/log/web/stdin")
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "invalid stream") {
+		t.Errorf("status %d, body %q; want 400 invalid stream", w.Code, w.Body)
+	}
+}
+
+func TestLogViewerUnknownProcess(t *testing.T) {
+	w := get(newTestHandler(t, view("web")), "/ui/log/nosuch/stdout")
+	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "No such process: nosuch") {
+		t.Errorf("status %d, body %q; want 404 No such process", w.Code, w.Body)
+	}
+}
+
+func TestLogViewerNameEscaping(t *testing.T) {
+	body := mustGet(t, newTestHandler(t, view(`a"b`)), "/ui/log/a%22b/stdout")
+	requireContains(t, "log page", body, `data-name="a&#34;b"`)
+	if strings.Contains(body, `="a"b"`) {
+		t.Error(`the raw name a"b appears inside an attribute`)
+	}
+}
+
+func TestLogViewerAssetSGR(t *testing.T) {
+	requireContains(t, "log.js", embedded(t, "static/log.js"),
+		"'sgr-fg-'", "'sgr-bold'", ">= 30 && ", "<= 37", ">= 90 && ", "<= 97",
+		`/\x1b`, "textContent")
+}
+
+func TestLogViewerAssetOrder(t *testing.T) {
+	js := embedded(t, "static/log.js")
+	es := strings.Index(js, "new EventSource(")
+	open := strings.Index(js, "addEventListener('open'")
+	read := strings.Index(js, "length=65536")
+	if es < 0 || open < 0 || read < 0 || es >= open || open >= read {
+		t.Errorf("want new EventSource( (%d) < addEventListener('open' (%d) < length=65536 (%d)", es, open, read)
+	}
+	requireContains(t, "log.js", js, "slice(-100)", "=== 65536", `split('\n')`, ".pop()")
+}
+
+// A long-open viewer must not grow without bound: the oldest lines go.
+func TestLogViewerAssetLineCap(t *testing.T) {
+	requireContains(t, "log.js", embedded(t, "static/log.js"), "MAX_LINES = 5000", "removeChild(")
+}
+
+func TestLogViewerAssetMessages(t *testing.T) {
+	requireContains(t, "log.js", embedded(t, "static/log.js"),
+		"'No output captured for this stream yet'", "'No such process: '",
+		"'Failed to load log: ", "source.close()")
+}
+
+func TestLogViewerAssetEncoding(t *testing.T) {
+	for i, line := range strings.Split(embedded(t, "static/log.js"), "\n") {
+		if strings.Contains(line, "/api/v1/processes/") && !strings.Contains(line, "encodeURIComponent(") {
+			t.Errorf("log.js:%d builds a process URL without encodeURIComponent: %s", i+1, line)
+		}
 	}
 }
 
 func TestFormatUptime(t *testing.T) {
-	tests := []struct {
+	for _, tt := range []struct {
 		seconds int64
 		want    string
-	}{
-		{0, "0m"},
-		{300, "5m"},
-		{3660, "1h 1m"},
-		{90060, "1d 1h 1m"},
-	}
-	for _, tt := range tests {
-		got := FormatUptime(tt.seconds)
-		if got != tt.want {
+	}{{0, "0m"}, {300, "5m"}, {3660, "1h 1m"}, {3720, "1h 2m"}, {90060, "1d 1h 1m"}} {
+		if got := FormatUptime(tt.seconds); got != tt.want {
 			t.Errorf("FormatUptime(%d) = %q, want %q", tt.seconds, got, tt.want)
 		}
 	}
 }
 
-func TestHandleIndexNonRootPath(t *testing.T) {
-	h := newTestHandler(t, &mockLister{})
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	req := httptest.NewRequest("GET", "/other", nil)
+func TestTemplateRenderFailureIsNotPartial(t *testing.T) {
+	// render buffers the template, so a failure cannot leave half a page.
+	h := newTestHandler(t, view("web"))
 	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Result().StatusCode != 404 {
-		t.Fatalf("status = %d, want 404", w.Result().StatusCode)
-	}
-}
-
-func TestStaticETagCacheHit(t *testing.T) {
-	h := newTestHandler(t, &mockLister{})
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	// First request to capture the ETag.
-	req1 := httptest.NewRequest("GET", "/static/app.js", nil)
-	w1 := httptest.NewRecorder()
-	mux.ServeHTTP(w1, req1)
-
-	etag := w1.Result().Header.Get("ETag")
-	if etag == "" {
-		t.Fatal("missing ETag header on first request")
-	}
-
-	// Second request with If-None-Match should return 304.
-	req2 := httptest.NewRequest("GET", "/static/app.js", nil)
-	req2.Header.Set("If-None-Match", etag)
-	w2 := httptest.NewRecorder()
-	mux.ServeHTTP(w2, req2)
-
-	if w2.Result().StatusCode != 304 {
-		t.Fatalf("status = %d, want 304", w2.Result().StatusCode)
-	}
-}
-
-func TestStaticCustomDir(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(dir+"/test.css", []byte("body{}"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	h, err := NewHandler(&mockLister{}, Config{StaticDir: dir}, logger)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	mux := http.NewServeMux()
-	h.RegisterRoutes(mux)
-
-	req := httptest.NewRequest("GET", "/static/test.css", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	if w.Result().StatusCode != 200 {
-		t.Fatalf("status = %d, want 200", w.Result().StatusCode)
+	h.render(w, "missing.html", nil)
+	if w.Code != http.StatusInternalServerError || bytes.Contains(w.Body.Bytes(), []byte("<html")) {
+		t.Errorf("status %d, body %q; want a plain 500", w.Code, w.Body)
 	}
 }
