@@ -151,10 +151,10 @@ stopwaitsecs = 2
 	}
 }
 
-// shutdownDaemon starts a daemon with the given shutdown_timeout and one
-// program, waits for the program to run, and returns the daemon command,
-// the program's PID, and a channel that receives the daemon's exit.
-func shutdownDaemon(t *testing.T, shutdownTimeout int, program string) (*exec.Cmd, int, <-chan error) {
+// shutdownDaemon starts a daemon with the given shutdown_timeout and programs,
+// waits for the one named worker to run, and returns the daemon command,
+// worker's PID, a channel that receives the daemon's exit, and a client.
+func shutdownDaemon(t *testing.T, shutdownTimeout int, program string) (*exec.Cmd, int, <-chan error, *ctl.Client) {
 	t.Helper()
 	// Short temp dir: macOS caps Unix socket paths at 104 bytes.
 	dir, err := os.MkdirTemp("", "k-")
@@ -185,14 +185,14 @@ func shutdownDaemon(t *testing.T, shutdownTimeout int, program string) (*exec.Cm
 	if err != nil {
 		t.Fatalf("process info: %v", err)
 	}
-	return cmd, info.PID, done
+	return cmd, info.PID, done, client
 }
 
 // A child that exits on SIGTERM must be reaped during shutdown, so the
 // daemon exits promptly instead of waiting out stopwaitsecs or
 // shutdown_timeout (#90).
 func TestDaemon_SIGTERMShutdownIsPrompt(t *testing.T) {
-	cmd, _, done := shutdownDaemon(t, 30, `
+	cmd, _, done, _ := shutdownDaemon(t, 30, `
 [programs.worker]
 command = "/bin/sleep 300"
 autostart = true
@@ -225,7 +225,7 @@ func TestDaemon_ShutdownTimeoutKillsChildren(t *testing.T) {
 	// one that ignores SIGTERM.
 	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\nexec sleep 300")
 
-	cmd, pid, done := shutdownDaemon(t, 2, `
+	cmd, pid, done, _ := shutdownDaemon(t, 2, `
 [programs.worker]
 command = "`+script+`"
 autostart = true
@@ -245,6 +245,57 @@ stopwaitsecs = 60
 	if err := syscall.Kill(pid, 0); err != syscall.ESRCH {
 		_ = syscall.Kill(pid, syscall.SIGKILL)
 		t.Fatalf("child %d outlived the daemon (kill 0: %v)", pid, err)
+	}
+}
+
+// While a SIGTERM shutdown is in progress, /healthz must report it and the
+// API must refuse to start processes (#108); before, both only applied to a
+// shutdown requested through the API.
+func TestDaemon_SignalShutdownIsReported(t *testing.T) {
+	dir := t.TempDir()
+	// Ignores SIGTERM, so shutdown stays in progress until shutdown_timeout.
+	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\nexec sleep 300")
+
+	cmd, _, done, client := shutdownDaemon(t, 5, `
+[programs.worker]
+command = "`+script+`"
+autostart = true
+startsecs = 0
+stopwaitsecs = 60
+
+[programs.idle]
+command = "/bin/sleep 300"
+autostart = false
+`)
+
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("signal daemon: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	var status string
+	for time.Now().Before(deadline) {
+		if s, err := client.Health(); err == nil {
+			status = s
+			if s == "shutting_down" {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if status != "shutting_down" {
+		t.Fatalf("/healthz status during signal shutdown = %q, want shutting_down", status)
+	}
+
+	err := client.Start("idle")
+	if err == nil || !strings.Contains(err.Error(), "shutting down") {
+		t.Fatalf("start during signal shutdown: err = %v, want a shutting-down refusal", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("daemon did not exit within 15 seconds")
 	}
 }
 
