@@ -9,7 +9,6 @@ import (
 
 	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/events"
-	"github.com/kahiteam/kahi/internal/logging"
 	"github.com/kahiteam/kahi/internal/process"
 )
 
@@ -24,7 +23,6 @@ func testSupervisorWithMock(cfg *config.Config, spawner *process.MockSpawner) *S
 		manager:    mgr,
 		bus:        bus,
 		logger:     logger,
-		captures:   make(map[string]*logging.CaptureWriter),
 		shutdownCh: make(chan struct{}),
 		doneCh:     make(chan struct{}),
 	}
@@ -222,87 +220,65 @@ func TestRunPIDFileError(t *testing.T) {
 	}
 }
 
-func TestHandleLogReopenWithCaptures(t *testing.T) {
-	tmpDir := t.TempDir()
-	logPath := filepath.Join(tmpDir, "test.log")
-
-	cw, err := logging.NewCaptureWriter(logging.CaptureConfig{
-		ProcessName: "test-proc",
-		Stream:      "stdout",
-		Logfile:     logPath,
-		Logger:      discardLogger(),
-	})
-	if err != nil {
-		t.Fatal(err)
+// logProgram is a program that is never started but has a stdout logfile,
+// so loading it gives the manager a capture writer with an open file.
+func logProgram(logPath string) config.ProgramConfig {
+	autostart := false
+	return config.ProgramConfig{
+		Command:       "/bin/echo hello",
+		Numprocs:      1,
+		Priority:      999,
+		Autostart:     &autostart,
+		Autorestart:   "false",
+		Exitcodes:     []int{0},
+		Stopsignal:    "TERM",
+		Stopwaitsecs:  10,
+		StdoutLogfile: logPath,
 	}
-	defer func() { _ = cw.Close() }()
+}
 
-	_, _ = cw.Write([]byte("before\n"))
-
+// SIGUSR2 must reopen the manager's capture writers: after logrotate renames
+// the file, the reopen creates it again at its configured path (#107).
+func TestHandleLogReopenReopensProcessLogs(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "test.log")
 	s := testSupervisor()
-	s.captures["test-proc:stdout"] = cw
+	s.config.Programs["logger"] = logProgram(logPath)
+	s.manager.LoadConfig(s.config)
 
+	if err := os.Rename(logPath, logPath+".1"); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
 	s.handleLogReopen()
 
-	_, _ = cw.Write([]byte("after\n"))
-
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(data) == 0 {
-		t.Fatal("expected non-empty log after reopen")
+	if _, err := os.Stat(logPath); err != nil {
+		t.Fatalf("log file not reopened at %s after SIGUSR2: %v", logPath, err)
 	}
 }
 
 func TestHandleLogReopenWithBadCapture(t *testing.T) {
-	tmpDir := t.TempDir()
-	subdir := filepath.Join(tmpDir, "subdir")
+	subdir := filepath.Join(t.TempDir(), "subdir")
 	_ = os.MkdirAll(subdir, 0755)
-	logPath := filepath.Join(subdir, "test.log")
-
-	cw, err := logging.NewCaptureWriter(logging.CaptureConfig{
-		ProcessName: "bad-proc",
-		Stream:      "stdout",
-		Logfile:     logPath,
-		Logger:      discardLogger(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = cw.Close() }()
-
-	_ = os.RemoveAll(subdir)
-
 	s := testSupervisor()
-	s.captures["bad-proc:stdout"] = cw
+	s.config.Programs["bad"] = logProgram(filepath.Join(subdir, "test.log"))
+	s.manager.LoadConfig(s.config)
+
+	// The reopen fails for this writer; it must be logged, not fatal.
+	_ = os.RemoveAll(subdir)
 	s.handleLogReopen()
 }
 
 func TestRunClosesCaptures(t *testing.T) {
-	tmpDir := t.TempDir()
-	logPath := filepath.Join(tmpDir, "capture.log")
-
 	cfg := &config.Config{
 		Supervisor: config.SupervisorConfig{ShutdownTimeout: 1},
-		Programs:   map[string]config.ProgramConfig{},
+		Programs: map[string]config.ProgramConfig{
+			"cap-test": logProgram(filepath.Join(t.TempDir(), "capture.log")),
+		},
 	}
 
 	s := New(SupervisorConfig{
 		Config: cfg,
 		Logger: discardLogger(),
 	})
-
-	cw, err := logging.NewCaptureWriter(logging.CaptureConfig{
-		ProcessName: "cap-test",
-		Stream:      "stdout",
-		Logfile:     logPath,
-		Logger:      discardLogger(),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.captures["cap-test:stdout"] = cw
 
 	go func() {
 		time.Sleep(50 * time.Millisecond)
@@ -364,7 +340,6 @@ exitcodes = [0]
 		manager:    mgr,
 		bus:        bus,
 		logger:     logger,
-		captures:   make(map[string]*logging.CaptureWriter),
 		shutdownCh: make(chan struct{}),
 		doneCh:     make(chan struct{}),
 	}
@@ -447,7 +422,6 @@ exitcodes = [0]
 		manager:    mgr,
 		bus:        bus,
 		logger:     logger,
-		captures:   make(map[string]*logging.CaptureWriter),
 		shutdownCh: make(chan struct{}),
 		doneCh:     make(chan struct{}),
 	}
@@ -601,7 +575,6 @@ exitcodes = [0]
 		manager:    mgr,
 		bus:        bus,
 		logger:     logger,
-		captures:   make(map[string]*logging.CaptureWriter),
 		shutdownCh: make(chan struct{}),
 		doneCh:     make(chan struct{}),
 	}
@@ -649,7 +622,6 @@ shutdown_timeout = 5
 		manager:    mgr,
 		bus:        bus,
 		logger:     logger,
-		captures:   make(map[string]*logging.CaptureWriter),
 		shutdownCh: make(chan struct{}),
 		doneCh:     make(chan struct{}),
 	}
