@@ -117,3 +117,36 @@ type writerFunc struct {
 func (w *writerFunc) Write(p []byte) (int, error) {
 	return w.fn(p)
 }
+
+// Data with quotes and backslashes must reach the process unchanged (#112).
+func TestStdin_WriteSpecialCharacters(t *testing.T) {
+	dir := t.TempDir()
+	script := writeScript(t, dir, "cat.sh", "while IFS= read -r line; do printf 'got:%s\\n' \"$line\"; done")
+
+	client, _ := startDaemon(t, `
+[programs.cat]
+command = "`+script+`"
+autostart = true
+startsecs = 0
+`)
+	waitForState(t, client, "cat", "RUNNING", 5*time.Second)
+	time.Sleep(500 * time.Millisecond)
+
+	data := `say "hi" \ back`
+	if err := client.WriteStdin("cat", data); err != nil {
+		t.Fatalf("write stdin: %v", err)
+	}
+
+	want := "got:" + data
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var buf bytes.Buffer
+		if err := client.Tail("cat", "stdout", 4096, &buf); err == nil && strings.Contains(buf.String(), want) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("output never contained %q", want)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
