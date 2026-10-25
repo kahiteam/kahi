@@ -741,6 +741,41 @@ func TestTCPServer(t *testing.T) {
 	}
 }
 
+// A client that never finishes its request headers must be disconnected
+// (slowloris); headers are read before authentication.
+func TestTCPReadHeaderTimeout(t *testing.T) {
+	original := readHeaderTimeout
+	readHeaderTimeout = 200 * time.Millisecond
+	defer func() { readHeaderTimeout = original }()
+
+	srv, _, _ := testServer()
+	srv.authUser = "admin"
+	srv.authPass = testPassHash
+	if err := srv.StartTCP("127.0.0.1:0"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = srv.Stop(context.Background()) }()
+
+	conn, err := net.Dial("tcp", srv.TCPAddr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if _, err := conn.Write([]byte("GET /api/v1/processes HTTP/1.1\r\nHost: x\r\n")); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	start := time.Now()
+	_, err = io.ReadAll(conn)
+	if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		t.Fatal("server kept a connection with incomplete headers open for 5s")
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("connection closed after %v, want about 200ms", elapsed)
+	}
+}
+
 func TestTCPAuthRequired(t *testing.T) {
 	srv, _, _ := testServer()
 	srv.authUser = "admin"
