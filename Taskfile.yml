@@ -66,6 +66,11 @@ tasks:
     cmds:
       - go vet ./...
 
+  wiring:
+    desc: Report code the shipped binary cannot reach (warnings only)
+    cmds:
+      - ./scripts/check-wiring.sh
+
   coverage:
     desc: Generate coverage report and fail if below 85%
     cmds:
