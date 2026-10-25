@@ -5,7 +5,7 @@
 #
 # Pins live in two places, by tool type:
 #   .tool-versions  golangci-lint, installed as a verified binary download
-#   tools/go.mod    gotestsum, govulncheck, goreleaser, as tool directives
+#   tools/go.mod    gotestsum, govulncheck, goreleaser, deadcode, as tool directives
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -60,6 +60,15 @@ check_tool() {
 check_tool gotestsum   gotest.tools/gotestsum              's/^gotestsum version \(v[0-9][^ ]*\).*/\1/p'
 check_tool govulncheck golang.org/x/vuln                   's/^Scanner: govulncheck@\(v[0-9][^ ]*\).*/\1/p'
 check_tool goreleaser  github.com/goreleaser/goreleaser/v2 's/^GitVersion:[[:space:]]*\(v[0-9][^ ]*\).*/\1/p'
+
+# deadcode has no --version flag. `go tool` runs exactly the version that
+# tools/go.mod pins, so checking the pin and the tool directive is enough.
+want_dc="$(go list -modfile=tools/go.mod -m golang.org/x/tools 2>/dev/null | awk '{print $2}')"
+if [[ -z "$want_dc" ]] || ! grep -qE '^[[:space:]]*golang.org/x/tools/cmd/deadcode$' tools/go.mod; then
+  fail deadcode "tools/go.mod does not pin golang.org/x/tools/cmd/deadcode as a tool"
+else
+  ok deadcode "$want_dc"
+fi
 
 # The release job's goreleaser must equal the one pinned in tools/go.mod,
 # otherwise the binaries built in CI differ from a local `task` build.
