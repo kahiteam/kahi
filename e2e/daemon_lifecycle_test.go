@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -362,4 +363,36 @@ func startDaemonCmd(t *testing.T, binary, configPath, dir string, extraFlags ...
 		t.Fatalf("start daemon: %v", err)
 	}
 	return cmd
+}
+
+// A second daemon with the same config must refuse to start instead of
+// taking over the running daemon's control socket (#110).
+func TestDaemon_SecondInstanceRefused(t *testing.T) {
+	client, socketPath := startDaemon(t, `
+[programs.sleeper]
+command = "/bin/sleep 300"
+autostart = true
+startsecs = 0
+`)
+	dir := filepath.Dir(socketPath)
+
+	// Bounded: a second daemon that wrongly starts would otherwise run forever.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	second := exec.CommandContext(ctx, kahiBinary, "daemon", "-c", filepath.Join(dir, "kahi.toml"))
+	second.Dir = dir
+	out, err := second.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("second daemon started and kept running; output:\n%s", out)
+	}
+	if err == nil {
+		t.Fatalf("second daemon exited 0; output:\n%s", out)
+	}
+	if !strings.Contains(string(out), "another kahi daemon is running") {
+		t.Fatalf("second daemon output does not name the running daemon:\n%s", out)
+	}
+
+	if h, err := client.Health(); err != nil || h != "ok" {
+		t.Fatalf("first daemon unreachable after second start attempt: %q, %v", h, err)
+	}
 }

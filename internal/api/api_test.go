@@ -1148,6 +1148,54 @@ func TestRemoveStaleSocketNonSocket(t *testing.T) {
 	}
 }
 
+// shortSockPath returns a socket path under the 104-byte macOS limit.
+func shortSockPath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return filepath.Join(dir, "k.sock")
+}
+
+// A socket some daemon is listening on must be left alone (#110).
+func TestRemoveStaleSocketRefusesLiveSocket(t *testing.T) {
+	path := shortSockPath(t)
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	err = removeStaleSocket(path)
+	if err == nil || !strings.Contains(err.Error(), "another kahi daemon is running") {
+		t.Fatalf("err = %v, want another-daemon refusal", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("live socket was removed: %v", err)
+	}
+}
+
+// A socket file nobody listens on is stale and is removed.
+func TestRemoveStaleSocketRemovesDeadSocket(t *testing.T) {
+	path := shortSockPath(t)
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep the file after Close, as a crashed daemon would.
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	_ = ln.Close()
+
+	if err := removeStaleSocket(path); err != nil {
+		t.Fatalf("stale socket: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("stale socket still present: %v", err)
+	}
+}
+
 func TestRemoveStaleSocketNonexistent(t *testing.T) {
 	err := removeStaleSocket("/tmp/nonexistent-kahi-test-socket-path")
 	if err != nil {
