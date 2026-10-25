@@ -568,6 +568,30 @@ func TestClientWriteStdin(t *testing.T) {
 	}
 }
 
+// Quotes, backslashes and newlines in the data must reach the server
+// intact (#112).
+func TestClientWriteStdinEscapesData(t *testing.T) {
+	var got map[string]string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer ts.Close()
+	c := testClient(ts)
+
+	data := `say "hi" \ back` + "\tend"
+	if err := c.WriteStdin("web", data); err != nil {
+		t.Fatalf("write stdin: %v", err)
+	}
+	if got["data"] != data+"\n" {
+		t.Fatalf("server received %q, want %q", got["data"], data+"\n")
+	}
+}
+
 func TestNewUnixClient(t *testing.T) {
 	c := NewUnixClient("/tmp/kahi-test.sock")
 	if c == nil {

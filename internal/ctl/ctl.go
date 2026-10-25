@@ -450,9 +450,13 @@ func (c *Client) Reread() (map[string]any, error) {
 
 // WriteStdin writes data to a process's stdin.
 func (c *Client) WriteStdin(name, data string) error {
-	body := fmt.Sprintf(`{"data":"%s\n"}`, data)
-	_, err := c.doJSON("POST", "/api/v1/processes/"+name+"/stdin",
-		bytes.NewReader([]byte(body)))
+	// json.Marshal escapes quotes, backslashes and control characters.
+	body, err := json.Marshal(map[string]string{"data": data + "\n"})
+	if err != nil {
+		return err
+	}
+	_, err = c.doJSON("POST", "/api/v1/processes/"+name+"/stdin",
+		bytes.NewReader(body))
 	return err
 }
 
