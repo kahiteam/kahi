@@ -256,7 +256,7 @@ func (m *Manager) StopAll() {
 	m.mu.RUnlock()
 
 	for _, p := range procs {
-		if p.State() == Running || p.State() == Starting {
+		if stoppable(p.State()) {
 			if err := p.Stop(); err != nil {
 				m.logger.Error("stop failed", "process", p.Name(), "error", err)
 			}
@@ -573,13 +573,19 @@ func (m *Manager) StopGroup(name string) error {
 	m.mu.RUnlock()
 
 	for _, p := range procs {
-		if p.State() == Running || p.State() == Starting {
+		if stoppable(p.State()) {
 			if err := p.Stop(); err != nil {
 				m.logger.Error("group stop failed", "group", name, "process", p.Name(), "error", err)
 			}
 		}
 	}
 	return nil
+}
+
+// stoppable reports whether a bulk stop must stop a process in this state.
+// Backoff counts: its pending retry would otherwise spawn it again.
+func stoppable(s State) bool {
+	return s == Running || s == Starting || s == Backoff
 }
 
 // RestartGroup restarts all processes in a group.
