@@ -8,21 +8,24 @@ By participating in this project, you agree to abide by our
 
 ## Prerequisites
 
-- [Go 1.26+](https://go.dev/dl/)
+- [Go](https://go.dev/dl/) at the version named in `go.mod` (with
+  `GOTOOLCHAIN=auto`, the default, a newer Go fetches it automatically)
 - [Task](https://taskfile.dev/) (task runner)
-- [golangci-lint](https://golangci-lint.run/) (optional, for local linting)
 
 ## Getting Started
 
 ```bash
 git clone https://github.com/kahiteam/kahi.git
 cd kahi
-./init.sh
+./scripts/install-hooks.sh
+task setup
 task test
 ```
 
-The `init.sh` script installs Git hooks and verifies tool versions.
-Running `task test` confirms the build and test suite pass on your machine.
+`scripts/install-hooks.sh` installs the Git hooks. `task setup` installs
+golangci-lint at its pinned, checksum-verified version and checks that every
+tool matches its pin. Running `task test` confirms the build and test suite
+pass on your machine.
 
 ## Branching Model
 

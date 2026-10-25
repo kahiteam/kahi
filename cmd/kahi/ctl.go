@@ -277,7 +277,8 @@ var ctlHealthCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), strings.ToUpper(status))
+		// "not_ready" prints as NOT READY.
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), strings.ToUpper(strings.ReplaceAll(status, "_", " ")))
 		if status != "ok" {
 			os.Exit(1)
 		}
@@ -297,7 +298,8 @@ var ctlReadyCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), strings.ToUpper(status))
+		// "not_ready" prints as NOT READY.
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), strings.ToUpper(strings.ReplaceAll(status, "_", " ")))
 		if status != "ready" {
 			os.Exit(1)
 		}

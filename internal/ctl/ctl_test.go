@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -365,6 +366,23 @@ func TestClientReady(t *testing.T) {
 	}
 }
 
+// An unknown process name is reported as an error, not an empty status
+// (#114).
+func TestClientReadyUnknownProcess(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"no such process: nosuch","code":"BAD_REQUEST"}`))
+	}))
+	defer ts.Close()
+	c := testClient(ts)
+
+	status, err := c.Ready([]string{"nosuch"})
+	if err == nil || !strings.Contains(err.Error(), "no such process") {
+		t.Fatalf("status = %q, err = %v; want a no-such-process error", status, err)
+	}
+}
+
 func TestClientConnectionFailure(t *testing.T) {
 	c := NewTCPClient("127.0.0.1:1", "", "")
 	err := c.Start("web")
@@ -405,8 +423,33 @@ func TestColorState(t *testing.T) {
 	if !strings.Contains(colorState("STARTING"), "\033[33m") {
 		t.Fatal("expected yellow for STARTING")
 	}
-	if colorState("STOPPED") != "STOPPED" {
-		t.Fatal("STOPPED should not be colored")
+	if colorState("STOPPED") != "\033[39mSTOPPED\033[0m" {
+		t.Fatal("STOPPED should use the default foreground colour")
+	}
+}
+
+// With colour on, rows with coloured and uncoloured states must still align
+// (#114): tabwriter counts escape bytes, so every state carries the same
+// number of them.
+func TestFormatStatusTableColorAligned(t *testing.T) {
+	procs := []ProcessInfo{
+		{Name: "a", State: "RUNNING", PID: 11},
+		{Name: "b", State: "STOPPED"},
+		{Name: "c", State: "FATAL"},
+		{Name: "d", State: "EXITED", ExitStatus: 1},
+	}
+	var buf bytes.Buffer
+	if err := FormatStatusTable(procs, &buf, true); err != nil {
+		t.Fatal(err)
+	}
+	ansi := regexp.MustCompile("\033\\[[0-9;]*m")
+	lines := strings.Split(strings.TrimRight(ansi.ReplaceAllString(buf.String(), ""), "\n"), "\n")
+	pidCol := strings.Index(lines[0], "PID")
+	for _, line := range lines[1:] {
+		fields := strings.Fields(line)
+		if got := strings.Index(line, " "+fields[2]) + 1; got != pidCol {
+			t.Fatalf("PID column at %d, header at %d, in %q\n%s", got, pidCol, line, strings.Join(lines, "\n"))
+		}
 	}
 }
 
