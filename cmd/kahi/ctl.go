@@ -324,7 +324,7 @@ var ctlRereadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "added=%v changed=%v removed=%v\n",
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "would apply: added=%v changed=%v removed=%v\n",
 			result["added"], result["changed"], result["removed"])
 		return nil
 	},
