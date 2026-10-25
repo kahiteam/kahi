@@ -35,40 +35,30 @@ else
 fi
 
 # tools/go.mod tools: compare the pinned module version against what runs.
+# These run through `go tool -modfile=tools/go.mod`, which always builds and
+# runs exactly the version tools/go.mod pins, so their --version output cannot
+# drift from the pin. Comparing it anyway meant compiling goreleaser from
+# source on every run (~110s in CI). Check instead that each one is pinned and
+# declared as a tool, so `go tool` resolves it.
 # The pin comes from `go list -m`, not from grepping go.mod: the `tool (` block
 # carries no versions, those sit in `require` as indirect entries.
 check_tool() {
-  local name="$1" module="$2" pattern="$3"
-  local want got
+  local name="$1" module="$2" tool="$3"
+  local want
   want="$(go list -modfile=tools/go.mod -m "$module" 2>/dev/null | awk '{print $2}')"
   if [[ -z "$want" ]]; then
     fail "$name" "tools/go.mod does not pin $module"
-    return
-  fi
-  got="$(go tool -modfile=tools/go.mod "$name" --version 2>/dev/null \
-    | sed -n "$pattern" | head -1)"
-  got="v${got#v}"
-  if [[ "$got" != "$want" ]]; then
-    fail "$name" "pinned $want, found ${got:-unknown}"
+  elif ! grep -qE "^[[:space:]]*${tool//./\\.}\$" tools/go.mod; then
+    fail "$name" "tools/go.mod does not declare $tool as a tool"
   else
     ok "$name" "$want"
   fi
 }
 
-# Each tool prints its version differently; parse the specific line, never the
-# first version-shaped string (govulncheck leads with the Go version).
-check_tool gotestsum   gotest.tools/gotestsum              's/^gotestsum version \(v[0-9][^ ]*\).*/\1/p'
-check_tool govulncheck golang.org/x/vuln                   's/^Scanner: govulncheck@\(v[0-9][^ ]*\).*/\1/p'
-check_tool goreleaser  github.com/goreleaser/goreleaser/v2 's/^GitVersion:[[:space:]]*\(v[0-9][^ ]*\).*/\1/p'
-
-# deadcode has no --version flag. `go tool` runs exactly the version that
-# tools/go.mod pins, so checking the pin and the tool directive is enough.
-want_dc="$(go list -modfile=tools/go.mod -m golang.org/x/tools 2>/dev/null | awk '{print $2}')"
-if [[ -z "$want_dc" ]] || ! grep -qE '^[[:space:]]*golang.org/x/tools/cmd/deadcode$' tools/go.mod; then
-  fail deadcode "tools/go.mod does not pin golang.org/x/tools/cmd/deadcode as a tool"
-else
-  ok deadcode "$want_dc"
-fi
+check_tool gotestsum   gotest.tools/gotestsum              gotest.tools/gotestsum
+check_tool govulncheck golang.org/x/vuln                   golang.org/x/vuln/cmd/govulncheck
+check_tool goreleaser  github.com/goreleaser/goreleaser/v2 github.com/goreleaser/goreleaser/v2
+check_tool deadcode    golang.org/x/tools                  golang.org/x/tools/cmd/deadcode
 
 # The release job's goreleaser must equal the one pinned in tools/go.mod,
 # otherwise the binaries built in CI differ from a local `task` build.
