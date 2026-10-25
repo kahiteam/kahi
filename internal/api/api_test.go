@@ -114,8 +114,9 @@ func (m *mockGroupManager) StopGroup(name string) error    { return m.StartGroup
 func (m *mockGroupManager) RestartGroup(name string) error { return m.StartGroup(name) }
 
 type mockConfigManager struct {
-	cfg      any
-	reloadFn func() ([]string, []string, []string, error)
+	cfg       any
+	reloadFn  func() ([]string, []string, []string, error)
+	previewed bool
 }
 
 func (m *mockConfigManager) GetConfig() any { return m.cfg }
@@ -124,6 +125,13 @@ func (m *mockConfigManager) Reload() ([]string, []string, []string, error) {
 		return m.reloadFn()
 	}
 	return []string{"new"}, []string{"changed"}, []string{"removed"}, nil
+}
+
+// PreviewReload reports a fixed diff and records that it ran, so tests can
+// tell a preview from an applied reload.
+func (m *mockConfigManager) PreviewReload() ([]string, []string, []string, error) {
+	m.previewed = true
+	return []string{"new"}, nil, nil, nil
 }
 
 type mockDaemonInfo struct {
@@ -493,6 +501,37 @@ func TestReloadConfig(t *testing.T) {
 	}
 	if body["status"] != "reloaded" {
 		t.Fatalf("expected reloaded, got %v", body["status"])
+	}
+}
+
+// dry_run=true (ctl reread) must preview the diff and never apply it.
+func TestReloadConfigDryRunOnlyPreviews(t *testing.T) {
+	pm := &mockProcessManager{}
+	gm := &mockGroupManager{}
+	reloaded := false
+	cm := &mockConfigManager{reloadFn: func() ([]string, []string, []string, error) {
+		reloaded = true
+		return nil, nil, nil, nil
+	}}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := NewServer(Config{}, pm, gm, cm, &mockDaemonInfo{ready: true}, events.NewBus(logger), logger)
+
+	req := httptest.NewRequest("POST", "/api/v1/config/reload?dry_run=true", nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if reloaded || !cm.previewed {
+		t.Fatalf("reloaded = %v, previewed = %v; want a preview only", reloaded, cm.previewed)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["status"] != "preview" || fmt.Sprint(body["added"]) != "[new]" {
+		t.Fatalf("body = %v, want status preview with added [new]", body)
 	}
 }
 
