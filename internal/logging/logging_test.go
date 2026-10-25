@@ -226,3 +226,59 @@ func TestDaemonLoggerBadPath(t *testing.T) {
 		t.Errorf("error message = %q, want it to contain %q", err.Error(), "cannot open log file")
 	}
 }
+
+// After logrotate renames the file, Reopen makes later writes land in a new
+// file at the original path (#129).
+func TestReopenableFileReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kahi.log")
+	f, err := OpenReopenableFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	_, _ = f.Write([]byte("before\n"))
+	if err := os.Rename(path, path+".1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Reopen(); err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	_, _ = f.Write([]byte("after\n"))
+
+	if b, _ := os.ReadFile(path); string(b) != "after\n" {
+		t.Fatalf("new file = %q, want only the line written after reopen", b)
+	}
+	if b, _ := os.ReadFile(path + ".1"); string(b) != "before\n" {
+		t.Fatalf("rotated file = %q, want only the line written before", b)
+	}
+}
+
+// A failed reopen keeps writing to the old file instead of losing output.
+func TestReopenableFileReopenFailureKeepsOldFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "logs")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "kahi.log")
+	f, err := OpenReopenableFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	rotated := filepath.Join(t.TempDir(), "kahi.log.1")
+	if err := os.Rename(path, rotated); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.RemoveAll(dir)
+	if err := f.Reopen(); err == nil {
+		t.Fatal("reopen into a missing directory succeeded")
+	}
+	if _, err := f.Write([]byte("still here\n")); err != nil {
+		t.Fatalf("write after failed reopen: %v", err)
+	}
+	if b, _ := os.ReadFile(rotated); string(b) != "still here\n" {
+		t.Fatalf("old file = %q, want the write to land there", b)
+	}
+}

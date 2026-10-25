@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 )
 
@@ -69,25 +70,100 @@ func ValidateLevel(s string) error {
 // DaemonLogger creates a logger for the daemon, optionally writing to a file.
 // Returns the logger and a cleanup function to close the file (if opened).
 func DaemonLogger(level, format, logfile string) (*slog.Logger, func(), error) {
-	var out io.Writer = os.Stdout
-	var cleanup func()
-
-	if logfile != "" {
-		f, err := openLogFile(logfile, 0644)
-		if err != nil {
-			return nil, nil, fmt.Errorf("cannot open log file: %s: %w", logfile, err)
-		}
-		out = f
-		cleanup = func() { _ = f.Close() }
+	dl, err := OpenDaemonLog(level, format, logfile)
+	if err != nil {
+		return nil, nil, err
 	}
+	var cleanup func()
+	if dl.file != nil {
+		cleanup = func() { _ = dl.Close() }
+	}
+	return dl.Logger, cleanup, nil
+}
 
-	logger := New(LogConfig{
-		Level:  level,
-		Format: format,
-		Output: out,
-	})
+// DaemonLog is the daemon's logger and, when it writes to a file, that file,
+// which SIGUSR2 reopens after logrotate renames it.
+type DaemonLog struct {
+	Logger *slog.Logger
+	file   *ReopenableFile
+}
 
-	return logger, cleanup, nil
+// OpenDaemonLog creates the daemon logger, writing to logfile or, when it is
+// empty, to stdout.
+func OpenDaemonLog(level, format, logfile string) (*DaemonLog, error) {
+	dl := &DaemonLog{}
+	var out io.Writer = os.Stdout
+	if logfile != "" {
+		f, err := OpenReopenableFile(logfile)
+		if err != nil {
+			return nil, fmt.Errorf("cannot open log file: %s: %w", logfile, err)
+		}
+		dl.file = f
+		out = f
+	}
+	dl.Logger = New(LogConfig{Level: level, Format: format, Output: out})
+	return dl, nil
+}
+
+// Reopen reopens the log file at its path; a no-op when logging to stdout.
+func (d *DaemonLog) Reopen() error {
+	if d.file == nil {
+		return nil
+	}
+	return d.file.Reopen()
+}
+
+// Close closes the log file; a no-op when logging to stdout.
+func (d *DaemonLog) Close() error {
+	if d.file == nil {
+		return nil
+	}
+	return d.file.Close()
+}
+
+// ReopenableFile is a log file writer whose file can be reopened at the same
+// path while other goroutines write to it.
+type ReopenableFile struct {
+	mu   sync.Mutex
+	path string
+	f    *os.File
+}
+
+// OpenReopenableFile opens path for appending, with the same symlink
+// protections as the capture logs.
+func OpenReopenableFile(path string) (*ReopenableFile, error) {
+	f, err := openLogFile(path, 0644)
+	if err != nil {
+		return nil, err
+	}
+	return &ReopenableFile{path: path, f: f}, nil
+}
+
+func (r *ReopenableFile) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.f.Write(p)
+}
+
+// Reopen opens the path again and swaps the new file in. On failure the old
+// file stays in use, so no output is lost.
+func (r *ReopenableFile) Reopen() error {
+	f, err := openLogFile(r.path, 0644)
+	if err != nil {
+		return fmt.Errorf("cannot reopen log file: %s: %w", r.path, err)
+	}
+	r.mu.Lock()
+	old := r.f
+	r.f = f
+	r.mu.Unlock()
+	return old.Close()
+}
+
+// Close closes the current file.
+func (r *ReopenableFile) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.f.Close()
 }
 
 // LevelVar wraps a slog.LevelVar for dynamic level changes at runtime.
