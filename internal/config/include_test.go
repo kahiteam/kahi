@@ -267,3 +267,69 @@ stopwaitsecs = 120
 		}
 	}
 }
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Variables in included files are expanded, with %(here)s naming the
+// included file's own directory (#109).
+func TestLoadWithIncludesExpandsIncludedFiles(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("KAHI_INCLUDE_TEST", "from-env")
+	writeFile(t, filepath.Join(dir, "kahi.toml"), `include = ["conf.d/*.toml"]`+"\n")
+	writeFile(t, filepath.Join(dir, "conf.d", "web.toml"), `[programs.web]
+command = "%(here)s/run %(program_name)s ${KAHI_INCLUDE_TEST}"
+`)
+
+	cfg, _, err := LoadWithIncludes(filepath.Join(dir, "kahi.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, "conf.d") + "/run web from-env"
+	if got := cfg.Programs["web"].Command; got != want {
+		t.Fatalf("command = %q, want %q", got, want)
+	}
+}
+
+// An included file's own include is processed, relative to that file.
+func TestLoadWithIncludesNested(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "kahi.toml"), `include = ["conf.d/*.toml"]`+"\n")
+	writeFile(t, filepath.Join(dir, "conf.d", "a.toml"), `include = ["more/*.toml"]
+
+[programs.a]
+command = "/bin/a"
+`)
+	writeFile(t, filepath.Join(dir, "conf.d", "more", "b.toml"), `[programs.b]
+command = "/bin/b"
+`)
+
+	cfg, _, err := LoadWithIncludes(filepath.Join(dir, "kahi.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a", "b"} {
+		if _, ok := cfg.Programs[name]; !ok {
+			t.Fatalf("program %q from a nested include is missing", name)
+		}
+	}
+}
+
+// A file that includes the main config back is a cycle, not an endless loop.
+func TestLoadWithIncludesCycle(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "kahi.toml"), `include = ["conf.d/*.toml"]`+"\n")
+	writeFile(t, filepath.Join(dir, "conf.d", "loop.toml"), `include = ["../kahi.toml"]`+"\n")
+
+	_, _, err := LoadWithIncludes(filepath.Join(dir, "kahi.toml"))
+	if err == nil || !strings.Contains(err.Error(), "circular include") {
+		t.Fatalf("err = %v, want a circular include error", err)
+	}
+}
