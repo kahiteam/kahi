@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -32,7 +33,9 @@ func StartE2EDaemon(t *testing.T, configTOML string) *E2EDaemon {
 	binary := findKahiBinary(t)
 
 	dir := TempDir(t)
-	socketPath := fmt.Sprintf("%s/kahi-e2e-%d.sock", dir, time.Now().UnixNano())
+	// dir is unique per test; a short name keeps the path under the
+	// 104-byte macOS limit for Unix sockets.
+	socketPath := filepath.Join(dir, "kahi.sock")
 
 	fullConfig := fmt.Sprintf(`
 [supervisor]

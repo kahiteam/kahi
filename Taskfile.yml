@@ -118,8 +118,14 @@ tasks:
 
   snapshot:
     desc: Build a local release snapshot with the pinned goreleaser
+    # .goreleaser.yml reads GOVERSION (release.yml exports it in CI). Signing,
+    # SBOMs and images need CI identity and tooling, so a local snapshot
+    # builds the archives only.
+    env:
+      GOVERSION:
+        sh: go env GOVERSION
     cmds:
-      - '{{.GORELEASER}} release --snapshot --clean'
+      - '{{.GORELEASER}} release --snapshot --clean --skip=publish,sign,docker,sbom,validate'
 
   vulncheck:
     desc: Run govulncheck at the pinned version
