@@ -411,6 +411,41 @@ func (m *Manager) RemoveProcess(name string) {
 	delete(m.processes, name)
 }
 
+// ReopenLogs reopens every capture log file, for logrotate setups that rename
+// the file and then send SIGUSR2. A failure is logged and the remaining
+// writers are still reopened.
+func (m *Manager) ReopenLogs() {
+	for key, cw := range m.captureWriters() {
+		if err := cw.Reopen(); err != nil {
+			m.logger.Error("log reopen failed", "capture", key, "error", err)
+		}
+	}
+}
+
+// CloseLogs closes every capture log file. The daemon calls it last during
+// shutdown.
+func (m *Manager) CloseLogs() {
+	for key, cw := range m.captureWriters() {
+		if err := cw.Close(); err != nil {
+			m.logger.Warn("capture writer close failed during shutdown", "capture", key, "error", err)
+		}
+	}
+}
+
+// captureWriters returns a snapshot of the non-nil capture writers, so they
+// can be reopened or closed without holding m.mu during file I/O.
+func (m *Manager) captureWriters() map[string]*logging.CaptureWriter {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]*logging.CaptureWriter, len(m.captures))
+	for key, cw := range m.captures {
+		if cw != nil {
+			out[key] = cw
+		}
+	}
+	return out
+}
+
 // --- api.ProcessManager implementation ---
 
 // List returns info for all processes.

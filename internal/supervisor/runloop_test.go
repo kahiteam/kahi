@@ -61,9 +61,6 @@ func TestNewSupervisor(t *testing.T) {
 	if s.bus == nil {
 		t.Fatal("expected non-nil bus")
 	}
-	if s.captures == nil {
-		t.Fatal("expected non-nil captures map")
-	}
 	if s.shutdownCh == nil {
 		t.Fatal("expected non-nil shutdownCh")
 	}
