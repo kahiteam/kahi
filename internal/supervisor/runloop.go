@@ -287,25 +287,75 @@ func (s *Supervisor) waitForShutdown() {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
+	// The main loop no longer runs, so SIGCHLD must be handled here:
+	// otherwise exited children stay zombies and never leave STOPPING.
+	var sigC <-chan os.Signal
+	if s.signals != nil {
+		sigC = s.signals.C
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			s.logger.Warn("shutdown timeout exceeded, killing remaining processes")
+			s.killRemaining()
 			return
-		case <-ticker.C:
-			allStopped := true
-			for _, p := range s.manager.Processes() {
-				state := p.State()
-				if state == process.Running || state == process.Starting || state == process.Stopping {
-					allStopped = false
-					break
+		case sig := <-sigC:
+			switch sig {
+			case syscall.SIGCHLD:
+				s.handleSigchld()
+				if s.allStopped() {
+					return
 				}
+			case syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT:
+				s.logger.Warn("signal received during shutdown, killing remaining processes", "signal", sig.String())
+				s.killRemaining()
+				return
 			}
-			if allStopped {
+		case <-ticker.C:
+			// Reap on every tick too: coalesced or dropped SIGCHLDs must
+			// not stall shutdown.
+			s.handleSigchld()
+			if s.allStopped() {
 				return
 			}
 		}
 	}
+}
+
+// killReapGrace bounds how long killRemaining waits to reap SIGKILLed
+// children. It is a var so tests can shorten it.
+var killReapGrace = time.Second
+
+// killRemaining sends SIGKILL to every process that has not stopped and
+// reaps them, so no child outlives the daemon.
+func (s *Supervisor) killRemaining() {
+	for _, p := range s.manager.Processes() {
+		if active(p.State()) {
+			p.Kill()
+		}
+	}
+	deadline := time.Now().Add(killReapGrace)
+	for {
+		s.handleSigchld()
+		if s.allStopped() || time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (s *Supervisor) allStopped() bool {
+	for _, p := range s.manager.Processes() {
+		if active(p.State()) {
+			return false
+		}
+	}
+	return true
+}
+
+func active(state process.State) bool {
+	return state == process.Running || state == process.Starting || state == process.Stopping
 }
 
 // Shutdown triggers a graceful shutdown.

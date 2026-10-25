@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -146,6 +147,103 @@ stopwaitsecs = 2
 	// Shutdown should complete within a reasonable time (stopwaitsecs + buffer).
 	if elapsed > 30*time.Second {
 		t.Fatalf("shutdown took %v, expected < 30s", elapsed)
+	}
+}
+
+// shutdownDaemon starts a daemon with the given shutdown_timeout and one
+// program, waits for the program to run, and returns the daemon command,
+// the program's PID, and a channel that receives the daemon's exit.
+func shutdownDaemon(t *testing.T, shutdownTimeout int, program string) (*exec.Cmd, int, <-chan error) {
+	t.Helper()
+	// Short temp dir: macOS caps Unix socket paths at 104 bytes.
+	dir, err := os.MkdirTemp("", "k-")
+	if err != nil {
+		t.Fatalf("create temp dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	socketPath := filepath.Join(dir, "kahi.sock")
+	configPath := filepath.Join(dir, "kahi.toml")
+
+	config := fmt.Sprintf("[supervisor]\nshutdown_timeout = %d\n\n[server.unix]\nfile = %q\n\n%s", shutdownTimeout, socketPath, program)
+	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cmd := startDaemonCmd(t, kahiBinary, configPath, dir)
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+	})
+
+	waitForSocket(t, socketPath, 5*time.Second)
+	client := ctl.NewUnixClient(socketPath)
+	waitForHealth(t, client, 3*time.Second)
+	waitForState(t, client, "worker", "RUNNING", 5*time.Second)
+	info, err := getProcessInfo(client, "worker")
+	if err != nil {
+		t.Fatalf("process info: %v", err)
+	}
+	return cmd, info.PID, done
+}
+
+// A child that exits on SIGTERM must be reaped during shutdown, so the
+// daemon exits promptly instead of waiting out stopwaitsecs or
+// shutdown_timeout (#90).
+func TestDaemon_SIGTERMShutdownIsPrompt(t *testing.T) {
+	cmd, _, done := shutdownDaemon(t, 30, `
+[programs.worker]
+command = "/bin/sleep 300"
+autostart = true
+startsecs = 0
+stopwaitsecs = 20
+`)
+
+	start := time.Now()
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("signal daemon: %v", err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("daemon exited with error: %v", err)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("daemon did not exit within 15 seconds")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("shutdown took %v; exited children are not being reaped", elapsed)
+	}
+}
+
+// When shutdown_timeout expires, a child that ignores its stop signal must
+// be SIGKILLed rather than left running after the daemon exits.
+func TestDaemon_ShutdownTimeoutKillsChildren(t *testing.T) {
+	dir := t.TempDir()
+	// The ignored disposition survives exec, so the PID kahi tracks is the
+	// one that ignores SIGTERM.
+	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\nexec sleep 300")
+
+	cmd, pid, done := shutdownDaemon(t, 2, `
+[programs.worker]
+command = "`+script+`"
+autostart = true
+startsecs = 0
+stopwaitsecs = 60
+`)
+
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("signal daemon: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("daemon did not exit within 15 seconds")
+	}
+
+	if err := syscall.Kill(pid, 0); err != syscall.ESRCH {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+		t.Fatalf("child %d outlived the daemon (kill 0: %v)", pid, err)
 	}
 }
 
