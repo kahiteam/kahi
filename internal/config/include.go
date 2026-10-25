@@ -137,7 +137,31 @@ func LoadWithIncludes(path string) (*Config, []string, error) {
 			strings.Join(msgs, "\n  "))
 	}
 
+	warnings = append(warnings, stopWaitWarnings(cfg)...)
+
 	return cfg, warnings, nil
+}
+
+// stopWaitWarnings flags programs whose stopwaitsecs exceeds
+// shutdown_timeout: daemon shutdown SIGKILLs them before their own stop
+// window ends. It runs after includes so included programs are covered.
+func stopWaitWarnings(cfg *Config) []string {
+	limit := cfg.Supervisor.ShutdownTimeout
+	var names []string
+	for name, p := range cfg.Programs {
+		if p.Stopwaitsecs > limit {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+
+	var warnings []string
+	for _, name := range names {
+		warnings = append(warnings, fmt.Sprintf(
+			"program %q: stopwaitsecs (%d) exceeds supervisor.shutdown_timeout (%d); daemon shutdown will SIGKILL it after %ds",
+			name, cfg.Programs[name].Stopwaitsecs, limit, limit))
+	}
+	return warnings
 }
 
 func validateGroupReferences(cfg *Config) []error {
