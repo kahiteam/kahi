@@ -31,8 +31,8 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           # Key the module cache on both modules: without tools/go.sum a
@@ -40,7 +40,7 @@ jobs:
           cache-dependency-path: |
             go.sum
             tools/go.sum
-      - uses: arduino/setup-task@v3
+      - uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
         with:
           version: '3.54.0'
       - run: task test-integration
@@ -49,7 +49,7 @@ jobs:
         name: E2E tests
       - name: Integration test check run
         if: always()
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const fs = require('fs');
@@ -112,7 +112,7 @@ jobs:
         # cannot post comments. Do not fail the build when posting is denied.
         if: always() && github.event_name == 'pull_request'
         continue-on-error: true
-        uses: marocchino/sticky-pull-request-comment@v3
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
         with:
           header: integration-test-results
           path: pr-comment-integration.md
@@ -138,7 +138,7 @@ jobs:
         # cannot post comments. Do not fail the build when posting is denied.
         if: always() && github.event_name == 'pull_request'
         continue-on-error: true
-        uses: marocchino/sticky-pull-request-comment@v3
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
         with:
           header: e2e-test-results
           path: pr-comment-e2e.md
