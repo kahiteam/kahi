@@ -101,10 +101,27 @@ func TestWaitForShutdownWithStoppedProcesses(t *testing.T) {
 	}
 }
 
+// A SIGHUP that arrives while a reload is running is ignored, and
+// handleReload returns at once instead of blocking the main loop.
+func TestHandleReloadWhileReloading(t *testing.T) {
+	s := testSupervisor()
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+
+	select {
+	case <-s.handleReload():
+	case <-time.After(time.Second):
+		t.Fatal("handleReload blocked while another reload held reloadMu")
+	}
+	if _, ok := s.config.Programs["web"]; !ok {
+		t.Fatal("config changed although the reload was ignored")
+	}
+}
+
 func TestHandleReloadDuringShutdown(t *testing.T) {
 	s := testSupervisor()
 	s.shutting = true
-	s.handleReload()
+	<-s.handleReload()
 
 	if _, ok := s.config.Programs["web"]; !ok {
 		t.Fatal("config should not change during shutdown reload")
@@ -113,7 +130,7 @@ func TestHandleReloadDuringShutdown(t *testing.T) {
 
 func TestHandleReloadConfigLoadError(t *testing.T) {
 	s := testSupervisor()
-	s.handleReload()
+	<-s.handleReload()
 
 	if _, ok := s.config.Programs["web"]; !ok {
 		t.Fatal("config should not change after failed reload")
@@ -328,7 +345,7 @@ exitcodes = [0]
 	}
 	s.manager.LoadConfig(cfg)
 
-	s.handleReload()
+	<-s.handleReload()
 
 	if _, ok := s.config.Programs["api"]; !ok {
 		t.Fatal("expected 'api' program after reload")
@@ -410,7 +427,7 @@ exitcodes = [0]
 	}
 	s.manager.LoadConfig(cfg)
 
-	s.handleReload()
+	<-s.handleReload()
 
 	// "web" should be changed (different command).
 	if _, ok := s.config.Programs["web"]; !ok {
@@ -562,7 +579,7 @@ exitcodes = [0]
 		doneCh:     make(chan struct{}),
 	}
 	s.manager.LoadConfig(cfg)
-	s.handleReload()
+	<-s.handleReload()
 }
 
 func TestHandleReloadErrorBranches(t *testing.T) {
@@ -610,7 +627,7 @@ shutdown_timeout = 5
 	}
 	// Deliberately do NOT call s.manager.LoadConfig(cfg) so that StopGroup/RemoveGroup
 	// fail on the "removed" programs, exercising the error branches.
-	s.handleReload()
+	<-s.handleReload()
 
 	// After reload, the config should have been updated (empty programs).
 	if _, ok := s.config.Programs["web"]; ok {

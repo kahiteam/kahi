@@ -3,6 +3,7 @@ package process
 import (
 	"fmt"
 	"log/slog"
+	"reflect"
 	"sort"
 	"sync"
 	"time"
@@ -713,16 +714,9 @@ func ConfigDiff(old, new *config.Config) (added, changed, removed []string) {
 	return
 }
 
+// programChanged compares every field: environment, logging and autostart
+// changes must restart the program too. ProgramConfig holds a map, a slice
+// and a *bool that are fresh on every load, so compare by value.
 func programChanged(a, b config.ProgramConfig) bool {
-	return a.Command != b.Command ||
-		a.Numprocs != b.Numprocs ||
-		a.Priority != b.Priority ||
-		a.Startsecs != b.Startsecs ||
-		a.Startretries != b.Startretries ||
-		a.Stopsignal != b.Stopsignal ||
-		a.Stopwaitsecs != b.Stopwaitsecs ||
-		a.Autorestart != b.Autorestart ||
-		a.Directory != b.Directory ||
-		a.User != b.User ||
-		a.Umask != b.Umask
+	return !reflect.DeepEqual(a, b)
 }
