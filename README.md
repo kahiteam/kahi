@@ -254,7 +254,7 @@ kahi init -o kahi.toml        # write to file
 # minfds = 1024                 # minimum file descriptors
 # minprocs = 200                # minimum process count
 # nocleanup = false             # preserve stale log files on startup
-# shutdown_timeout = 30         # seconds to wait for graceful shutdown
+# shutdown_timeout = 30         # seconds to wait for graceful shutdown, then SIGKILL (keep >= every stopwaitsecs)
 
 [server.unix]
 # file = "/var/run/kahi.sock"   # Unix socket path
