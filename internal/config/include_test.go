@@ -216,3 +216,54 @@ func TestValidateGroupReferencesMultipleGroups(t *testing.T) {
 		t.Fatal("expected error for program in multiple groups")
 	}
 }
+
+func TestLoadWithIncludesWarnsStopwaitsecsOverShutdownTimeout(t *testing.T) {
+	dir := t.TempDir()
+	confDir := filepath.Join(dir, "conf.d")
+	if err := os.MkdirAll(confDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	mainCfg := `include = ["` + filepath.Join(confDir, "*.toml") + `"]
+
+[supervisor]
+shutdown_timeout = 30
+
+[programs.web]
+command = "/usr/bin/web"
+stopwaitsecs = 30
+`
+	// The slow program comes from an include, so the check must run after
+	// includes are merged.
+	dbCfg := `[programs.db]
+command = "/usr/bin/db"
+stopwaitsecs = 120
+`
+	mainPath := filepath.Join(dir, "kahi.toml")
+	if err := os.WriteFile(mainPath, []byte(mainCfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(confDir, "db.toml"), []byte(dbCfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, warnings, err := LoadWithIncludes(mainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var found []string
+	for _, w := range warnings {
+		if strings.Contains(w, "stopwaitsecs") {
+			found = append(found, w)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("stopwaitsecs warnings = %q, want exactly one, for db", found)
+	}
+	for _, want := range []string{`"db"`, "120", "30"} {
+		if !strings.Contains(found[0], want) {
+			t.Fatalf("warning %q does not mention %s", found[0], want)
+		}
+	}
+}
