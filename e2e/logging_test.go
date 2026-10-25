@@ -7,8 +7,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -190,5 +192,59 @@ strip_ansi = true
 	}
 	if !strings.Contains(output, "red text") {
 		t.Fatalf("text content missing: %q", output)
+	}
+}
+
+// logrotate renames the live log file and sends SIGUSR2; the daemon must
+// reopen the file at its configured path so new output lands there and the
+// rotated file stops growing (#107).
+func TestLog_SIGUSR2ReopensRotatedLog(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "out.log")
+	script := writeScript(t, dir, "ticker.sh", "while :; do echo tick; sleep 0.1; done")
+
+	client, _ := startDaemon(t, `
+[programs.ticker]
+command = "`+script+`"
+autostart = true
+startsecs = 0
+stopwaitsecs = 2
+stdout_logfile = "`+logPath+`"
+`)
+	waitForState(t, client, "ticker", "RUNNING", 5*time.Second)
+	time.Sleep(300 * time.Millisecond)
+
+	rotated := logPath + ".1"
+	if err := os.Rename(logPath, rotated); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	pid, err := client.PID("")
+	if err != nil {
+		t.Fatalf("daemon pid: %v", err)
+	}
+	daemon, err := strconv.Atoi(strings.TrimSpace(pid))
+	if err != nil {
+		t.Fatalf("daemon pid %q: %v", pid, err)
+	}
+	if err := syscall.Kill(daemon, syscall.SIGUSR2); err != nil {
+		t.Fatalf("SIGUSR2: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if b, err := os.ReadFile(logPath); err == nil && strings.Contains(string(b), "tick") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no output in the reopened log file 5s after SIGUSR2")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	before, _ := os.Stat(rotated)
+	time.Sleep(500 * time.Millisecond)
+	after, _ := os.Stat(rotated)
+	if after.Size() != before.Size() {
+		t.Fatalf("rotated file still growing after SIGUSR2 (%d -> %d bytes)", before.Size(), after.Size())
 	}
 }
