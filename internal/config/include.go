@@ -11,12 +11,19 @@ import (
 // loading and merging all matched files. Returns warnings for patterns
 // that match no files. The configDir is the directory of the main config file.
 func ResolveIncludes(cfg *Config, configDir string) ([]string, error) {
+	return resolveIncludes(cfg, configDir, make(map[string]bool))
+}
+
+// resolveIncludes merges cfg's includes. seen holds every file already
+// loaded, so a file included twice, or an include cycle, is an error.
+// Included files are expanded on their own, so %(here)s is the directory of
+// the file that uses it, and their own includes resolve relative to them.
+func resolveIncludes(cfg *Config, configDir string, seen map[string]bool) ([]string, error) {
 	if len(cfg.Include) == 0 {
 		return nil, nil
 	}
 
 	var warnings []string
-	seen := make(map[string]bool)
 
 	for _, pattern := range cfg.Include {
 		// Resolve relative patterns against config directory.
@@ -53,6 +60,15 @@ func ResolveIncludes(cfg *Config, configDir string) ([]string, error) {
 				return warnings, fmt.Errorf("include %s: %w", absPath, err)
 			}
 			warnings = append(warnings, incWarnings...)
+
+			if err := ExpandVariables(included, absPath); err != nil {
+				return warnings, fmt.Errorf("include %s: variable expansion failed: %w", absPath, err)
+			}
+			nested, err := resolveIncludes(included, filepath.Dir(absPath), seen)
+			warnings = append(warnings, nested...)
+			if err != nil {
+				return warnings, err
+			}
 
 			// Merge programs from included files.
 			if err := mergePrograms(cfg, included, absPath); err != nil {
@@ -120,8 +136,13 @@ func LoadWithIncludes(path string) (*Config, []string, error) {
 		return nil, warnings, fmt.Errorf("variable expansion failed: %w", err)
 	}
 
-	// Resolve includes.
-	incWarnings, err := ResolveIncludes(cfg, configDir)
+	// Resolve includes. The main file counts as seen, so a file that
+	// includes it back is reported as a cycle.
+	seen := make(map[string]bool)
+	if abs, err := filepath.Abs(path); err == nil {
+		seen[abs] = true
+	}
+	incWarnings, err := resolveIncludes(cfg, configDir, seen)
 	warnings = append(warnings, incWarnings...)
 	if err != nil {
 		return nil, warnings, err
