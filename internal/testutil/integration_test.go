@@ -50,6 +50,10 @@ func (m *mockConfigManager) Reload() (added, changed, removed []string, err erro
 	return nil, nil, nil, nil
 }
 
+func (m *mockConfigManager) PreviewReload() (added, changed, removed []string, err error) {
+	return nil, nil, nil, nil
+}
+
 type mockDaemonInfo struct{}
 
 func (m *mockDaemonInfo) IsShuttingDown() bool { return false }
