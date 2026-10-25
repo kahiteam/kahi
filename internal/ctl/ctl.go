@@ -207,7 +207,11 @@ func formatStatusTable(procs []ProcessInfo, w io.Writer, color bool) error {
 	})
 
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintf(tw, "NAME\tSTATE\tPID\tUPTIME\tDESCRIPTION\n")
+	header := "STATE"
+	if color {
+		header = colorState(header)
+	}
+	_, _ = fmt.Fprintf(tw, "NAME\t%s\tPID\tUPTIME\tDESCRIPTION\n", header)
 
 	for _, p := range procs {
 		state := p.State
@@ -235,19 +239,20 @@ func formatStatusTable(procs []ProcessInfo, w io.Writer, color bool) error {
 	return tw.Flush()
 }
 
+// colorState wraps every state, coloured or not, in escape codes of the same
+// byte length: tabwriter counts escape bytes as width, so cells with and
+// without colour would otherwise misalign the columns after them.
 func colorState(state string) string {
+	code := "39" // default foreground
 	switch state {
 	case "RUNNING":
-		return "\033[32m" + state + "\033[0m"
+		code = "32"
 	case "FATAL":
-		return "\033[31m" + state + "\033[0m"
-	case "STARTING", "BACKOFF":
-		return "\033[33m" + state + "\033[0m"
-	case "STOPPING":
-		return "\033[33m" + state + "\033[0m"
-	default:
-		return state
+		code = "31"
+	case "STARTING", "BACKOFF", "STOPPING":
+		code = "33"
 	}
+	return "\033[" + code + "m" + state + "\033[0m"
 }
 
 func formatDuration(d time.Duration) string {
@@ -429,6 +434,10 @@ func (c *Client) Ready(processes []string) (string, error) {
 	var body map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return "", fmt.Errorf("invalid response: %w", err)
+	}
+	// An unknown process name is a 400 with an error, not a status.
+	if msg, ok := body["error"].(string); ok {
+		return "", fmt.Errorf("%s", msg)
 	}
 	status, _ := body["status"].(string)
 	return status, nil
