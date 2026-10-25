@@ -372,4 +372,10 @@ footer {
     gap: 4px;
     margin-top: 8px;
   }
+
+  /* The label is a flex item here; a full-width basis puts it on its own
+     row above the buttons, as in the other cells. */
+  .col-actions::before {
+    flex-basis: 100%;
+  }
 }
