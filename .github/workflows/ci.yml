@@ -239,6 +239,24 @@ jobs:
           fi
           echo "All Go version references match $GOMOD."
 
+  # Warning-only quality gate (#115): reports code the shipped binary cannot
+  # reach. The script exits 0 on findings and 1 only if a check cannot run.
+  # Deliberately not a need of `summary`, so it never blocks a merge.
+  wiring:
+    needs: changes
+    if: needs.changes.outputs.golang == 'true'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      - name: Report unreachable code
+        run: ./scripts/check-wiring.sh
+
   commit-standards:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-26.04
