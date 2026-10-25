@@ -257,7 +257,7 @@ func (s *Server) StartUnix(path string, mode os.FileMode) error {
 	}
 
 	s.unixLn = ln
-	s.unixServer = &http.Server{Handler: s.handler}
+	s.unixServer = s.newHTTPServer()
 
 	go func() {
 		if err := s.unixServer.Serve(ln); err != nil && err != http.ErrServerClosed {
@@ -267,6 +267,18 @@ func (s *Server) StartUnix(path string, mode os.FileMode) error {
 
 	s.logger.Info("unix socket server started", "path", path)
 	return nil
+}
+
+// readHeaderTimeout bounds how long a client may take to send request
+// headers, which are read before authentication. It is a var so tests can
+// shorten it.
+var readHeaderTimeout = 10 * time.Second
+
+// newHTTPServer returns the server used for both listeners. Only the header
+// read is bounded: ReadTimeout and WriteTimeout would cut off the
+// long-lived SSE streams and attach sessions.
+func (s *Server) newHTTPServer() *http.Server {
+	return &http.Server{Handler: s.handler, ReadHeaderTimeout: readHeaderTimeout}
 }
 
 // StartTCP begins serving on a TCP address.
@@ -285,7 +297,7 @@ func (s *Server) StartTCP(addr string) error {
 	}
 
 	s.tcpLn = ln
-	s.tcpServer = &http.Server{Handler: s.handler}
+	s.tcpServer = s.newHTTPServer()
 
 	// Warn about binding to all interfaces.
 	host, _, _ := net.SplitHostPort(addr)
