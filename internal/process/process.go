@@ -34,8 +34,11 @@ type Process struct {
 	killDoneCh chan struct{} // closed when process exits, cancels SIGKILL timer
 	shutdownCh chan struct{} // closed on daemon shutdown
 	retired    bool          // removed by a config reload; must never start again
-	onStdout   func(name string, data []byte)
-	onStderr   func(name string, data []byte)
+	// cfgMu guards config for Config(), which callers may reach from event
+	// handlers while mu is held. Writers hold mu and cfgMu.
+	cfgMu    sync.RWMutex
+	onStdout func(name string, data []byte)
+	onStderr func(name string, data []byte)
 }
 
 // ProcessOption configures a Process.
@@ -89,7 +92,24 @@ func (p *Process) Name() string { return p.name }
 func (p *Process) Group() string { return p.group }
 
 // Config returns the process configuration.
-func (p *Process) Config() config.ProgramConfig { return p.config }
+func (p *Process) Config() config.ProgramConfig {
+	p.cfgMu.RLock()
+	defer p.cfgMu.RUnlock()
+	return p.config
+}
+
+// UpdateConfig replaces the config of a process in place, for a reload that
+// changes only supervision settings (autostart, autorestart, startsecs,
+// startretries, exitcodes, stop settings, priority, description). The
+// running child is not restarted; the new values apply from their next use.
+func (p *Process) UpdateConfig(cfg config.ProgramConfig) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cfgMu.Lock()
+	p.config = cfg
+	p.cfgMu.Unlock()
+	p.sm.SetLimits(cfg.Startsecs, cfg.Startretries)
+}
 
 // State returns the current state.
 func (p *Process) State() State { return p.sm.State() }

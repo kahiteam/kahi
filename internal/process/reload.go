@@ -1,6 +1,7 @@
 package process
 
 import (
+	"reflect"
 	"sort"
 	"time"
 
@@ -8,17 +9,42 @@ import (
 	"github.com/kahiteam/kahi/internal/events"
 )
 
-// ApplyReload applies a reloaded config. It stops the processes of removed
-// and changed programs, waits for them to stop, and removes them together
-// with their capture writers and implicit groups. It then loads cfg, which
-// creates the changed programs afresh from the new config, and starts the
-// processes of added and changed programs that autostart.
+// ApplyReload applies a reloaded config while preserving the run state of
+// what already exists:
+//
+//   - Removed programs are stopped and removed with their capture writers
+//     and groups.
+//   - Changed programs whose change only touches supervision settings (see
+//     needsRestart) are updated in place; their children keep running.
+//   - Other changed programs are stopped, removed and created afresh from the
+//     new config; they are started again only if one of their processes was
+//     running, starting or backing off before. autostart is not consulted:
+//     it governs daemon startup, and editing it must not stop anything.
+//   - Added programs are started when autostart allows it.
 //
 // A program whose processes do not stop within stopwaitsecs plus
 // stopWaitMargin keeps its old processes and is returned in stuck, so the
 // caller can keep its old config and a later reload retries it.
-func (m *Manager) ApplyReload(cfg *config.Config, added, changed, removed []string) (stuck []string) {
-	retiring := append(append([]string{}, removed...), changed...)
+func (m *Manager) ApplyReload(oldCfg, newCfg *config.Config, added, changed, removed []string) (stuck []string) {
+	var restart []string
+	for _, prog := range changed {
+		if needsRestart(oldCfg.Programs[prog], newCfg.Programs[prog]) {
+			restart = append(restart, prog)
+		} else {
+			m.updateInPlace(prog, newCfg.Programs[prog])
+		}
+	}
+
+	wasActive := make(map[string]bool)
+	for _, prog := range restart {
+		for _, p := range m.programProcesses(prog) {
+			if stoppable(p.State()) {
+				wasActive[prog] = true
+			}
+		}
+	}
+
+	retiring := append(append([]string{}, removed...), restart...)
 
 	// Retire before stopping: an autorestart or backoff retry firing between
 	// the stop and the removal would otherwise spawn an untracked child.
@@ -61,14 +87,17 @@ func (m *Manager) ApplyReload(cfg *config.Config, added, changed, removed []stri
 			m.removeProgram(prog, isRemoved[prog])
 		}
 	}
-	m.removeStaleGroups(cfg, stuckSet)
+	m.removeStaleGroups(newCfg, stuckSet)
 
-	m.LoadConfig(cfg)
+	m.LoadConfig(newCfg)
 
-	for _, prog := range append(append([]string{}, added...), changed...) {
-		if !stuckSet[prog] {
-			m.startProgram(prog)
+	for _, prog := range restart {
+		if !stuckSet[prog] && wasActive[prog] {
+			m.startProgram(prog, false)
 		}
+	}
+	for _, prog := range added {
+		m.startProgram(prog, true)
 	}
 
 	for prog := range stuckSet {
@@ -76,6 +105,50 @@ func (m *Manager) ApplyReload(cfg *config.Config, added, changed, removed []stri
 	}
 	sort.Strings(stuck)
 	return stuck
+}
+
+// needsRestart reports whether a program change affects how its children
+// are spawned. Settings the supervisor only consults while managing a
+// process are applied in place; any other difference, including fields added
+// later, restarts the program.
+func needsRestart(oldProg, newProg config.ProgramConfig) bool {
+	return !reflect.DeepEqual(spawnSettings(oldProg), spawnSettings(newProg))
+}
+
+// spawnSettings returns cfg with the supervision-only settings cleared.
+func spawnSettings(cfg config.ProgramConfig) config.ProgramConfig {
+	cfg.Priority = 0
+	cfg.Autostart = nil
+	cfg.Autorestart = ""
+	cfg.Startsecs = 0
+	cfg.Startretries = 0
+	cfg.Exitcodes = nil
+	cfg.Stopsignal = ""
+	cfg.Stopwaitsecs = 0
+	cfg.Stopasgroup = false
+	cfg.Killasgroup = false
+	cfg.Description = ""
+	return cfg
+}
+
+// updateInPlace gives the running processes of prog their new config without
+// restarting them. The instance set is unchanged: numprocs and process_name
+// are spawn settings.
+func (m *Manager) updateInPlace(prog string, progCfg config.ProgramConfig) {
+	byName := make(map[string]config.ProgramConfig)
+	for _, inst := range ExpandNumprocs(prog, progCfg) {
+		byName[inst.Name] = inst.Config
+	}
+	for _, p := range m.programProcesses(prog) {
+		if cfg, ok := byName[p.Name()]; ok {
+			p.UpdateConfig(cfg)
+		}
+	}
+	m.mu.Lock()
+	if g, ok := m.groups[prog]; ok {
+		g.Priority = progCfg.Priority
+	}
+	m.mu.Unlock()
 }
 
 // programProcesses returns the processes of a program, sorted by name.
@@ -140,14 +213,15 @@ func (m *Manager) removeStaleGroups(cfg *config.Config, keep map[string]bool) {
 	}
 }
 
-// startProgram starts the processes of a program that autostart, unless the
-// daemon is shutting down.
-func (m *Manager) startProgram(prog string) {
+// startProgram starts the processes of a program unless the daemon is
+// shutting down. With honourAutostart, processes whose autostart is false
+// are left stopped.
+func (m *Manager) startProgram(prog string, honourAutostart bool) {
 	for _, p := range m.programProcesses(prog) {
 		if m.ShuttingDown() {
 			return
 		}
-		if a := p.Config().Autostart; a != nil && !*a {
+		if a := p.Config().Autostart; honourAutostart && a != nil && !*a {
 			continue
 		}
 		if err := p.Start(); err != nil {

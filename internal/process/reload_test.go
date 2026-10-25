@@ -59,7 +59,7 @@ func TestApplyReloadChangedProgramUsesNewConfig(t *testing.T) {
 
 	newCfg := reloadCfg(map[string]config.ProgramConfig{"web": prog("/bin/echo v2", true)})
 	added, changed, removed := ConfigDiff(oldCfg, newCfg)
-	if stuck := mgr.ApplyReload(newCfg, added, changed, removed); len(stuck) != 0 {
+	if stuck := mgr.ApplyReload(oldCfg, newCfg, added, changed, removed); len(stuck) != 0 {
 		t.Fatalf("stuck = %v", stuck)
 	}
 
@@ -90,7 +90,7 @@ func TestApplyReloadRemovesProgramAndCaptures(t *testing.T) {
 
 	newCfg := reloadCfg(map[string]config.ProgramConfig{"keep": prog("/bin/echo keep", true)})
 	added, changed, removed := ConfigDiff(oldCfg, newCfg)
-	mgr.ApplyReload(newCfg, added, changed, removed)
+	mgr.ApplyReload(oldCfg, newCfg, added, changed, removed)
 
 	if _, err := mgr.GetProcess("gone"); err == nil {
 		t.Fatal("removed program still has a process")
@@ -119,7 +119,7 @@ func TestApplyReloadHonoursAutostart(t *testing.T) {
 		"manual": prog("/bin/echo manual", false),
 	})
 	added, changed, removed := ConfigDiff(oldCfg, newCfg)
-	mgr.ApplyReload(newCfg, added, changed, removed)
+	mgr.ApplyReload(oldCfg, newCfg, added, changed, removed)
 
 	auto, _ := mgr.GetProcess("auto")
 	if s := auto.State(); s != Starting && s != Running {
@@ -138,7 +138,7 @@ func TestApplyReloadSkipsStartsDuringShutdown(t *testing.T) {
 
 	newCfg := reloadCfg(map[string]config.ProgramConfig{"late": prog("/bin/echo late", true)})
 	added, changed, removed := ConfigDiff(oldCfg, newCfg)
-	mgr.ApplyReload(newCfg, added, changed, removed)
+	mgr.ApplyReload(oldCfg, newCfg, added, changed, removed)
 
 	late, _ := mgr.GetProcess("late")
 	if s := late.State(); s != Stopped {
@@ -188,5 +188,102 @@ func TestRetiredProcessDoesNotAutorestart(t *testing.T) {
 
 	if n := spawnCount(spawner); n != 1 {
 		t.Fatalf("spawned %d times, want 1: a retired process was restarted", n)
+	}
+}
+
+// Changing only supervision settings, including autostart = false, updates
+// the running process in place: same process, still running.
+func TestApplyReloadSupervisionChangeIsInPlace(t *testing.T) {
+	oldCfg := reloadCfg(map[string]config.ProgramConfig{"web": prog("/bin/echo web", true)})
+	mgr, spawner := startedManager(t, oldCfg)
+	before, _ := mgr.GetProcess("web")
+
+	changedProg := prog("/bin/echo web", false)
+	changedProg.Stopwaitsecs = 30
+	changedProg.Startretries = 9
+	newCfg := reloadCfg(map[string]config.ProgramConfig{"web": changedProg})
+	added, changed, removed := ConfigDiff(oldCfg, newCfg)
+	if len(changed) != 1 {
+		t.Fatalf("changed = %v, want [web]", changed)
+	}
+	mgr.ApplyReload(oldCfg, newCfg, added, changed, removed)
+
+	after, _ := mgr.GetProcess("web")
+	if after != before {
+		t.Fatal("a supervision-only change replaced the process")
+	}
+	if s := after.State(); s != Starting && s != Running {
+		t.Fatalf("state = %s, want still running: autostart = false must not stop it", s)
+	}
+	if n := spawnCount(spawner); n != 1 {
+		t.Fatalf("spawned %d times, want 1 (no restart)", n)
+	}
+	if got := after.Config(); got.Stopwaitsecs != 30 || *got.Autostart {
+		t.Fatalf("config not updated in place: stopwaitsecs=%d autostart=%v", got.Stopwaitsecs, *got.Autostart)
+	}
+}
+
+// A spawn-affecting change restarts a running program even if its new
+// autostart is false: autostart only governs daemon startup.
+func TestApplyReloadRestartsRunningProgramRegardlessOfAutostart(t *testing.T) {
+	oldCfg := reloadCfg(map[string]config.ProgramConfig{"web": prog("/bin/echo v1", true)})
+	mgr, _ := startedManager(t, oldCfg)
+
+	newCfg := reloadCfg(map[string]config.ProgramConfig{"web": prog("/bin/echo v2", false)})
+	added, changed, removed := ConfigDiff(oldCfg, newCfg)
+	mgr.ApplyReload(oldCfg, newCfg, added, changed, removed)
+
+	cur, _ := mgr.GetProcess("web")
+	if cur.Config().Command != "/bin/echo v2" {
+		t.Fatalf("command = %q, want v2", cur.Config().Command)
+	}
+	if s := cur.State(); s != Starting && s != Running {
+		t.Fatalf("state = %s, want restarted: it was running before the reload", s)
+	}
+}
+
+// A stopped program stays stopped when a spawn-affecting change recreates it.
+func TestApplyReloadKeepsStoppedProgramStopped(t *testing.T) {
+	oldCfg := reloadCfg(map[string]config.ProgramConfig{"idle": prog("/bin/echo v1", false)})
+	mgr, spawner := startedManager(t, oldCfg)
+
+	newCfg := reloadCfg(map[string]config.ProgramConfig{"idle": prog("/bin/echo v2", true)})
+	added, changed, removed := ConfigDiff(oldCfg, newCfg)
+	mgr.ApplyReload(oldCfg, newCfg, added, changed, removed)
+
+	cur, _ := mgr.GetProcess("idle")
+	if cur.Config().Command != "/bin/echo v2" {
+		t.Fatalf("command = %q, want v2", cur.Config().Command)
+	}
+	if s := cur.State(); s != Stopped {
+		t.Fatalf("state = %s, want STOPPED: it was stopped before the reload", s)
+	}
+	if n := spawnCount(spawner); n != 0 {
+		t.Fatalf("spawned %d times, want 0", n)
+	}
+}
+
+func TestNeedsRestart(t *testing.T) {
+	base := prog("/bin/echo", true)
+	supervision := base
+	supervision.Priority = 10
+	supervision.Autorestart = "true"
+	supervision.Stopsignal = "INT"
+	supervision.Description = "x"
+	if needsRestart(base, supervision) {
+		t.Fatal("supervision-only change needs a restart")
+	}
+	for name, mutate := range map[string]func(*config.ProgramConfig){
+		"command":     func(c *config.ProgramConfig) { c.Command = "/bin/other" },
+		"environment": func(c *config.ProgramConfig) { c.Environment = map[string]string{"A": "1"} },
+		"numprocs":    func(c *config.ProgramConfig) { c.Numprocs = 2 },
+		"logfile":     func(c *config.ProgramConfig) { c.StdoutLogfile = "/tmp/x.log" },
+		"directory":   func(c *config.ProgramConfig) { c.Directory = "/tmp" },
+	} {
+		c := base
+		mutate(&c)
+		if !needsRestart(base, c) {
+			t.Errorf("%s change does not restart", name)
+		}
 	}
 }

@@ -197,9 +197,9 @@ func (s *Supervisor) handleReload() <-chan struct{} {
 	return done
 }
 
-// applyReload re-reads the config file and applies the difference: removed
-// and changed programs are stopped and removed, then added and changed
-// programs are created from the new config and started if they autostart.
+// applyReload re-reads the config file and applies the difference through
+// Manager.ApplyReload, which keeps running programs running and stopped ones
+// stopped.
 // The caller holds reloadMu.
 func (s *Supervisor) applyReload() (added, changed, removed []string, err error) {
 	s.mu.Lock()
@@ -226,7 +226,7 @@ func (s *Supervisor) applyReload() (added, changed, removed []string, err error)
 
 	// Programs that did not stop keep their old processes; record their old
 	// config so the next reload sees them as changed or removed again.
-	for _, prog := range s.manager.ApplyReload(newCfg, added, changed, removed) {
+	for _, prog := range s.manager.ApplyReload(oldCfg, newCfg, added, changed, removed) {
 		if old, ok := oldCfg.Programs[prog]; ok {
 			newCfg.Programs[prog] = old
 		}

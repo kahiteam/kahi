@@ -318,3 +318,62 @@ startsecs = 0
 		t.Fatal("PID changed after failed reload")
 	}
 }
+
+// Supervision-only edits, including autostart = false, must not restart or
+// stop a running program.
+func TestReload_SupervisionChangeKeepsProcessRunning(t *testing.T) {
+	client, socketPath := startDaemon(t, `
+[programs.steady]
+command = "/bin/sleep 300"
+autostart = true
+startsecs = 0
+stopwaitsecs = 5
+`)
+	waitForState(t, client, "steady", "RUNNING", 5*time.Second)
+	before, _ := getProcessInfo(client, "steady")
+
+	rewriteConfig(t, socketPath, `
+[programs.steady]
+command = "/bin/sleep 300"
+autostart = false
+startsecs = 0
+stopwaitsecs = 20
+description = "edited"
+`)
+	diff, err := client.Reload()
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if fmt.Sprint(diff["changed"]) != "[steady]" {
+		t.Fatalf("reload changed = %v, want [steady]", diff["changed"])
+	}
+
+	after, _ := getProcessInfo(client, "steady")
+	if after.State != "RUNNING" || after.PID != before.PID {
+		t.Fatalf("steady = %s pid %d, want RUNNING with unchanged pid %d", after.State, after.PID, before.PID)
+	}
+}
+
+// A stopped program stays stopped when a reload recreates it.
+func TestReload_ChangeStoppedProgramStaysStopped(t *testing.T) {
+	client, socketPath := startDaemon(t, `
+[programs.idle]
+command = "/bin/sleep 300"
+autostart = false
+`)
+	waitForState(t, client, "idle", "STOPPED", 5*time.Second)
+
+	rewriteConfig(t, socketPath, `
+[programs.idle]
+command = "/bin/sleep 600"
+autostart = true
+`)
+	if _, err := client.Reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+
+	info, _ := getProcessInfo(client, "idle")
+	if info.State != "STOPPED" {
+		t.Fatalf("idle state = %s, want STOPPED: reload must not start a stopped program", info.State)
+	}
+}
