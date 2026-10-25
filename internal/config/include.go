@@ -138,6 +138,7 @@ func LoadWithIncludes(path string) (*Config, []string, error) {
 	}
 
 	warnings = append(warnings, stopWaitWarnings(cfg)...)
+	warnings = append(warnings, ignoredSettingWarnings(cfg)...)
 
 	return cfg, warnings, nil
 }
