@@ -12,7 +12,6 @@ import (
 
 	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/events"
-	"github.com/kahiteam/kahi/internal/logging"
 	"github.com/kahiteam/kahi/internal/process"
 	"github.com/kahiteam/kahi/internal/version"
 )
@@ -27,7 +26,6 @@ type Supervisor struct {
 	ticker     *events.Ticker
 	signals    *SignalQueue
 	logger     *slog.Logger
-	captures   map[string]*logging.CaptureWriter
 	shutting   bool
 	shutdownCh chan struct{}
 	doneCh     chan struct{}
@@ -68,7 +66,6 @@ func New(cfg SupervisorConfig) *Supervisor {
 		manager:    mgr,
 		bus:        bus,
 		logger:     cfg.Logger,
-		captures:   make(map[string]*logging.CaptureWriter),
 		shutdownCh: make(chan struct{}),
 		doneCh:     make(chan struct{}),
 		pidFile:    cfg.PIDFile,
@@ -146,11 +143,7 @@ shutdown:
 	s.waitForShutdown()
 
 	// Close capture writers.
-	for _, cw := range s.captures {
-		if err := cw.Close(); err != nil {
-			s.logger.Warn("capture writer close failed during shutdown", "error", err)
-		}
-	}
+	s.manager.CloseLogs()
 
 	close(s.doneCh)
 	s.logger.Info("shutdown complete")
@@ -260,11 +253,7 @@ func (s *Supervisor) PreviewReload() (added, changed, removed []string, err erro
 
 func (s *Supervisor) handleLogReopen() {
 	s.logger.Info("reopening log files")
-	for name, cw := range s.captures {
-		if err := cw.Reopen(); err != nil {
-			s.logger.Error("log reopen failed", "process", name, "error", err)
-		}
-	}
+	s.manager.ReopenLogs()
 }
 
 func (s *Supervisor) handleSigchld() {
