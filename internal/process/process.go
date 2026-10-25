@@ -436,7 +436,11 @@ func (p *Process) HandleExit(exitCode int) {
 		p.publishStateLocked(newState)
 
 		if newState == Backoff {
-			go p.retryAfterBackoff(p.stopCh)
+			if p.shuttingDown() {
+				_ = p.stopLocked()
+			} else {
+				go p.retryAfterBackoff(p.stopCh)
+			}
 		}
 	case Running:
 		// Exited from running state.
@@ -471,12 +475,20 @@ func (p *Process) HandleExit(exitCode int) {
 	p.stopCh = make(chan struct{})
 }
 
-func (p *Process) shouldRestart(exitCode int) bool {
-	// Never restart during shutdown.
+// shuttingDown reports whether daemon shutdown has begun.
+func (p *Process) shuttingDown() bool {
 	select {
 	case <-p.shutdownCh:
-		return false
+		return true
 	default:
+		return false
+	}
+}
+
+func (p *Process) shouldRestart(exitCode int) bool {
+	// Never restart during shutdown.
+	if p.shuttingDown() {
+		return false
 	}
 
 	// Never restart manually stopped processes.
@@ -515,6 +527,11 @@ func (p *Process) retryAfterBackoff(stopCh <-chan struct{}) {
 			p.mu.Unlock()
 			return
 		}
+		if p.shuttingDown() {
+			_ = p.stopLocked()
+			p.mu.Unlock()
+			return
+		}
 		if err := p.sm.RetryFromBackoff(); err != nil {
 			p.logger.Error("retry transition failed", "error", err)
 			p.mu.Unlock()
@@ -534,7 +551,7 @@ func (p *Process) restartAfterExit() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.sm.State() != Exited {
+	if p.sm.State() != Exited || p.shuttingDown() {
 		return
 	}
 
