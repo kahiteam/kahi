@@ -16,6 +16,7 @@ go 1.27.3
 
 tool (
 	github.com/goreleaser/goreleaser/v2
+	golang.org/x/tools/cmd/deadcode
 	golang.org/x/vuln/cmd/govulncheck
 	gotest.tools/gotestsum
 )
