@@ -105,6 +105,25 @@ func TestMigrateCommand(t *testing.T) {
 	}
 }
 
+// A migrated config that kahi would refuse to load is a failed migration
+// and must exit non-zero (#111).
+func TestMigrateCommandFailsOnInvalidResult(t *testing.T) {
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "supervisord.conf")
+	// priority must be 0-999; the converted config fails validation.
+	if err := os.WriteFile(conf, []byte("[program:web]\ncommand = /bin/echo hello\npriority = 5000\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	rootCmd.SetArgs([]string{"migrate", conf})
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("migrate exited 0 for a config that fails validation")
+	}
+}
+
 func TestMigrateCommandNoArgs(t *testing.T) {
 	buf := new(bytes.Buffer)
 	rootCmd.SetOut(buf)

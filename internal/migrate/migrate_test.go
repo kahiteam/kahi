@@ -218,6 +218,36 @@ files = /etc/supervisor/conf.d/*.conf
 	}
 }
 
+// A program followed by [include] must still produce TOML kahi can load
+// (#111): before, include landed inside the last program table.
+func TestMigrateIncludeAfterProgramIsValid(t *testing.T) {
+	input := `[program:web]
+command = /bin/sleep 300
+
+[include]
+files = conf.d/*.conf extra.conf
+`
+	result, err := MigrateReader(strings.NewReader(input), Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.ValidErrs) > 0 {
+		t.Fatalf("generated config is invalid: %v\n%s", result.ValidErrs, result.TOML)
+	}
+	if !strings.Contains(result.TOML, `# include = ["conf.d/*.conf", "extra.conf"]`) {
+		t.Errorf("TOML = %s, want the split globs as a commented include", result.TOML)
+	}
+	found := false
+	for _, w := range result.Warnings {
+		if strings.Contains(w, "included INI files are not converted") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("warnings = %v, want a note that included INI files need migrating", result.Warnings)
+	}
+}
+
 func TestMigrateCommentsPreserved(t *testing.T) {
 	input := `[program:web]
 command = /usr/bin/python app.py ; start the web server
