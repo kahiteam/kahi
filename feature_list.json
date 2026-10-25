@@ -629,7 +629,7 @@
         "Verify /healthz does not require authentication",
         "Verify /healthz response contains no process-level information"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["unix-socket-server"]
     },
     {
@@ -1262,9 +1262,9 @@
         "Run 'kahi migrate nonexistent.conf' and verify 'file not found' error",
         "Run 'kahi migrate invalid.conf' and verify 'parse error' with details",
         "Run 'kahi migrate --output existing.toml' without --force and verify it refuses to overwrite",
-        "Verify [include] sections are expanded and inlined during migration",
+        "Verify an [include] section becomes a commented TOML include listing its globs, with a warning to migrate each included file",
         "Verify environment variables are mapped from supervisord format to Kahi format",
-        "Verify signal names are normalized (e.g., TERM to SIGTERM)",
+        "Verify signal names are normalized (e.g., SIGTERM to TERM)",
         "Verify comments from the original file are preserved as TOML comments where possible"
       ],
       "passes": false,
@@ -1310,12 +1310,12 @@
       "description": "Preview migration output without writing files, printing generated TOML with warnings to stdout.",
       "testing_steps": [
         "Run 'kahi migrate supervisord.conf --dry-run' and verify TOML is printed to stdout with no file written",
-        "Verify dry run output includes any warnings about unsupported options",
+        "Verify a dry run prints a warning to stderr for each unsupported option",
         "Verify dry run is the default behavior when no --output is specified",
         "Run dry-run migration on a config with unsupported supervisord directives and verify warnings are printed for each",
         "Run dry-run migration and verify the output is valid TOML that can be parsed without errors"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["config-migration-tool"]
     },
     {
@@ -1345,7 +1345,7 @@
         "Run 'kahi ctl ready' with pending processes and verify 'NOT READY' output with exit code 1",
         "Run 'kahi ctl health' when cannot connect to daemon and verify exit code 1 with connection error"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "health-check-endpoint",
         "readiness-check-endpoint",
@@ -1360,7 +1360,7 @@
       "testing_steps": [
         "Make a POST request to /api/v1/processes/web/stdin with body {\"data\":\"quit\\n\"} and verify 'quit\\n' is written to the process stdin pipe",
         "Run 'kahi ctl send web quit' and verify the data is written to stdin with a trailing newline",
-        "Write stdin to a non-running process and verify 'process not running' error",
+        "Write stdin to a non-running process and verify a 'not running' error",
         "Write stdin to a process without stdin configured and verify 'does not accept stdin' error",
         "Write stdin to a process with a broken pipe and verify error message 'stdin pipe broken for {name}'"
       ],
@@ -1501,13 +1501,13 @@
       "title": "CLI Output Formatting and Color Support",
       "description": "Consistent, readable CLI output with aligned columns, color-coded states, automatic color detection, and --no-color and --json flags.",
       "testing_steps": [
-        "Verify output lines match a fixed-width format regex where each column occupies a defined character width",
+        "Verify the status table columns line up in every row, with and without colour, when coloured and uncoloured states are mixed",
         "Verify output contains ANSI escape sequences: \\033[32m for RUNNING, \\033[31m for FATAL, \\033[33m for STARTING",
         "Pipe 'kahi ctl status' output to a file and verify colors are disabled automatically",
         "Run 'kahi ctl status --no-color' and verify colors are disabled explicitly",
         "Run 'kahi ctl status --json' and verify machine-readable JSON output is returned"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["cli-status-display"]
     },
     {

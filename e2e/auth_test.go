@@ -3,7 +3,9 @@
 package e2e
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,10 +139,20 @@ startsecs = 0
 	tcpClient := ctl.NewTCPClient(tcpAddr, "", "")
 	time.Sleep(1 * time.Second) // Wait for TCP listener.
 
-	_, err := tcpClient.Health()
-	// Health endpoint should be accessible without auth.
+	// /healthz needs no credentials, even on the authenticated TCP
+	// listener, and reports nothing but the daemon status.
+	resp, err := http.Get("http://" + tcpAddr + "/healthz")
 	if err != nil {
-		t.Logf("health without auth: %v (may be ok if health requires auth)", err)
+		t.Fatalf("healthz without auth: %v", err)
+	}
+	var body map[string]any
+	decodeErr := json.NewDecoder(resp.Body).Decode(&body)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || decodeErr != nil {
+		t.Fatalf("healthz without auth: status %d, decode error %v", resp.StatusCode, decodeErr)
+	}
+	if len(body) != 1 || body["status"] != "ok" {
+		t.Fatalf("healthz body = %v, want exactly {\"status\":\"ok\"}", body)
 	}
 
 	// Status requires auth -- should fail.
