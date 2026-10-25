@@ -4,10 +4,10 @@ package testutil
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -30,7 +30,9 @@ func StartIntegrationDaemon(t *testing.T, pm api.ProcessManager, gm api.GroupMan
 	t.Helper()
 
 	dir := TempDir(t)
-	socketPath := fmt.Sprintf("%s/kahi-integration-%d.sock", dir, time.Now().UnixNano())
+	// dir is unique per test; a short name keeps the path under the
+	// 104-byte macOS limit for Unix sockets.
+	socketPath := filepath.Join(dir, "kahi.sock")
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	bus := events.NewBus(logger)
 
