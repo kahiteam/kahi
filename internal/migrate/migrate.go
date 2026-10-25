@@ -80,10 +80,17 @@ func generateTOML(ini *INIFile, result *Result) string {
 	b.WriteString("# Kahi configuration file\n")
 	b.WriteString("# Migrated from supervisord.conf\n\n")
 
+	// Includes first: in TOML a top-level key after a table header would
+	// belong to that table.
+	for _, sec := range ini.Sections {
+		if sec.Type == "include" {
+			writeIncludeSection(&b, sec, result)
+		}
+	}
+
 	var supervisordSections []INISection
 	var programSections []INISection
 	var groupSections []INISection
-	var includeSections []INISection
 	var other []INISection
 
 	for _, sec := range ini.Sections {
@@ -95,7 +102,7 @@ func generateTOML(ini *INIFile, result *Result) string {
 		case "group":
 			groupSections = append(groupSections, sec)
 		case "include":
-			includeSections = append(includeSections, sec)
+			// Written before the first table, above.
 		case "unix_http_server":
 			writeUnixServerSection(&b, sec, result)
 		case "inet_http_server":
@@ -121,10 +128,6 @@ func generateTOML(ini *INIFile, result *Result) string {
 	})
 	for _, sec := range groupSections {
 		writeGroupSection(&b, sec)
-	}
-
-	for _, sec := range includeSections {
-		writeIncludeSection(&b, sec)
 	}
 
 	for _, sec := range other {
@@ -237,12 +240,24 @@ func writeHTTPServerSection(b *strings.Builder, sec INISection, result *Result) 
 	b.WriteString("\n")
 }
 
-func writeIncludeSection(b *strings.Builder, sec INISection) {
-	if files, ok := sec.Options["files"]; ok {
-		fmt.Fprintf(b, "include = [%q]\n", files)
-		b.WriteString("# NOTE: include files should be expanded and inlined for production use\n")
+// writeIncludeSection writes supervisord's [include] as a commented-out
+// include. supervisord includes INI files and kahi includes TOML, so the
+// included files must be migrated one by one before the include can be used.
+func writeIncludeSection(b *strings.Builder, sec INISection, result *Result) {
+	files, ok := sec.Options["files"]
+	if !ok {
+		return
 	}
-	b.WriteString("\n")
+	globs := strings.Fields(files)
+	quoted := make([]string, len(globs))
+	for i, g := range globs {
+		quoted[i] = fmt.Sprintf("%q", g)
+	}
+	b.WriteString("# supervisord includes INI files; migrate each one with `kahi migrate`,\n")
+	b.WriteString("# then enable this include with the .toml names:\n")
+	fmt.Fprintf(b, "# include = [%s]\n\n", strings.Join(quoted, ", "))
+	result.Warnings = append(result.Warnings,
+		fmt.Sprintf("[include] files = %s: included INI files are not converted; migrate each and enable the commented include", files))
 }
 
 func writeOption(b *strings.Builder, opt MappedOption) {
