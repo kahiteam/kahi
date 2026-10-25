@@ -436,7 +436,7 @@ func (c *Client) Ready(processes []string) (string, error) {
 
 // Reread previews config changes without applying.
 func (c *Client) Reread() (map[string]any, error) {
-	return c.doJSON("POST", "/api/v1/config/reload", nil)
+	return c.doJSON("POST", "/api/v1/config/reload?dry_run=true", nil)
 }
 
 // WriteStdin writes data to a process's stdin.

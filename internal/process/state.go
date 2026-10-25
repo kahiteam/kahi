@@ -76,6 +76,15 @@ type StateMachineConfig struct {
 }
 
 // NewStateMachine creates a state machine in STOPPED state.
+// SetLimits replaces startsecs and startretries, for a config reload that
+// updates a process in place.
+func (sm *StateMachine) SetLimits(startsecs, startretries int) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.startsecs = time.Duration(startsecs) * time.Second
+	sm.maxRetries = startretries
+}
+
 func NewStateMachine(cfg StateMachineConfig) *StateMachine {
 	clk := cfg.Clock
 	if clk == nil {

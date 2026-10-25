@@ -56,8 +56,8 @@ func TestReloadWarnsOnWebChange(t *testing.T) {
 	// The file now disables the UI; the running daemon started with it on.
 	writeWebConfig(t, cfgPath, hash, false)
 
-	s.handleReload()
-	s.handleReload()
+	<-s.handleReload()
+	<-s.handleReload()
 	added, changed, removed, err := s.Reload()
 
 	if got := strings.Count(buf.String(), webRestartWarning); got != 3 {
@@ -99,7 +99,7 @@ func TestReloadNoWebWarningWhenUnchanged(t *testing.T) {
 
 	var buf bytes.Buffer
 	s := newWebSupervisor(t, cfgPath, slog.New(slog.NewTextHandler(&buf, nil)))
-	s.handleReload()
+	<-s.handleReload()
 	if _, _, _, err := s.Reload(); err != nil {
 		t.Fatal(err)
 	}
