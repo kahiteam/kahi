@@ -34,6 +34,11 @@ jobs:
               - 'go.mod'
               - 'go.sum'
               - 'Taskfile.yml'
+              # CI runs these scripts and builds these tools, so a change to
+              # either must run the jobs that use them.
+              - 'scripts/**'
+              - 'tools/go.mod'
+              - 'tools/go.sum'
               # Workflow edits change the environment the suite runs in
               # (runner OS, tool versions), so they must run it.
               - '.github/workflows/**'
