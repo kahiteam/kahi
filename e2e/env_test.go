@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kahiteam/kahi/internal/ctl"
 )
 
 func TestEnv_Passthrough(t *testing.T) {
@@ -153,5 +155,53 @@ HERE_DIR = "%(here)s"
 	configDir := filepath.Dir(socketPath)
 	if !strings.Contains(buf.String(), "HERE="+configDir) {
 		t.Fatalf("%%(here)s not expanded correctly: %q, want dir=%s", buf.String(), configDir)
+	}
+}
+
+// A program defined in an included file gets %(here)s set to that file's
+// directory, so the daemon finds a script that sits next to it (#109).
+func TestEnv_HereExpansionInIncludedFile(t *testing.T) {
+	dir, err := os.MkdirTemp("", "k-")
+	if err != nil {
+		t.Fatalf("temp dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	confDir := filepath.Join(dir, "conf.d")
+	if err := os.MkdirAll(confDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeScript(t, confDir, "run.sh", "echo started-from-include\nexec sleep 300")
+	if err := os.WriteFile(filepath.Join(confDir, "web.toml"), []byte(`[programs.web]
+command = "%(here)s/run.sh"
+autostart = true
+startsecs = 0
+stopwaitsecs = 2
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	socketPath := filepath.Join(dir, "kahi.sock")
+	configPath := filepath.Join(dir, "kahi.toml")
+	cfg := "include = [\"conf.d/*.toml\"]\n\n[supervisor]\nshutdown_timeout = 10\n\n[server.unix]\nfile = \"" + socketPath + "\"\n"
+	if err := os.WriteFile(configPath, []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := startDaemonCmd(t, kahiBinary, configPath, dir)
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	waitForSocket(t, socketPath, 5*time.Second)
+	client := ctl.NewUnixClient(socketPath)
+	waitForHealth(t, client, 3*time.Second)
+	waitForState(t, client, "web", "RUNNING", 5*time.Second)
+
+	var buf bytes.Buffer
+	if err := client.Tail("web", "stdout", 4096, &buf); err != nil {
+		t.Fatalf("tail: %v", err)
+	}
+	if !strings.Contains(buf.String(), "started-from-include") {
+		t.Fatalf("stdout = %q, want started-from-include", buf.String())
 	}
 }
