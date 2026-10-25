@@ -123,6 +123,13 @@ func (s *Supervisor) Run() error {
 shutdown:
 	s.logger.Info("shutting down")
 
+	// A signal-driven shutdown arrives here without Shutdown(), which is
+	// what sets the flag for the API path. Without it /healthz keeps
+	// reporting ok and the API keeps accepting starts while everything stops.
+	s.mu.Lock()
+	s.shutting = true
+	s.mu.Unlock()
+
 	// Publish supervisor stopping event.
 	s.bus.Publish(events.Event{
 		Type: events.SupervisorStateStopping,
