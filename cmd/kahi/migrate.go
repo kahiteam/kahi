@@ -42,13 +42,17 @@ var migrateCmd = &cobra.Command{
 			return err
 		}
 
-		// Print validation errors to stderr.
+		if migrateOutput != "" && !migrateDryRun {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", migrateOutput)
+		}
+
+		// Print validation errors to stderr. A config kahi would refuse to
+		// load is a failed migration, so exit non-zero.
 		for _, e := range result.ValidErrs {
 			fmt.Fprintf(os.Stderr, "validation: %s\n", e)
 		}
-
-		if migrateOutput != "" && !migrateDryRun {
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "wrote %s\n", migrateOutput)
+		if len(result.ValidErrs) > 0 {
+			return fmt.Errorf("generated config failed validation")
 		}
 
 		return nil
