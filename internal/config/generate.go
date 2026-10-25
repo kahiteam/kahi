@@ -8,11 +8,11 @@ const DefaultConfigTOML = `# Kahi configuration file
 # logfile = ""                  # daemon log file path (default: stdout)
 # log_level = "info"            # debug, info, warn, error
 # log_format = "json"           # json, text
-# directory = ""                # daemon working directory
+# directory = ""                # daemon working directory (not implemented yet)
 # identifier = "kahi"           # daemon identifier
-# minfds = 1024                 # minimum file descriptors
-# minprocs = 200                # minimum process count
-# nocleanup = false             # preserve stale log files on startup
+# minfds = 1024                 # minimum file descriptors (not implemented yet)
+# minprocs = 200                # minimum process count (not implemented yet)
+# nocleanup = false             # preserve stale log files on startup (not implemented yet)
 # shutdown_timeout = 30         # seconds to wait for graceful shutdown, then SIGKILL (keep >= every stopwaitsecs)
 
 [server.unix]
@@ -67,7 +67,7 @@ const DefaultConfigTOML = `# Kahi configuration file
 # programs = ["web", "api"]    # group member programs
 # priority = 999               # group priority
 
-# Webhook definitions
+# Webhook definitions (not implemented yet: parsed, but no webhook is delivered)
 # [webhooks.slack]
 # url = "https://hooks.slack.com/..."
 # events = ["process_state"]
