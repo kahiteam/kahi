@@ -367,6 +367,13 @@ func removeStaleSocket(path string) error {
 	if info.Mode()&os.ModeSocket == 0 {
 		return fmt.Errorf("%s exists and is not a socket", path)
 	}
+	// A socket that accepts a connection belongs to a running daemon.
+	// Removing it would take over that daemon's control socket and leave it
+	// supervising processes nobody can reach.
+	if conn, err := net.DialTimeout("unix", path, time.Second); err == nil {
+		_ = conn.Close()
+		return fmt.Errorf("another kahi daemon is running on %s", path)
+	}
 	return os.Remove(path)
 }
 
