@@ -85,6 +85,7 @@ type GroupManager interface {
 type ConfigManager interface {
 	GetConfig() any
 	Reload() (added, changed, removed []string, err error)
+	PreviewReload() (added, changed, removed []string, err error)
 }
 
 // DaemonInfo describes the running daemon.
@@ -673,13 +674,19 @@ func sanitizeConfigView(v any) any {
 }
 
 func (s *Server) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
-	added, changed, removed, err := s.config.Reload()
+	// dry_run=true reports the diff without applying it (ctl reread).
+	preview := r.URL.Query().Get("dry_run") == "true"
+	reload, status := s.config.Reload, "reloaded"
+	if preview {
+		reload, status = s.config.PreviewReload, "preview"
+	}
+	added, changed, removed, err := reload()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "SERVER_ERROR")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  "reloaded",
+		"status":  status,
 		"added":   added,
 		"changed": changed,
 		"removed": removed,
