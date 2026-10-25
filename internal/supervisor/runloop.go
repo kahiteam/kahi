@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -31,6 +32,10 @@ type Supervisor struct {
 	shutdownCh chan struct{}
 	doneCh     chan struct{}
 	pidFile    string
+
+	// reloadMu serializes reloads. A reload waits for changed programs to
+	// stop, so it never holds mu, which /healthz and shutdown need.
+	reloadMu sync.Mutex
 
 	// startupWeb is the [server.web] the daemon started with. The UI is
 	// built once at startup, so reloads compare against this value.
@@ -171,62 +176,79 @@ func (s *Supervisor) handleSignal(sig os.Signal) bool {
 	}
 }
 
-func (s *Supervisor) handleReload() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.shutting {
-		s.logger.Warn("ignoring reload during shutdown")
-		return
+// handleReload starts a SIGHUP reload in the background and returns a
+// channel that is closed when it finishes (already closed when no reload
+// ran). It must not block: the reload waits for changed programs to stop,
+// and their exits are reaped by this same main-loop goroutine.
+func (s *Supervisor) handleReload() <-chan struct{} {
+	done := make(chan struct{})
+	if !s.reloadMu.TryLock() {
+		s.logger.Warn("reload already in progress; ignoring SIGHUP")
+		close(done)
+		return done
 	}
+	go func() {
+		defer close(done)
+		defer s.reloadMu.Unlock()
+		if _, _, _, err := s.applyReload(); err != nil {
+			s.logger.Error("reload failed", "error", err)
+		}
+	}()
+	return done
+}
+
+// applyReload re-reads the config file and applies the difference: removed
+// and changed programs are stopped and removed, then added and changed
+// programs are created from the new config and started if they autostart.
+// The caller holds reloadMu.
+func (s *Supervisor) applyReload() (added, changed, removed []string, err error) {
+	s.mu.Lock()
+	if s.shutting {
+		s.mu.Unlock()
+		s.logger.Warn("ignoring reload during shutdown")
+		return nil, nil, nil, errors.New("daemon is shutting down")
+	}
+	oldCfg := s.config
+	s.mu.Unlock()
 
 	s.logger.Info("reloading config", "path", s.configPath)
-
 	newCfg, warnings, err := config.LoadWithIncludes(s.configPath)
 	if err != nil {
-		s.logger.Error("reload failed", "error", err)
-		return
+		return nil, nil, nil, err
 	}
 	for _, w := range warnings {
 		s.logger.Warn("config warning", "warning", w)
 	}
 
-	added, changed, removed := process.ConfigDiff(s.config, newCfg)
+	added, changed, removed = process.ConfigDiff(oldCfg, newCfg)
 	s.logger.Info("config diff", "added", added, "changed", changed, "removed", removed)
 	s.warnWebChange(newCfg)
 
-	// Remove deleted programs.
-	for _, name := range removed {
-		if err := s.manager.StopGroup(name); err != nil {
-			s.logger.Error("stop group failed", "group", name, "error", err)
-		}
-		if err := s.manager.RemoveGroup(name); err != nil {
-			s.logger.Error("remove group failed", "group", name, "error", err)
+	// Programs that did not stop keep their old processes; record their old
+	// config so the next reload sees them as changed or removed again.
+	for _, prog := range s.manager.ApplyReload(newCfg, added, changed, removed) {
+		if old, ok := oldCfg.Programs[prog]; ok {
+			newCfg.Programs[prog] = old
 		}
 	}
 
-	// Update changed programs.
-	for _, name := range changed {
-		if err := s.manager.StopGroup(name); err != nil {
-			s.logger.Error("stop changed group failed", "group", name, "error", err)
-		}
-	}
-
-	// Apply new config.
+	s.mu.Lock()
 	s.config = newCfg
-	s.manager.LoadConfig(newCfg)
+	s.mu.Unlock()
+	return added, changed, removed, nil
+}
 
-	// Start new/changed programs.
-	for _, name := range added {
-		if err := s.manager.StartGroup(name); err != nil {
-			s.logger.Error("start new group failed", "group", name, "error", err)
-		}
+// PreviewReload reports what a reload would change without applying it.
+func (s *Supervisor) PreviewReload() (added, changed, removed []string, err error) {
+	newCfg, _, err := config.LoadWithIncludes(s.configPath)
+	if err != nil {
+		return nil, nil, nil, err
 	}
-	for _, name := range changed {
-		if err := s.manager.StartGroup(name); err != nil {
-			s.logger.Error("restart changed group failed", "group", name, "error", err)
-		}
-	}
+	s.mu.Lock()
+	oldCfg := s.config
+	s.mu.Unlock()
+	added, changed, removed = process.ConfigDiff(oldCfg, newCfg)
+	return added, changed, removed, nil
 }
 
 func (s *Supervisor) handleLogReopen() {
@@ -429,19 +451,10 @@ func (s *Supervisor) GetConfig() any {
 
 // Reload re-reads config and applies changes.
 func (s *Supervisor) Reload() (added, changed, removed []string, err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	newCfg, _, err := config.LoadWithIncludes(s.configPath)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	added, changed, removed = process.ConfigDiff(s.config, newCfg)
-	s.warnWebChange(newCfg)
-	s.config = newCfg
-	s.manager.LoadConfig(newCfg)
-	return added, changed, removed, nil
+	// The API caller waits for a running reload rather than being refused.
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	return s.applyReload()
 }
 
 // warnWebChange logs when a reloaded [server.web] differs from the one the

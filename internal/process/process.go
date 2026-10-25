@@ -33,6 +33,7 @@ type Process struct {
 	stopCh     chan struct{} // signals the stop-wait goroutine
 	killDoneCh chan struct{} // closed when process exits, cancels SIGKILL timer
 	shutdownCh chan struct{} // closed on daemon shutdown
+	retired    bool          // removed by a config reload; must never start again
 	onStdout   func(name string, data []byte)
 	onStderr   func(name string, data []byte)
 }
@@ -142,6 +143,9 @@ func (p *Process) Start() error {
 }
 
 func (p *Process) startLocked() error {
+	if p.retired {
+		return fmt.Errorf("process %s: removed by config reload", p.name)
+	}
 	if err := p.sm.RequestStart(); err != nil {
 		return fmt.Errorf("process %s: %w", p.name, err)
 	}
@@ -364,6 +368,15 @@ func (p *Process) watchStop(stopCh <-chan struct{}) {
 	}
 }
 
+// Retire marks a process removed by a config reload. A retired process never
+// starts again, so an autorestart or backoff retry queued before the removal
+// cannot spawn a child that the manager no longer tracks.
+func (p *Process) Retire() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.retired = true
+}
+
 // Kill sends SIGKILL to the process if it has a live child, honoring
 // killasgroup. The daemon uses it when shutdown stops waiting.
 func (p *Process) Kill() {
@@ -523,7 +536,7 @@ func (p *Process) retryAfterBackoff(stopCh <-chan struct{}) {
 	select {
 	case <-timer.C:
 		p.mu.Lock()
-		if p.sm.State() != Backoff {
+		if p.sm.State() != Backoff || p.retired {
 			p.mu.Unlock()
 			return
 		}
