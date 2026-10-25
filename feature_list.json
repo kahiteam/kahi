@@ -248,7 +248,7 @@
         "Write a unit test that starts all instances and verifies each has a unique PID and unique name",
         "Write a unit test with numprocs=5 and verify all 5 processes are created with sequential numbering"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-start"]
     },
     {
@@ -295,7 +295,7 @@
         "Verify that when a heterogeneous group exists, implicit homogeneous groups for member programs are suppressed",
         "Parse a config with an empty group (no programs) and verify it is rejected at config validation"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["homogeneous-groups"]
     },
     {
@@ -311,7 +311,7 @@
         "Write a unit test that attempts to remove a nonexistent group and verifies the error message",
         "Write a unit test that removes then re-adds a group and verifies config is re-read"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["homogeneous-groups", "heterogeneous-groups"]
     },
     {
@@ -331,7 +331,7 @@
         "Parse a config with %(group_name)s in a process environment value and verify it resolves to the group name",
         "Parse a config with multiple variable references in a single value and verify all are expanded correctly"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["toml-config-parser"]
     },
     {
@@ -348,7 +348,7 @@
         "Create two included files defining the same program name and verify a validation error about duplicate names",
         "Verify included files can define programs but cannot override [supervisor] settings"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["toml-config-parser", "toml-variable-expansion"]
     },
     {
@@ -368,7 +368,7 @@
         "Verify concurrent reload requests are serialized",
         "Write a test that changes numprocs from 2 to 4 and verifies 2 new process instances are added on reload"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": [
         "toml-variable-expansion",
         "config-include-system",
@@ -422,7 +422,7 @@
         "Verify log file is opened in append mode",
         "Change log level on config reload and verify the new level takes effect immediately"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["structured-logging"]
     },
     {
@@ -440,7 +440,7 @@
         "Write a test that verifies large output bursts do not block the child process",
         "Regression (SEC-012): point a logfile at a symlink and assert the open fails (O_NOFOLLOW), so a planted symlink cannot redirect log writes"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-start", "structured-logging"]
     },
     {
@@ -471,7 +471,7 @@
         "Verify syslog forwarding works alongside file logging and console passthrough",
         "Verify syslog facility and priority are configurable with defaults of LOCAL0 and INFO"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-output-capture"]
     },
     {
@@ -500,7 +500,7 @@
         "Write a test that verifies log reopen is safe to call concurrently with log writes",
         "Write a test that verifies SIGUSR2 during shutdown is ignored"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-output-capture"]
     },
     {
@@ -515,7 +515,7 @@
         "Write a test that simulates a delete failure and verifies a warning is logged and startup continues",
         "Write a test that verifies cleanup happens before any processes are started"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-output-capture"]
     },
     {
@@ -535,7 +535,7 @@
         "Write a test that connects to the Unix socket and makes an API request and verifies a valid JSON response",
         "Write a test that verifies the socket is not cleaned up on SIGKILL and stale detection handles it on next start"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["cli-framework"]
     },
     {
@@ -599,7 +599,7 @@
         "Write a test that opens an SSE stream, sends data to the process, and verifies the data appears within 100ms latency",
         "Regression (SEC-013): stream process output containing a newline and an 'event:' prefix and assert each line is emitted as its own data field (no injected SSE frame)"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["rest-api-endpoints"]
     },
     {
@@ -615,7 +615,7 @@
         "Verify auth is required for the TCP server but optional for the Unix socket",
         "Verify kahi ctl sends credentials from config or command-line flags"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["tcp-http-server"]
     },
     {
@@ -629,7 +629,7 @@
         "Verify /healthz does not require authentication",
         "Verify /healthz response contains no process-level information"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["unix-socket-server"]
     },
     {
@@ -717,7 +717,7 @@
         "Verify terminal raw mode is set during fg session and restored on exit",
         "Write a test that attempts two fg sessions on the same process and verifies the second is rejected"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["cli-process-control"]
     },
     {
@@ -734,7 +734,7 @@
         "Run 'kahi ctl reread' with an invalid config file and verify an error message is displayed",
         "Run 'kahi ctl avail' and verify all configured programs are shown with active/available status"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["cli-process-control", "config-hot-reload"]
     },
     {
@@ -751,7 +751,7 @@
         "Run 'kahi ctl pid all' and verify PIDs for all running processes are printed",
         "Run 'kahi ctl shutdown' when daemon is not running and verify exit code 1 with connection error"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["cli-process-control"]
     },
     {
@@ -766,7 +766,7 @@
         "Verify completion for 'kahi ctl start <TAB>' includes available process names",
         "Verify completion for signals in 'kahi ctl signal <TAB>' lists valid signal names"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["cli-framework"]
     },
     {
@@ -783,7 +783,7 @@
         "Verify the API continues to serve status requests during shutdown",
         "Verify processes that do not stop within stopwaitsecs receive SIGKILL escalation"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-stop", "priority-ordering"]
     },
     {
@@ -798,7 +798,7 @@
         "Verify SIGHUP during shutdown is ignored",
         "Verify multiple rapid SIGHUPs are coalesced into a single reload"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["config-hot-reload"]
     },
     {
@@ -827,7 +827,7 @@
         "Send SIGUSR2 when no log files are configured and verify the signal is acknowledged without error",
         "Send SIGUSR2 during active log writing and verify no log entries are lost during rotation"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["log-reopen-sigusr2"]
     },
     {
@@ -870,7 +870,7 @@
         "Start Kahi as non-root with config specifying user-accessible paths and verify all operations succeed",
         "Configure a path not writable by the current user and verify exit with permission denied error"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["unix-socket-server"]
     },
     {
@@ -887,7 +887,7 @@
         "Regression (SEC-010): assert the privilege-drop path invokes setgroups to reset supplementary groups before setgid before setuid, verified via the injectable syscall seam without requiring root",
         "Regression (SEC-010): assert a setgroups failure aborts startup rather than continuing with a partial privilege drop"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["unprivileged-operation"]
     },
     {
@@ -903,7 +903,7 @@
         "Regression (SEC-009): assert that a configured process user results in SysProcAttr.Credential being attached to the spawn config (guards the wiring from silently regressing)",
         "Regression (SEC-009): assert that when a configured user's credential cannot be applied the spawn fails closed and the child does not start with the supervisor's privileges"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["privilege-dropping"]
     },
     {
@@ -918,7 +918,7 @@
         "Verify the default daemon umask is 0022 when not configured",
         "Verify umask is specified as a 4-digit octal string in config"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-start"]
     },
     {
@@ -981,7 +981,7 @@
         "Verify log events contain raw output data before any ANSI stripping",
         "Write a test that verifies stderr log events are emitted when stderr_events_enabled=true"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["event-bus", "process-output-capture"]
     },
     {
@@ -996,7 +996,7 @@
         "Verify SUPERVISOR_STATE_CHANGE event includes both old_state and new_state fields",
         "Verify no duplicate state change events are emitted for the same transition"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["event-bus"]
     },
     {
@@ -1011,7 +1011,7 @@
         "Verify GROUP_ADDED event includes the list of process names in the group",
         "Verify GROUP_REMOVED event is emitted when a group is removed during config reload"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["event-bus", "group-lifecycle"]
     },
     {
@@ -1027,7 +1027,7 @@
         "Verify ticks are not emitted during shutdown",
         "Verify monotonic time is used so clock drift does not cause missed ticks"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["event-bus"]
     },
     {
@@ -1047,7 +1047,7 @@
         "Verify the event envelope format includes ver, server, serial, pool, poolserial, eventname, len, and payload",
         "Write a test that subscribes to multiple event types in a single listener config and verify all matching events are dispatched"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["event-bus", "process-state-events", "process-start"]
     },
     {
@@ -1067,7 +1067,7 @@
         "Write a test that configures a webhook for multiple event types and verifies POST is sent for each matching event",
         "Write a test using a mock HTTP server that verifies the POST body contains JSON with event type, process name, and timestamp"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["event-bus"]
     },
     {
@@ -1082,7 +1082,7 @@
         "Parse a config with an unknown template name and verify a config validation error is returned",
         "Verify templates support variable substitution from event data"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["webhook-notifications"]
     },
     {
@@ -1097,7 +1097,7 @@
         "Verify expansion happens at config load time, not at delivery time",
         "Verify webhook URLs and headers containing secrets are redacted in debug log output"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["webhook-notifications", "toml-variable-expansion"]
     },
     {
@@ -1112,7 +1112,7 @@
         "Parse a config with an invalid webhook URL format and verify a validation error is returned",
         "Verify TLS certificate verification uses the system trust store"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["webhook-notifications"]
     },
     {
@@ -1171,7 +1171,7 @@
         "Press Ctrl+C in foreground mode and verify graceful shutdown is triggered",
         "Verify foreground mode is the default with no flag needed to enable it"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["cli-framework"]
     },
     {
@@ -1187,7 +1187,7 @@
         "Start a second daemon instance with the same PID file and verify it detects the running instance and exits with error",
         "Create a stale PID file (process not running) and start the daemon and verify it is overwritten with a warning"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["foreground-mode"]
     },
     {
@@ -1201,7 +1201,7 @@
         "Verify PID 1 detection occurs at startup using os.Getpid() == 1",
         "Verify the reaping loop runs as part of the main supervision tick, not as a separate goroutine"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-reaping"]
     },
     {
@@ -1217,7 +1217,7 @@
         "Verify the default shutdown timeout is 30 seconds",
         "Verify if total shutdown exceeds timeout, remaining processes are killed and daemon exits"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-stop", "priority-ordering"]
     },
     {
@@ -1232,7 +1232,7 @@
         "Configure a non-accessible directory and verify error message 'cannot access directory: {path}: {error}' is returned",
         "Verify per-process directory supports variable expansion"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-start", "toml-variable-expansion"]
     },
     {
@@ -1247,7 +1247,7 @@
         "Verify default values are minfds=1024 and minprocs=200",
         "Verify rlimits are only raised when the current value is below the configured minimum"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["go-module-structure"]
     },
     {
@@ -1267,7 +1267,7 @@
         "Verify signal names are normalized (e.g., TERM to SIGTERM)",
         "Verify comments from the original file are preserved as TOML comments where possible"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["toml-config-parser"]
     },
     {
@@ -1315,7 +1315,7 @@
         "Run dry-run migration on a config with unsupported supervisord directives and verify warnings are printed for each",
         "Run dry-run migration and verify the output is valid TOML that can be parsed without errors"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["config-migration-tool"]
     },
     {
@@ -1345,7 +1345,7 @@
         "Run 'kahi ctl ready' with pending processes and verify 'NOT READY' output with exit code 1",
         "Run 'kahi ctl health' when cannot connect to daemon and verify exit code 1 with connection error"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": [
         "health-check-endpoint",
         "readiness-check-endpoint",
@@ -1364,7 +1364,7 @@
         "Write stdin to a process without stdin configured and verify 'does not accept stdin' error",
         "Write stdin to a process with a broken pipe and verify error message 'stdin pipe broken for {name}'"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["rest-api-endpoints", "process-start"]
     },
     {
@@ -1474,7 +1474,7 @@
         "Verify memory is freed when a process config is removed",
         "Verify the ring buffer feeds SSE streaming when no log file exists"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-output-capture"]
     },
     {
@@ -1507,7 +1507,7 @@
         "Run 'kahi ctl status --no-color' and verify colors are disabled explicitly",
         "Run 'kahi ctl status --json' and verify machine-readable JSON output is returned"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["cli-status-display"]
     },
     {
@@ -1521,7 +1521,7 @@
         "Run 'task coverage' and verify it fails if coverage is below 85%",
         "Verify process management tests use mock ProcessSpawner with no real child processes",
         "Verify config parsing tests use in-memory TOML strings via MustParseConfig helper",
-        "Verify testify assertions (assert, require) are used consistently across tests"
+        "Verify tests use the standard library testing package (t.Fatalf/t.Errorf); no third-party assertion library is in go.mod"
       ],
       "passes": true,
       "dependencies": ["taskfile-workflow"]
@@ -1539,7 +1539,7 @@
         "Verify all integration tests clean up processes and sockets on completion",
         "Verify integration test temp directories are cleaned up via TempDir helper"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["unit-test-infrastructure", "unix-socket-server"]
     },
     {
@@ -1549,20 +1549,11 @@
       "description": "Black-box E2E tests across 11 files and 68 tests. Builds real kahi binary, starts as subprocess, communicates via ctl.NewUnixClient. Covers 9 domains: daemon lifecycle, process control, state machine, groups, config reload, logging, stdin/attach, environment, auth, and supervisord regressions. Two tests are skipped due to platform limitations (Daemonize: Go fork safety, TCPWithCreds: TCP port discovery).",
       "testing_steps": [
         "Verify e2e/helpers_test.go contains TestMain that builds the kahi binary to a temp directory",
-        "Verify startDaemon helper writes config, starts daemon, polls readiness (socket 5s, health 3s, state 5s), returns client and cleanup",
-        "Verify waitForState polls at 50ms intervals and calls t.Fatal with observed state on timeout",
-        "Verify all E2E test files use //go:build e2e tag and run via 'task test-e2e'",
-        "Verify e2e/daemon_lifecycle_test.go contains 8 tests: Health, Version, PID, Ready, Shutdown, ShutdownTimeout, Daemonize, PIDFile",
-        "Verify e2e/process_ctl_test.go contains 15 tests covering start/stop/restart/status/signal and error paths (bad name, already running, start fails, stopwaitsecs, stopsignal, startretries, startsecs)",
-        "Verify e2e/process_state_test.go contains 10 tests: autorestart modes (true/false/unexpected), backoff-to-fatal, expected/unexpected exit codes, killed-during-backoff, concurrent start/stop, numprocs expansion, priority ordering",
-        "Verify e2e/group_ctl_test.go contains 6 tests: group start/stop/restart all, start single, priority order, heterogeneous groups",
-        "Verify e2e/config_reload_test.go contains 6 tests: add/remove/change program, reread preview, no-change reload, invalid config rejection",
-        "Verify e2e/logging_test.go contains 6 tests: tail stdout/stderr, tail bytes, tail follow (SSE), log rotation, ANSI stripping",
-        "Verify e2e/stdin_attach_test.go contains 3 tests: write stdin, write to stopped process error, attach bidirectional",
-        "Verify e2e/env_test.go contains 5 tests: env passthrough, clean_environment, program overrides global, %(program_name)s/%(process_num)d expansion, %(here)s expansion",
-        "Verify e2e/auth_test.go contains 3 tests: TCP with valid creds, TCP no creds returns 401, TCP bad creds returns 401",
-        "Verify e2e/regression_test.go contains 8 tests ported from supervisord: Unicode tail, invalid UTF-8, literal %, kahi init, help flag, piped tail, numprocs names, redirect_stderr",
-        "Run 'task test-e2e' and verify all 68 E2E tests pass or skip (66 pass, 2 skip) with race detector enabled"
+        "Verify startDaemon helper writes config, starts daemon, polls readiness (socket 5s, health 3s), returns client and registers cleanup",
+        "Verify waitForState polls the process state and calls t.Fatal with the last observed state on timeout",
+        "Verify all E2E test files use the //go:build e2e tag and run via 'task test-e2e'",
+        "Verify e2e/ has test files for daemon lifecycle, process control, process state, groups, config reload, logging, stdin/attach, environment, auth, regressions and the Web UI",
+        "Run 'task test-e2e' and verify every E2E test passes or skips with the race detector enabled"
       ],
       "passes": true,
       "dependencies": ["integration-test-infrastructure"]
@@ -1573,12 +1564,12 @@
       "title": "Test Output Formatting with gotestsum",
       "description": "Replace raw go test output with gotestsum for live progress counters, human-readable formatting, and JUnit XML output. All test targets produce JUnit XML. CI renders 3 separate dorny/test-reporter checks (Unit, Integration, E2E) on PR checks tab.",
       "testing_steps": [
-        "Verify gotestsum is listed in the setup task in Taskfile.yml",
+        "Verify Taskfile.yml runs gotestsum through the GOTESTSUM var (go tool -modfile=tools/go.mod gotestsum), pinned in tools/go.mod",
         "Run 'task test' and verify output uses testdox format and produces unit-results.xml",
         "Run 'task test-integration' and verify output uses testdox format and produces integration-results.xml",
         "Run 'task test-e2e' and verify output uses testdox format and produces e2e-results.xml",
-        "Verify ci.yml has dorny/test-reporter step producing 'Unit Test Results' check from unit-results.xml",
-        "Verify integration.yml has 2 dorny/test-reporter steps producing 'Integration Test Results' and 'E2E Test Results' checks",
+        "Verify ci.yml creates a 'Unit Test Results' check run from unit-results.xml via actions/github-script (checks.create)",
+        "Verify integration.yml creates 'Integration Test Results' and 'E2E Test Results' check runs from integration-results.xml and e2e-results.xml via actions/github-script (checks.create)",
         "Verify all 3 test reporter checks appear on PR checks tab",
         "Run a failing test locally and verify full error output is shown inline (not suppressed)",
         "Verify JUnit XML files (*-results.xml) are listed in .gitignore"
@@ -1651,7 +1642,7 @@
         "Verify README has 'Where to find the code' section with source, releases, and Go import path links",
         "Verify README contains no emoji"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["repo-migration"]
     },
     {
@@ -1668,7 +1659,7 @@
         "Run 'goreleaser build --snapshot --clean' and verify it produces binaries",
         "Verify kahi version output shows version, commit, date, Go version, and FIPS status"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": []
     },
     {
@@ -1699,7 +1690,7 @@
         "Verify darwin targets are amd64 and arm64 only (no arm, no riscv64)",
         "Run 'goreleaser check' and verify config is valid with expanded targets",
         "Run 'goreleaser build --snapshot --clean' and verify 8 binaries produced",
-        "Verify SHA-256 checksums file lists all 8 archives",
+        "Verify checksums.txt (checksum.algorithm: sha512 in .goreleaser.yml) lists all 8 archives",
         "Verify archive naming follows kahi_VERSION_OS_ARCH pattern for all targets"
       ],
       "passes": true,
@@ -1807,7 +1798,7 @@
         "Verify document references CODE_OF_CONDUCT.md",
         "Verify document contains no emoji or AI-isms"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["security-policy", "code-of-conduct"]
     },
     {
@@ -1833,9 +1824,9 @@
       "title": "API Input Bounds Validation (CWE-770)",
       "description": "Add defense-in-depth bounds checking for user-controlled allocation sizes in the log read API path. Resolves CodeQL alert go/uncontrolled-allocation-size.",
       "testing_steps": [
-        "Verify handleReadLog() in internal/api/api.go clamps length to a maximum of 65536 before passing to ReadLog()",
+        "Verify handleReadLog() in internal/api/api.go rejects a length above 65536 with 400 before calling ReadLog()",
         "Verify RingBuffer.Read(n) in internal/logging/ringbuf.go clamps n to rb.size before the make() call",
-        "Verify GET /api/v1/processes/{name}/log/stdout?length=999999999 returns at most 65536 bytes",
+        "Verify GET /api/v1/processes/{name}/log/stdout?length=999999999 returns 400 with 'length exceeds maximum of 65536'",
         "Verify GET /api/v1/processes/{name}/log/stdout?length=-5 uses default length of 1600",
         "Verify GET /api/v1/processes/{name}/log/stdout (no length param) uses default length of 1600",
         "Verify existing unit tests in ringbuf_test.go still pass after the change",
@@ -1854,8 +1845,8 @@
         "Verify integration.yml writes a $GITHUB_STEP_SUMMARY table with passed/failed/skipped for integration and e2e suites",
         "Verify a commit status with context 'coverage' is posted showing the coverage percentage",
         "Verify coverage status check shows 'failure' state when coverage is below 85%",
-        "Verify dorny/test-reporter produces a 'Unit Test Results' check run on PR commits",
-        "Verify dorny/test-reporter produces 'Integration Test Results' and 'E2E Test Results' check runs on PR commits",
+        "Verify ci.yml creates a 'Unit Test Results' check run from unit-results.xml via actions/github-script (checks.create)",
+        "Verify integration.yml creates 'Integration Test Results' and 'E2E Test Results' check runs from integration-results.xml and e2e-results.xml via actions/github-script (checks.create)",
         "Verify summary steps use if: always() so results appear even when tests fail",
         "Verify no new binary dependencies are introduced (shell tools only for parsing)",
         "Verify workflows have statuses: write permission for the coverage commit status",
@@ -1892,14 +1883,14 @@
       "description": "SEC-003. Add a signs: block to .goreleaser.yml that runs cosign in keyless mode via GitHub Actions OIDC. Sign every archive and checksums.txt. Attach .sig and .pem files to the GitHub Release. Release workflow installs cosign-installer and grants id-token: write.",
       "testing_steps": [
         "Verify .goreleaser.yml contains a signs: block with cmd: cosign and artifacts: all",
-        "Verify the signs: block passes --yes, --output-certificate, and --output-signature to cosign",
+        "Verify the signs: block runs cosign sign-blob with --yes and --bundle=${signature}, where signature is '${artifact}.sigstore.json'",
         "Verify release.yml workflow-level permissions include id-token: write",
-        "Verify release.yml installs sigstore/cosign-installer@v3 before the goreleaser step",
+        "Verify release.yml installs sigstore/cosign-installer (pinned by commit SHA) before the goreleaser step",
         "Verify release.yml env sets COSIGN_YES: 'true'",
         "Run a snapshot release locally (goreleaser release --snapshot --skip=publish,sign) and verify it completes without regressions",
-        "Trigger a tag release and verify every archive in the GitHub Release has a matching .sig and .pem asset",
-        "Verify checksums.txt has a matching .sig and .pem asset",
-        "Run cosign verify-blob with --certificate-identity https://github.com/kahiteam/kahi/.github/workflows/release.yml@refs/tags/<tag> and --certificate-oidc-issuer https://token.actions.githubusercontent.com against each archive and confirm success",
+        "Trigger a tag release and verify every archive in the GitHub Release has a matching .sigstore.json bundle asset",
+        "Verify checksums.txt has a matching .sigstore.json bundle asset",
+        "Run cosign verify-blob --bundle <archive>.sigstore.json --certificate-identity https://github.com/kahiteam/kahi/.github/workflows/release.yml@refs/tags/<tag> --certificate-oidc-issuer https://token.actions.githubusercontent.com against each archive and confirm success (see docs/verifying-releases.md)",
         "Run the same cosign verify-blob against checksums.txt and confirm success"
       ],
       "passes": true,
@@ -2122,7 +2113,7 @@
         "Verify an empty payload is framed with length 0",
         "Run 'go test -run TestFormatEventPayload ./internal/events/...' covering the framing"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["event-listener-pools"]
     },
     {
