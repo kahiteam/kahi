@@ -59,7 +59,7 @@ func daemonRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create structured logger.
-	logger, cleanup, err := logging.DaemonLogger(
+	daemonLog, err := logging.OpenDaemonLog(
 		cfg.Supervisor.LogLevel,
 		cfg.Supervisor.LogFormat,
 		cfg.Supervisor.Logfile,
@@ -67,9 +67,8 @@ func daemonRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if cleanup != nil {
-		defer cleanup()
-	}
+	defer func() { _ = daemonLog.Close() }()
+	logger := daemonLog.Logger
 
 	// Validate socket directory is writable.
 	socketPath := cfg.Server.Unix.File
@@ -99,6 +98,8 @@ func daemonRun(cmd *cobra.Command, args []string) error {
 		ConfigPath: cfgPath,
 		PIDFile:    pidfileFlag,
 		Logger:     logger,
+
+		ReopenDaemonLog: daemonLog.Reopen,
 	})
 
 	// Build API server config. The Web UI, when enabled, is mounted on the

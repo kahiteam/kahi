@@ -31,6 +31,10 @@ type Supervisor struct {
 	doneCh     chan struct{}
 	pidFile    string
 
+	// reopenDaemonLog reopens the daemon's own log file; nil when logging
+	// to stdout.
+	reopenDaemonLog func() error
+
 	// reloadMu serializes reloads. A reload waits for changed programs to
 	// stop, so it never holds mu, which /healthz and shutdown need.
 	reloadMu sync.Mutex
@@ -46,6 +50,9 @@ type SupervisorConfig struct {
 	ConfigPath string
 	PIDFile    string
 	Logger     *slog.Logger
+	// ReopenDaemonLog reopens the daemon's own log file on SIGUSR2; nil when
+	// the daemon logs to stdout.
+	ReopenDaemonLog func() error
 }
 
 // New creates a supervisor.
@@ -69,6 +76,8 @@ func New(cfg SupervisorConfig) *Supervisor {
 		shutdownCh: make(chan struct{}),
 		doneCh:     make(chan struct{}),
 		pidFile:    cfg.PIDFile,
+
+		reopenDaemonLog: cfg.ReopenDaemonLog,
 	}
 }
 
@@ -253,7 +262,13 @@ func (s *Supervisor) PreviewReload() (added, changed, removed []string, err erro
 
 func (s *Supervisor) handleLogReopen() {
 	s.logger.Info("reopening log files")
+	if s.reopenDaemonLog != nil {
+		if err := s.reopenDaemonLog(); err != nil {
+			s.logger.Error("daemon log reopen failed", "error", err)
+		}
+	}
 	s.manager.ReopenLogs()
+	s.logger.Info("log files reopened")
 }
 
 func (s *Supervisor) handleSigchld() {
