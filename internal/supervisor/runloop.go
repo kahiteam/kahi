@@ -199,7 +199,7 @@ func (s *Supervisor) handleReload() <-chan struct{} {
 	go func() {
 		defer close(done)
 		defer s.reloadMu.Unlock()
-		if _, _, _, err := s.applyReload(); err != nil {
+		if _, err := s.applyReload(); err != nil {
 			s.logger.Error("reload failed", "error", err)
 		}
 	}()
@@ -210,12 +210,12 @@ func (s *Supervisor) handleReload() <-chan struct{} {
 // Manager.ApplyReload, which keeps running programs running and stopped ones
 // stopped.
 // The caller holds reloadMu.
-func (s *Supervisor) applyReload() (added, changed, removed []string, err error) {
+func (s *Supervisor) applyReload() (config.ReloadResult, error) {
 	s.mu.Lock()
 	if s.shutting {
 		s.mu.Unlock()
 		s.logger.Warn("ignoring reload during shutdown")
-		return nil, nil, nil, errors.New("daemon is shutting down")
+		return config.ReloadResult{}, errors.New("daemon is shutting down")
 	}
 	oldCfg := s.config
 	s.mu.Unlock()
@@ -223,13 +223,13 @@ func (s *Supervisor) applyReload() (added, changed, removed []string, err error)
 	s.logger.Info("reloading config", "path", s.configPath)
 	newCfg, warnings, err := config.LoadWithIncludes(s.configPath)
 	if err != nil {
-		return nil, nil, nil, err
+		return config.ReloadResult{}, err
 	}
 	for _, w := range warnings {
 		s.logger.Warn("config warning", "warning", w)
 	}
 
-	added, changed, removed = process.ConfigDiff(oldCfg, newCfg)
+	added, changed, removed := process.ConfigDiff(oldCfg, newCfg)
 	s.logger.Info("config diff", "added", added, "changed", changed, "removed", removed)
 	s.warnWebChange(newCfg)
 
@@ -244,20 +244,21 @@ func (s *Supervisor) applyReload() (added, changed, removed []string, err error)
 	s.mu.Lock()
 	s.config = newCfg
 	s.mu.Unlock()
-	return added, changed, removed, nil
+	return config.ReloadResult{Added: added, Changed: changed, Removed: removed, Warnings: warnings}, nil
 }
 
-// PreviewReload reports what a reload would change without applying it.
-func (s *Supervisor) PreviewReload() (added, changed, removed []string, err error) {
-	newCfg, _, err := config.LoadWithIncludes(s.configPath)
+// PreviewReload reports what a reload would change, and the warnings the
+// new config produces, without applying it.
+func (s *Supervisor) PreviewReload() (config.ReloadResult, error) {
+	newCfg, warnings, err := config.LoadWithIncludes(s.configPath)
 	if err != nil {
-		return nil, nil, nil, err
+		return config.ReloadResult{}, err
 	}
 	s.mu.Lock()
 	oldCfg := s.config
 	s.mu.Unlock()
-	added, changed, removed = process.ConfigDiff(oldCfg, newCfg)
-	return added, changed, removed, nil
+	added, changed, removed := process.ConfigDiff(oldCfg, newCfg)
+	return config.ReloadResult{Added: added, Changed: changed, Removed: removed, Warnings: warnings}, nil
 }
 
 func (s *Supervisor) handleLogReopen() {
@@ -461,7 +462,7 @@ func (s *Supervisor) GetConfig() any {
 }
 
 // Reload re-reads config and applies changes.
-func (s *Supervisor) Reload() (added, changed, removed []string, err error) {
+func (s *Supervisor) Reload() (config.ReloadResult, error) {
 	// The API caller waits for a running reload rather than being refused.
 	s.reloadMu.Lock()
 	defer s.reloadMu.Unlock()

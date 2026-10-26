@@ -113,7 +113,7 @@ func generateTOML(ini *INIFile, result *Result) string {
 	}
 
 	for _, sec := range supervisordSections {
-		writeSupervisorSection(&b, sec)
+		writeSupervisorSection(&b, sec, result)
 	}
 
 	sort.Slice(programSections, func(i, j int) bool {
@@ -127,7 +127,7 @@ func generateTOML(ini *INIFile, result *Result) string {
 		return groupSections[i].Name < groupSections[j].Name
 	})
 	for _, sec := range groupSections {
-		writeGroupSection(&b, sec)
+		writeGroupSection(&b, sec, result)
 	}
 
 	for _, sec := range other {
@@ -147,12 +147,16 @@ func generateTOML(ini *INIFile, result *Result) string {
 	return b.String()
 }
 
-func writeSupervisorSection(b *strings.Builder, sec INISection) {
+func writeSupervisorSection(b *strings.Builder, sec INISection, result *Result) {
 	b.WriteString("[supervisor]\n")
 	keys := sortedKeys(sec.Options)
 	for _, key := range keys {
 		mapped := MapSupervisordOption(key, sec.Options[key])
 		writeOption(b, mapped)
+		if mapped.Unsupported {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("supervisord: unsupported option %q", key))
+		}
 	}
 	b.WriteString("\n")
 }
@@ -194,12 +198,16 @@ func writeProgramSection(b *strings.Builder, sec INISection, result *Result) {
 	b.WriteString("\n")
 }
 
-func writeGroupSection(b *strings.Builder, sec INISection) {
+func writeGroupSection(b *strings.Builder, sec INISection, result *Result) {
 	fmt.Fprintf(b, "[groups.%s]\n", sec.Name)
 	keys := sortedKeys(sec.Options)
 	for _, key := range keys {
 		mapped := MapGroupOption(key, sec.Options[key])
 		writeOption(b, mapped)
+		if mapped.Unsupported {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("groups.%s: unsupported option %q", sec.Name, key))
+		}
 	}
 	b.WriteString("\n")
 }

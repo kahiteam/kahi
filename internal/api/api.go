@@ -84,8 +84,8 @@ type GroupManager interface {
 // ConfigManager provides config management operations.
 type ConfigManager interface {
 	GetConfig() any
-	Reload() (added, changed, removed []string, err error)
-	PreviewReload() (added, changed, removed []string, err error)
+	Reload() (config.ReloadResult, error)
+	PreviewReload() (config.ReloadResult, error)
 }
 
 // DaemonInfo describes the running daemon.
@@ -687,16 +687,17 @@ func (s *Server) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	if preview {
 		reload, status = s.config.PreviewReload, "preview"
 	}
-	added, changed, removed, err := reload()
+	res, err := reload()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error(), "SERVER_ERROR")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  status,
-		"added":   added,
-		"changed": changed,
-		"removed": removed,
+		"status":   status,
+		"added":    res.Added,
+		"changed":  res.Changed,
+		"removed":  res.Removed,
+		"warnings": res.Warnings,
 	})
 }
 
