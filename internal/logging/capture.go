@@ -1,10 +1,8 @@
 package logging
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"sync"
@@ -156,35 +154,23 @@ func (cw *CaptureWriter) Reopen() error {
 	return nil
 }
 
-// FormatJSONLine formats a line of process output as a JSON log entry.
-func FormatJSONLine(processName, stream, line string) []byte {
-	entry := map[string]string{
-		"time":    time.Now().Format(time.RFC3339),
-		"process": processName,
-		"stream":  stream,
-		"log":     line,
-	}
-	data, _ := json.Marshal(entry)
-	return append(data, '\n')
+// jsonLine is one line of process output in container mode (FUNC-018). The
+// field order matches the documented format.
+type jsonLine struct {
+	Time    string `json:"time"`
+	Process string `json:"process"`
+	Stream  string `json:"stream"`
+	Log     string `json:"log"`
 }
 
-// PipeToWriter reads from a pipe and writes to a CaptureWriter,
-// formatting as JSON lines for container stdout mode.
-func PipeToWriter(r io.ReadCloser, cw *CaptureWriter, containerStdout io.Writer) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// Write raw to capture writer (file + ring buffer + handlers).
-		lineBytes := []byte(line + "\n")
-		_, _ = cw.Write(lineBytes)
-
-		// Write formatted JSON to container stdout if no file configured.
-		if containerStdout != nil && cw.config.Logfile == "" {
-			jsonLine := FormatJSONLine(cw.config.ProcessName, cw.config.Stream, line)
-			_, _ = containerStdout.Write(jsonLine)
-		}
-	}
+// FormatJSONLine formats a line of process output as a JSON log entry:
+// {"time":"<RFC3339>","process":"<name>","stream":"<stream>","log":"<line>"}.
+func FormatJSONLine(processName, stream, line string) []byte {
+	data, _ := json.Marshal(jsonLine{
+		Time:    time.Now().Format(time.RFC3339),
+		Process: processName,
+		Stream:  stream,
+		Log:     line,
+	})
+	return append(data, '\n')
 }
