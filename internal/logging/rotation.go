@@ -34,8 +34,17 @@ func RotateIfNeeded(path string, cfg RotationConfig) error {
 
 func rotateFile(path string, backups int) error {
 	if backups == 0 {
-		// Truncate the file.
-		return os.Truncate(path, 0)
+		// Truncate through a handle opened like a log file, so a symlinked
+		// final or parent component is refused rather than followed.
+		f, err := openLogFile(path, 0644)
+		if err != nil {
+			return err
+		}
+		if err := f.Truncate(0); err != nil {
+			_ = f.Close()
+			return err
+		}
+		return f.Close()
 	}
 
 	// Rotate: .N-1 -> .N, ... , .1 -> .2, file -> .1

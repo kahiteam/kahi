@@ -274,7 +274,7 @@
       "testing_steps": [
         "Parse a TOML config with numprocs=3 and process_name='worker-%(process_num)d' and verify 3 process configs are generated with names worker-0, worker-1, worker-2",
         "Parse a TOML config with numprocs=3 and numprocs_start=10 and verify process names are worker-10, worker-11, worker-12",
-        "Parse a config with numprocs > 1 and no %(process_num) in process_name and verify config validation fails",
+        "Parse a config with numprocs > 1 and a process_name without %(process_num) and verify config validation fails; with process_name unset, verify instances are named <program>_<n>",
         "Parse a config with numprocs < 1 and verify config validation returns an error",
         "Parse a config that would produce duplicate process names after expansion and verify validation catches it",
         "Verify numprocs=1 with no template variable in process_name is accepted as valid",
@@ -283,7 +283,7 @@
         "Write a unit test that starts all instances and verifies each has a unique PID and unique name",
         "Write a unit test with numprocs=5 and verify all 5 processes are created with sequential numbering"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
         "TestState_NumprocsExpansion",
         "TestRegression_NumprocsNames",
@@ -292,7 +292,10 @@
         "TestNumprocs_StartOffset",
         "TestNumprocs_FiveInstancesUniquePIDs",
         "TestNumprocs_InstancesIndependent",
-        "TestNumprocs_TemplateVariables"
+        "TestNumprocs_TemplateVariables",
+        "TestNumprocs_ConfigErrors",
+        "TestZero_UnsafeValuesRefused",
+        "TestNumprocs_AutoNames"
       ],
       "dependencies": ["process-start"]
     },
@@ -437,7 +440,8 @@
         "TestReload_ChangeProgram",
         "TestReload_InvalidConfig",
         "TestReload_NoChange",
-        "TestReload_Reread"
+        "TestReload_Reread",
+        "TestReload_DuplicateProcessNameRejected"
       ],
       "dependencies": [
         "toml-variable-expansion",

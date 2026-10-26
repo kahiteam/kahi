@@ -124,6 +124,13 @@ func (cw *CaptureWriter) rotateIfNeeded() {
 	if err != nil || info.Size() < maxBytes {
 		return
 	}
+	// With no backups to keep, empty the file in place. Truncating the open
+	// handle, not the path, means a symlink swapped in for the log file
+	// cannot redirect the truncate to another file (SEC-012/019).
+	if cw.config.Backups == 0 {
+		_ = cw.file.Truncate(0)
+		return
+	}
 	// Close current file before rotating.
 	_ = cw.file.Close()
 	_ = rotateFile(cw.config.Logfile, cw.config.Backups)

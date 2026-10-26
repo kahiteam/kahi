@@ -169,6 +169,13 @@ func writeProgramSection(b *strings.Builder, sec INISection, result *Result) {
 			envPairs = parseEnvironment(value)
 			continue
 		}
+		// supervisord's stopwaitsecs = 0 SIGKILLs right after the stop
+		// signal; Kahi rejects it (#138), so write the shortest valid value.
+		if key == "stopwaitsecs" && strings.TrimSpace(value) == "0" {
+			value = "1"
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("programs.%s: stopwaitsecs = 0 is not allowed; wrote 1 (use stopsignal = KILL for an immediate kill)", sec.Name))
+		}
 		mapped := MapProgramOption(key, value)
 		writeOption(b, mapped)
 		if mapped.Unsupported {

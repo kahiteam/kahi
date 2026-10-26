@@ -61,12 +61,13 @@ func TestState_AutorestartUnexpected(t *testing.T) {
 command = "`+binFalse+`"
 autostart = true
 autorestart = "unexpected"
-startsecs = 0
+startsecs = 1
 exitcodes = [0]
 startretries = 3
 `)
-	// Exit code 1 is unexpected (exitcodes=[0]), so it should restart.
-	// After retries exhausted, it should be FATAL.
+	// startsecs = 1 makes each exit a failed start, so retries run out and
+	// the program goes FATAL. With startsecs = 0 the program counts as
+	// started and autorestart would restart it forever, as in supervisord.
 	waitForState(t, client, "unexpected", "FATAL", 20*time.Second)
 }
 
@@ -114,7 +115,7 @@ func TestState_UnexpectedExitCode(t *testing.T) {
 command = "`+binFalse+`"
 autostart = true
 autorestart = "unexpected"
-startsecs = 0
+startsecs = 1
 exitcodes = [0]
 startretries = 2
 `)
