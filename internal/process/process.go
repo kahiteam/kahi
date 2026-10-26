@@ -15,6 +15,7 @@ import (
 
 	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/events"
+	"github.com/kahiteam/kahi/internal/logging"
 )
 
 // Process represents a managed child process.
@@ -39,6 +40,9 @@ type Process struct {
 	cfgMu    sync.RWMutex
 	onStdout func(name string, data []byte)
 	onStderr func(name string, data []byte)
+	// onLine receives each complete line read from a pipe, with the pipe's
+	// stream name; the last partial line is delivered when the pipe closes.
+	onLine func(name, stream string, line []byte)
 }
 
 // ProcessOption configures a Process.
@@ -52,6 +56,12 @@ func WithStdoutHandler(fn func(name string, data []byte)) ProcessOption {
 // WithStderrHandler sets a callback for stderr data.
 func WithStderrHandler(fn func(name string, data []byte)) ProcessOption {
 	return func(p *Process) { p.onStderr = fn }
+}
+
+// WithLineHandler sets a callback for each line of output, split per pipe so
+// stdout and stderr never mix within a line.
+func WithLineHandler(fn func(name, stream string, line []byte)) ProcessOption {
+	return func(p *Process) { p.onLine = fn }
 }
 
 // WithShutdownCh sets the daemon shutdown channel.
@@ -681,6 +691,10 @@ func (p *Process) parseCommand() (string, []string) {
 }
 
 func (p *Process) readPipe(r io.ReadCloser, stream string, handler func(string, []byte)) {
+	var lines *logging.LineSplitter
+	if p.onLine != nil {
+		lines = &logging.LineSplitter{Emit: func(line []byte) { p.onLine(p.name, stream, line) }}
+	}
 	buf := make([]byte, 8192)
 	for {
 		n, err := r.Read(buf)
@@ -688,8 +702,14 @@ func (p *Process) readPipe(r io.ReadCloser, stream string, handler func(string, 
 			data := make([]byte, n)
 			copy(data, buf[:n])
 			handler(p.name, data)
+			if lines != nil {
+				lines.Write(data)
+			}
 		}
 		if err != nil {
+			if lines != nil {
+				lines.Flush()
+			}
 			return
 		}
 	}
