@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/kahiteam/kahi/internal/ctl"
 )
 
 func TestLog_TailStdout(t *testing.T) {
@@ -246,5 +248,48 @@ stdout_logfile = "`+logPath+`"
 	after, _ := os.Stat(rotated)
 	if after.Size() != before.Size() {
 		t.Fatalf("rotated file still growing after SIGUSR2 (%d -> %d bytes)", before.Size(), after.Size())
+	}
+}
+
+// SIGUSR2 also reopens the daemon's own log file (#129).
+func TestLog_SIGUSR2ReopensDaemonLog(t *testing.T) {
+	dir, err := os.MkdirTemp("", "k-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	socketPath := filepath.Join(dir, "kahi.sock")
+	logPath := filepath.Join(dir, "kahi.log")
+	configPath := filepath.Join(dir, "kahi.toml")
+	cfg := "[supervisor]\nlogfile = \"" + logPath + "\"\nshutdown_timeout = 10\n\n[server.unix]\nfile = \"" + socketPath + "\"\n"
+	if err := os.WriteFile(configPath, []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := startDaemonCmd(t, kahiBinary, configPath, dir)
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	waitForSocket(t, socketPath, 5*time.Second)
+	client := ctl.NewUnixClient(socketPath)
+	waitForHealth(t, client, 3*time.Second)
+
+	if err := os.Rename(logPath, logPath+".1"); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	if err := syscall.Kill(cmd.Process.Pid, syscall.SIGUSR2); err != nil {
+		t.Fatalf("SIGUSR2: %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if b, err := os.ReadFile(logPath); err == nil && strings.Contains(string(b), "log files reopened") {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("daemon log not reopened at its configured path 5s after SIGUSR2")
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

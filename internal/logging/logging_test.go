@@ -175,39 +175,34 @@ func TestLevelVarLevel(t *testing.T) {
 	}
 }
 
-func TestDaemonLoggerStdout(t *testing.T) {
-	logger, cleanup, err := DaemonLogger("info", "json", "")
+func TestOpenDaemonLogStdout(t *testing.T) {
+	dl, err := OpenDaemonLog("info", "json", "")
 	if err != nil {
-		t.Fatalf("DaemonLogger with empty logfile: %v", err)
+		t.Fatalf("OpenDaemonLog with empty logfile: %v", err)
 	}
-	if cleanup != nil {
-		t.Error("cleanup should be nil when no logfile is set")
-	}
-	if logger == nil {
+	if dl.Logger == nil {
 		t.Fatal("logger should not be nil")
+	}
+	// Reopen and Close are no-ops without a file.
+	if err := dl.Reopen(); err != nil {
+		t.Errorf("Reopen without a file: %v", err)
+	}
+	if err := dl.Close(); err != nil {
+		t.Errorf("Close without a file: %v", err)
 	}
 }
 
-func TestDaemonLoggerFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.log")
+func TestOpenDaemonLogFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.log")
 
-	logger, cleanup, err := DaemonLogger("debug", "json", path)
+	dl, err := OpenDaemonLog("debug", "json", path)
 	if err != nil {
-		t.Fatalf("DaemonLogger with temp file: %v", err)
+		t.Fatalf("OpenDaemonLog with temp file: %v", err)
 	}
-	if cleanup == nil {
-		t.Fatal("cleanup should not be nil when logfile is set")
-	}
-	defer cleanup()
+	defer func() { _ = dl.Close() }()
 
-	if logger == nil {
-		t.Fatal("logger should not be nil")
-	}
+	dl.Logger.Info("daemon file test", "key", "val")
 
-	logger.Info("daemon file test", "key", "val")
-
-	// Ensure data was written to the file.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("reading log file: %v", err)
@@ -217,12 +212,68 @@ func TestDaemonLoggerFile(t *testing.T) {
 	}
 }
 
-func TestDaemonLoggerBadPath(t *testing.T) {
-	_, _, err := DaemonLogger("info", "json", "/no/such/directory/logfile.log")
+func TestOpenDaemonLogBadPath(t *testing.T) {
+	_, err := OpenDaemonLog("info", "json", "/no/such/directory/logfile.log")
 	if err == nil {
 		t.Fatal("expected error for invalid log path, got nil")
 	}
 	if !strings.Contains(err.Error(), "cannot open log file") {
 		t.Errorf("error message = %q, want it to contain %q", err.Error(), "cannot open log file")
+	}
+}
+
+// After logrotate renames the file, Reopen makes later writes land in a new
+// file at the original path (#129).
+func TestReopenableFileReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kahi.log")
+	f, err := OpenReopenableFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	_, _ = f.Write([]byte("before\n"))
+	if err := os.Rename(path, path+".1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Reopen(); err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	_, _ = f.Write([]byte("after\n"))
+
+	if b, _ := os.ReadFile(path); string(b) != "after\n" {
+		t.Fatalf("new file = %q, want only the line written after reopen", b)
+	}
+	if b, _ := os.ReadFile(path + ".1"); string(b) != "before\n" {
+		t.Fatalf("rotated file = %q, want only the line written before", b)
+	}
+}
+
+// A failed reopen keeps writing to the old file instead of losing output.
+func TestReopenableFileReopenFailureKeepsOldFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "logs")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "kahi.log")
+	f, err := OpenReopenableFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	rotated := filepath.Join(t.TempDir(), "kahi.log.1")
+	if err := os.Rename(path, rotated); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.RemoveAll(dir)
+	if err := f.Reopen(); err == nil {
+		t.Fatal("reopen into a missing directory succeeded")
+	}
+	if _, err := f.Write([]byte("still here\n")); err != nil {
+		t.Fatalf("write after failed reopen: %v", err)
+	}
+	if b, _ := os.ReadFile(rotated); string(b) != "still here\n" {
+		t.Fatalf("old file = %q, want the write to land there", b)
 	}
 }
