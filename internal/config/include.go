@@ -148,8 +148,8 @@ func LoadWithIncludes(path string) (*Config, []string, error) {
 		return nil, warnings, err
 	}
 
-	// Validate for group reference integrity.
-	if errs := validateGroupReferences(cfg); len(errs) > 0 {
+	// Validate group references and process names across all files.
+	if errs := append(validateGroupReferences(cfg), validateProcessNames(cfg)...); len(errs) > 0 {
 		msgs := make([]string, len(errs))
 		for i, e := range errs {
 			msgs[i] = e.Error()
