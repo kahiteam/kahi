@@ -5,6 +5,8 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -153,8 +155,9 @@ stopwaitsecs = 2
 
 // shutdownDaemon starts a daemon with the given shutdown_timeout and programs,
 // waits for the one named worker to run, and returns the daemon command,
-// worker's PID, a channel that receives the daemon's exit, and a client.
-func shutdownDaemon(t *testing.T, shutdownTimeout int, program string) (*exec.Cmd, int, <-chan error, *ctl.Client) {
+// worker's PID, a channel that receives the daemon's exit, a client and the
+// socket path.
+func shutdownDaemon(t *testing.T, shutdownTimeout int, program string) (*exec.Cmd, int, <-chan error, *ctl.Client, string) {
 	t.Helper()
 	// Short temp dir: macOS caps Unix socket paths at 104 bytes.
 	dir, err := os.MkdirTemp("", "k-")
@@ -185,14 +188,14 @@ func shutdownDaemon(t *testing.T, shutdownTimeout int, program string) (*exec.Cm
 	if err != nil {
 		t.Fatalf("process info: %v", err)
 	}
-	return cmd, info.PID, done, client
+	return cmd, info.PID, done, client, socketPath
 }
 
 // A child that exits on SIGTERM must be reaped during shutdown, so the
 // daemon exits promptly instead of waiting out stopwaitsecs or
 // shutdown_timeout (#90).
 func TestDaemon_SIGTERMShutdownIsPrompt(t *testing.T) {
-	cmd, _, done, _ := shutdownDaemon(t, 30, `
+	cmd, _, done, _, _ := shutdownDaemon(t, 30, `
 [programs.worker]
 command = "/bin/sleep 300"
 autostart = true
@@ -225,7 +228,7 @@ func TestDaemon_ShutdownTimeoutKillsChildren(t *testing.T) {
 	// one that ignores SIGTERM.
 	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\nexec sleep 300")
 
-	cmd, pid, done, _ := shutdownDaemon(t, 2, `
+	cmd, pid, done, _, _ := shutdownDaemon(t, 2, `
 [programs.worker]
 command = "`+script+`"
 autostart = true
@@ -256,7 +259,7 @@ func TestDaemon_SignalShutdownIsReported(t *testing.T) {
 	// Ignores SIGTERM, so shutdown stays in progress until shutdown_timeout.
 	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\nexec sleep 300")
 
-	cmd, _, done, client := shutdownDaemon(t, 5, `
+	cmd, _, done, client, socketPath := shutdownDaemon(t, 5, `
 [programs.worker]
 command = "`+script+`"
 autostart = true
@@ -285,6 +288,10 @@ autostart = false
 	}
 	if status != "shutting_down" {
 		t.Fatalf("/healthz status during signal shutdown = %q, want shutting_down", status)
+	}
+	// The client reads only the body; the HTTP status must be 503 too.
+	if code := healthzStatusCode(t, socketPath); code != http.StatusServiceUnavailable {
+		t.Fatalf("/healthz during signal shutdown returned %d, want 503", code)
 	}
 
 	err := client.Start("idle")
@@ -446,4 +453,24 @@ startsecs = 0
 	if h, err := client.Health(); err != nil || h != "ok" {
 		t.Fatalf("first daemon unreachable after second start attempt: %q, %v", h, err)
 	}
+}
+
+// healthzStatusCode returns the HTTP status of GET /healthz over the Unix
+// socket; the ctl client exposes only the body.
+func healthzStatusCode(t *testing.T, socketPath string) int {
+	t.Helper()
+	hc := &http.Client{
+		Timeout: 3 * time.Second,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+			},
+		},
+	}
+	resp, err := hc.Get("http://unix/healthz")
+	if err != nil {
+		t.Fatalf("GET /healthz: %v", err)
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode
 }
