@@ -34,12 +34,12 @@ Key differences from supervisord:
 - REST/JSON API with HTTP Basic Auth, SSE streaming for logs and events
 - CLI control client (`kahi ctl`) with all standard operations
 - Liveness and readiness probes (`/healthz`, `/readyz`)
-- Event system with pub/sub, event listeners, webhook notifications
-- Structured logging with file rotation, ring buffer, syslog forwarding, ANSI stripping
-- Process groups with priority-ordered startup and shutdown
-- Per-process uid/gid, umask, resource limits, environment control
+- Event system with pub/sub and an SSE event stream (event listeners and webhook notifications are planned for 0.3.0: [#106](https://github.com/kahiteam/kahi/issues/106))
+- Structured logging with file rotation, ring buffer, ANSI stripping (syslog forwarding is planned for 0.3.0: [#152](https://github.com/kahiteam/kahi/issues/152))
+- Process groups with priority-ordered startup (shutdown in priority order is planned for 0.3.0: [#151](https://github.com/kahiteam/kahi/issues/151))
+- Per-process uid/gid, umask, resource limits (see [Resource limits](#resource-limits)), environment control
 - supervisord.conf migration tool
-- Shell completion (bash, zsh, fish, powershell)
+- Shell completion for commands and flags (bash, zsh, fish, powershell)
 - Web UI under `/ui/`: process status, actions and live log tailing (off by default; see [Web UI](#web-ui))
 - FIPS 140-3 mode on by default in every binary (`GOFIPS140=v1.0.0`)
 
@@ -57,7 +57,9 @@ startup sequences long-running services.
 **Development environment.**
 Run a project's background services (API server, worker, file watcher) from a
 single `kahi.toml`. Use `kahi ctl tail -f <process>` to stream logs and
-`kahi ctl attach <process>` to connect stdin/stdout for interactive debugging.
+`kahi ctl attach <process>` to send input lines to a process and follow its
+output (line by line; raw terminal mode is planned:
+[#157](https://github.com/kahiteam/kahi/issues/157)).
 
 **Supervised worker pools.**
 Use `numprocs` to spawn multiple instances of the same program (e.g.,
@@ -238,8 +240,9 @@ Kahi uses [TOML](https://toml.io/) for configuration. Generate a sample config
 with all available options:
 
 ```sh
-kahi init                     # print to stdout
-kahi init -o kahi.toml        # write to file
+kahi init                     # write ./kahi.toml (--force to overwrite)
+kahi init -o /etc/kahi.toml   # write to another path
+kahi init --stdout            # print to stdout
 ```
 
 ### Sample config
@@ -250,7 +253,7 @@ kahi init -o kahi.toml        # write to file
 # log_level = "info"            # debug, info, warn, error
 # log_format = "json"           # json, text
 # directory = ""                # daemon working directory (not implemented yet)
-# identifier = "kahi"           # daemon identifier
+# identifier = "kahi"           # daemon identifier (not implemented yet)
 # minfds = 1024                 # minimum file descriptors (not implemented yet)
 # minprocs = 200                # minimum process count (not implemented yet)
 # nocleanup = false             # preserve stale log files on startup (not implemented yet)
@@ -264,7 +267,7 @@ kahi init -o kahi.toml        # write to file
 # enabled = false               # enable TCP HTTP server (requires username + password below)
 # listen = "127.0.0.1:9876"    # TCP listen address; loopback is NOT exempt from auth
 # username = ""                 # HTTP Basic Auth username (required when enabled)
-# password = ""                 # bcrypt hash from `kahi hash-password` -- plaintext is rejected
+# password = ""                 # bcrypt hash from "kahi hash-password" -- plaintext is rejected
 
 # [server.web]                  # Web UI under /ui/ (requires [server.http])
 # enabled = false               # serve the Web UI
@@ -290,7 +293,7 @@ kahi init -o kahi.toml        # write to file
 # directory = ""               # working directory
 # umask = ""                   # file creation mask
 # clean_environment = false    # pass only supervisor + explicit env vars (no inheritance)
-# inherit_environment = false  # for a process whose `user` differs from the supervisor, opt back
+# inherit_environment = false  # for a process whose user differs from the supervisor, opt back
 #                              # into full env inheritance (differing-user children are clean by default)
 # redirect_stderr = false      # merge stderr into stdout
 # strip_ansi = false           # remove ANSI escape sequences
@@ -339,6 +342,24 @@ include = ["/etc/kahi/conf.d/*.toml"]
 ```
 
 Glob patterns are supported. Circular includes are detected and rejected.
+
+### Resource limits
+
+Per-process resource limits are set as `KAHI_RLIMIT_<RESOURCE>` keys in the
+program's environment table, as one value (soft and hard) or `soft:hard`, with
+`unlimited` (or `-1`) for no limit. They are applied to the child before it
+starts, and the keys stay visible in its environment.
+
+```toml
+[programs.web.environment]
+KAHI_RLIMIT_NOFILE = "4096:8192"
+KAHI_RLIMIT_CORE = "0"
+```
+
+Supported resources: `NOFILE`, `NPROC`, `CORE`, `FSIZE`, `AS`, `DATA`,
+`STACK`, `RSS`. An unknown resource or an invalid value is a config error.
+Daemon-wide `minfds`/`minprocs` are not implemented yet
+([#113](https://github.com/kahiteam/kahi/issues/113)).
 
 ### Web UI
 

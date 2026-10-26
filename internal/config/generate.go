@@ -9,7 +9,7 @@ const DefaultConfigTOML = `# Kahi configuration file
 # log_level = "info"            # debug, info, warn, error
 # log_format = "json"           # json, text
 # directory = ""                # daemon working directory (not implemented yet)
-# identifier = "kahi"           # daemon identifier
+# identifier = "kahi"           # daemon identifier (not implemented yet)
 # minfds = 1024                 # minimum file descriptors (not implemented yet)
 # minprocs = 200                # minimum process count (not implemented yet)
 # nocleanup = false             # preserve stale log files on startup (not implemented yet)
@@ -17,13 +17,13 @@ const DefaultConfigTOML = `# Kahi configuration file
 
 [server.unix]
 # file = "/var/run/kahi.sock"   # Unix socket path
-# chmod = "0700"                # socket file permissions (owner-only; group/other access is rejected)
+# chmod = "0700"                # socket permissions; must be owner-only -- group/other access is rejected
 
 [server.http]
-# enabled = false               # enable TCP HTTP server
-# listen = "127.0.0.1:9876"    # TCP listen address
-# username = ""                 # HTTP Basic Auth username
-# password = ""                 # bcrypt-hashed password
+# enabled = false               # enable TCP HTTP server (requires username + password below)
+# listen = "127.0.0.1:9876"    # TCP listen address; loopback is NOT exempt from auth
+# username = ""                 # HTTP Basic Auth username (required when enabled)
+# password = ""                 # bcrypt hash from "kahi hash-password" -- plaintext is rejected
 
 # [server.web]                  # Web UI under /ui/ (requires [server.http])
 # enabled = false               # serve the Web UI
@@ -48,8 +48,9 @@ const DefaultConfigTOML = `# Kahi configuration file
 # user = ""                    # run as user
 # directory = ""               # working directory
 # umask = ""                   # file creation mask
-# clean_environment = false    # whitelist-only environment mode
-# inherit_environment = false  # inherit full env even when user differs
+# clean_environment = false    # pass only supervisor + explicit env vars (no inheritance)
+# inherit_environment = false  # for a process whose user differs from the supervisor, opt back
+#                              # into full env inheritance (differing-user children are clean by default)
 # redirect_stderr = false      # merge stderr into stdout
 # strip_ansi = false           # remove ANSI escape sequences
 # stdout_logfile = ""          # stdout log file (default: container stdout)
