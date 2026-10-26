@@ -175,39 +175,34 @@ func TestLevelVarLevel(t *testing.T) {
 	}
 }
 
-func TestDaemonLoggerStdout(t *testing.T) {
-	logger, cleanup, err := DaemonLogger("info", "json", "")
+func TestOpenDaemonLogStdout(t *testing.T) {
+	dl, err := OpenDaemonLog("info", "json", "")
 	if err != nil {
-		t.Fatalf("DaemonLogger with empty logfile: %v", err)
+		t.Fatalf("OpenDaemonLog with empty logfile: %v", err)
 	}
-	if cleanup != nil {
-		t.Error("cleanup should be nil when no logfile is set")
-	}
-	if logger == nil {
+	if dl.Logger == nil {
 		t.Fatal("logger should not be nil")
+	}
+	// Reopen and Close are no-ops without a file.
+	if err := dl.Reopen(); err != nil {
+		t.Errorf("Reopen without a file: %v", err)
+	}
+	if err := dl.Close(); err != nil {
+		t.Errorf("Close without a file: %v", err)
 	}
 }
 
-func TestDaemonLoggerFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.log")
+func TestOpenDaemonLogFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.log")
 
-	logger, cleanup, err := DaemonLogger("debug", "json", path)
+	dl, err := OpenDaemonLog("debug", "json", path)
 	if err != nil {
-		t.Fatalf("DaemonLogger with temp file: %v", err)
+		t.Fatalf("OpenDaemonLog with temp file: %v", err)
 	}
-	if cleanup == nil {
-		t.Fatal("cleanup should not be nil when logfile is set")
-	}
-	defer cleanup()
+	defer func() { _ = dl.Close() }()
 
-	if logger == nil {
-		t.Fatal("logger should not be nil")
-	}
+	dl.Logger.Info("daemon file test", "key", "val")
 
-	logger.Info("daemon file test", "key", "val")
-
-	// Ensure data was written to the file.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("reading log file: %v", err)
@@ -217,8 +212,8 @@ func TestDaemonLoggerFile(t *testing.T) {
 	}
 }
 
-func TestDaemonLoggerBadPath(t *testing.T) {
-	_, _, err := DaemonLogger("info", "json", "/no/such/directory/logfile.log")
+func TestOpenDaemonLogBadPath(t *testing.T) {
+	_, err := OpenDaemonLog("info", "json", "/no/such/directory/logfile.log")
 	if err == nil {
 		t.Fatal("expected error for invalid log path, got nil")
 	}

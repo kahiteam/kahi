@@ -42,7 +42,7 @@ func TestCaptureWriterAcceptsRegularLogfile(t *testing.T) {
 	_ = cw.Close()
 }
 
-func TestDaemonLoggerRejectsSymlinkLogfile(t *testing.T) {
+func TestOpenDaemonLogRejectsSymlinkLogfile(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "d.log")
 	if err := os.WriteFile(target, nil, 0644); err != nil {
@@ -53,7 +53,7 @@ func TestDaemonLoggerRejectsSymlinkLogfile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, err := DaemonLogger("info", "json", link); err == nil {
+	if _, err := OpenDaemonLog("info", "json", link); err == nil {
 		t.Fatal("expected error opening a symlinked daemon logfile (O_NOFOLLOW)")
 	}
 }

@@ -67,20 +67,6 @@ func ValidateLevel(s string) error {
 	}
 }
 
-// DaemonLogger creates a logger for the daemon, optionally writing to a file.
-// Returns the logger and a cleanup function to close the file (if opened).
-func DaemonLogger(level, format, logfile string) (*slog.Logger, func(), error) {
-	dl, err := OpenDaemonLog(level, format, logfile)
-	if err != nil {
-		return nil, nil, err
-	}
-	var cleanup func()
-	if dl.file != nil {
-		cleanup = func() { _ = dl.Close() }
-	}
-	return dl.Logger, cleanup, nil
-}
-
 // DaemonLog is the daemon's logger and, when it writes to a file, that file,
 // which SIGUSR2 reopens after logrotate renames it.
 type DaemonLog struct {
