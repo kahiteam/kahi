@@ -1797,6 +1797,7 @@ This feature adds two complementary mechanisms:
 **Edge Cases:**
 
 - `kahi ctl avail` shows all configured programs with active/available status
+- `reread`, `update`, `reload` and `add` print the new config's warnings (unknown keys, settings that are accepted but ignored) to stderr as `warning: ...`. The reload API returns them in a `warnings` array, for a preview (`?dry_run=true`) as well as an applied reload.
 
 **Dependencies:** FUNC-031, FUNC-014
 
