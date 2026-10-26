@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/kahiteam/kahi/internal/api"
+	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/ctl"
 )
 
@@ -46,12 +47,12 @@ func (m *mockGroupManager) RestartGroup(name string) error { return nil }
 type mockConfigManager struct{}
 
 func (m *mockConfigManager) GetConfig() any { return map[string]string{} }
-func (m *mockConfigManager) Reload() (added, changed, removed []string, err error) {
-	return nil, nil, nil, nil
+func (m *mockConfigManager) Reload() (config.ReloadResult, error) {
+	return config.ReloadResult{}, nil
 }
 
-func (m *mockConfigManager) PreviewReload() (added, changed, removed []string, err error) {
-	return nil, nil, nil, nil
+func (m *mockConfigManager) PreviewReload() (config.ReloadResult, error) {
+	return config.ReloadResult{}, nil
 }
 
 type mockDaemonInfo struct{}

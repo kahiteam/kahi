@@ -217,6 +217,15 @@ var ctlShutdownCmd = &cobra.Command{
 	},
 }
 
+// printConfigWarnings prints the warnings a reload or preview reported for
+// the new config (unknown keys, ignored settings) to stderr, one per line.
+func printConfigWarnings(cmd *cobra.Command, result map[string]any) {
+	warnings, _ := result["warnings"].([]any)
+	for _, w := range warnings {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", w)
+	}
+}
+
 var ctlReloadCmd = &cobra.Command{
 	Use:   "reload",
 	Short: "Reload daemon configuration",
@@ -228,6 +237,7 @@ var ctlReloadCmd = &cobra.Command{
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "config reloaded: added=%v changed=%v removed=%v\n",
 			result["added"], result["changed"], result["removed"])
+		printConfigWarnings(cmd, result)
 		return nil
 	},
 }
@@ -328,6 +338,7 @@ var ctlRereadCmd = &cobra.Command{
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "would apply: added=%v changed=%v removed=%v\n",
 			result["added"], result["changed"], result["removed"])
+		printConfigWarnings(cmd, result)
 		return nil
 	},
 }
@@ -343,6 +354,7 @@ var ctlUpdateCmd = &cobra.Command{
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "updated: added=%v changed=%v removed=%v\n",
 			result["added"], result["changed"], result["removed"])
+		printConfigWarnings(cmd, result)
 		return nil
 	},
 }
@@ -354,9 +366,11 @@ var ctlAddCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := newCtlClient()
 		// Reload first to pick up new config.
-		if _, err := c.Reload(); err != nil {
+		result, err := c.Reload()
+		if err != nil {
 			return err
 		}
+		printConfigWarnings(cmd, result)
 		// Start the group.
 		if err := c.StartGroup(args[0]); err != nil {
 			return err

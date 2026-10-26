@@ -148,11 +148,11 @@ func TestHandleSignalSIGHUP(t *testing.T) {
 
 func TestReloadErrorPath(t *testing.T) {
 	s := testSupervisor()
-	added, changed, removed, err := s.Reload()
+	res, err := s.Reload()
 	if err == nil {
 		t.Fatal("expected error for nonexistent config")
 	}
-	if added != nil || changed != nil || removed != nil {
+	if res.Added != nil || res.Changed != nil || res.Removed != nil {
 		t.Fatal("expected nil slices on error")
 	}
 }
@@ -189,12 +189,12 @@ exitcodes = [0]
 		Logger:     discardLogger(),
 	})
 
-	added, changed, removed, err := s.Reload()
+	res, err := s.Reload()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(added) != 0 || len(changed) != 0 || len(removed) != 0 {
-		t.Fatalf("expected no diff, got added=%v changed=%v removed=%v", added, changed, removed)
+	if len(res.Added) != 0 || len(res.Changed) != 0 || len(res.Removed) != 0 {
+		t.Fatalf("expected no diff, got %+v", res)
 	}
 }
 
