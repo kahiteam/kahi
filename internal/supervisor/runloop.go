@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"sync"
@@ -53,6 +54,10 @@ type SupervisorConfig struct {
 	// ReopenDaemonLog reopens the daemon's own log file on SIGUSR2; nil when
 	// the daemon logs to stdout.
 	ReopenDaemonLog func() error
+	// Stdout and Stderr receive, as JSON lines, the output of process
+	// streams that have no log file (FUNC-018); nil drops it.
+	Stdout io.Writer
+	Stderr io.Writer
 }
 
 // New creates a supervisor.
@@ -60,6 +65,7 @@ func New(cfg SupervisorConfig) *Supervisor {
 	bus := events.NewBus(cfg.Logger)
 	spawner := &process.ExecSpawner{}
 	mgr := process.NewManager(spawner, bus, cfg.Logger)
+	mgr.SetOutput(cfg.Stdout, cfg.Stderr)
 
 	var startupWeb config.WebServerConfig
 	if cfg.Config != nil {
