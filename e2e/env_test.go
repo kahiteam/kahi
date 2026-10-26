@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -203,5 +204,45 @@ stopwaitsecs = 2
 	}
 	if !strings.Contains(buf.String(), "started-from-include") {
 		t.Fatalf("stdout = %q, want started-from-include", buf.String())
+	}
+}
+
+// With numprocs > 1, %(process_num)d in log paths and arguments is each
+// instance's own number, so instances do not share a log file (#128).
+func TestEnv_ProcessNumPerInstance(t *testing.T) {
+	dir := t.TempDir()
+	logDir := filepath.Join(dir, "logs")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	script := writeScript(t, dir, "who.sh", "echo instance-$1\nexec sleep 300")
+
+	client, _ := startDaemon(t, `
+[programs.worker]
+command = "`+script+` %(process_num)d"
+process_name = "worker-%(process_num)d"
+numprocs = 2
+autostart = true
+startsecs = 0
+stopwaitsecs = 2
+stdout_logfile = "`+logDir+`/worker-%(process_num)d.log"
+`)
+	for n := 0; n < 2; n++ {
+		name := fmt.Sprintf("worker-%d", n)
+		waitForState(t, client, name, "RUNNING", 5*time.Second)
+
+		path := filepath.Join(logDir, name+".log")
+		want := fmt.Sprintf("instance-%d", n)
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			b, err := os.ReadFile(path)
+			if err == nil && strings.TrimSpace(string(b)) == want {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s = %q (err %v), want only %q", path, b, err, want)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
 }
