@@ -131,16 +131,19 @@
         "Write a unit test that verifies RUNNING transitions to EXITED when process exits on its own",
         "Write a unit test that attempts an invalid transition (e.g., STOPPED to RUNNING) and verifies it is rejected with an error message",
         "Write a unit test that verifies the backoff retry counter resets when process reaches RUNNING state",
-        "Verify transition from STOPPING to EXITED works even if stop signal was not the cause of exit",
+        "Verify that a process exiting on its own during STOPPING ends STOPPED, not EXITED (a stop was requested, so the exit completes it)",
         "Write a unit test using a mock Clock to verify clock rollback during STARTING does not cause premature RUNNING transition"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
-        "TestState_AutorestartFalse",
+        "TestLifecycle_StartsecsLowerBound",
         "TestState_BackoffToFatal",
         "TestState_KilledDuringBackoff",
-        "TestProcess_Stop",
-        "TestProcess_StartSecs"
+        "TestLifecycle_RetriesToFatal",
+        "TestLifecycle_StoppingVisible",
+        "TestLifecycle_AutorestartAfterRunning",
+        "TestLifecycle_RetryCountResetsAfterRunning",
+        "TestLifecycle_ExitDuringStoppingIsStopped"
       ],
       "dependencies": ["go-module-structure"]
     },
@@ -163,13 +166,18 @@
         "Write a unit test that verifies a non-executable command results in FATAL state with permission denied error",
         "Write a unit test that attempts to start an already-running process and verifies the error message"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
-        "TestProcess_Start",
-        "TestProcess_StartFails",
-        "TestProcess_StartAlreadyRunning",
+        "TestLifecycle_ExecWithoutShell",
+        "TestLog_TailStdout",
+        "TestLog_TailStderr",
+        "TestLifecycle_SupervisorEnv",
+        "TestEnv_CleanEnvironment",
         "TestEnv_Passthrough",
-        "TestEnv_CleanEnvironment"
+        "TestProcess_Start",
+        "TestExpansion_ConfigValues",
+        "TestLifecycle_SpawnErrors",
+        "TestLifecycle_StartErrorText"
       ],
       "dependencies": ["process-state-machine", "structured-logging"]
     },
@@ -190,11 +198,14 @@
         "Write a unit test that verifies killasgroup=false with stopasgroup=true is rejected at config validation",
         "Write a unit test that verifies a process exiting during signal send does not cause errors"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
-        "TestProcess_Stop",
+        "TestLifecycle_StoppingVisible",
+        "TestLifecycle_StopSignalDelivered",
         "TestProcess_StopWaitSecs",
-        "TestProcess_StopAlreadyStopped"
+        "TestLifecycle_StopAsGroup",
+        "TestZero_UnsafeValuesRefused",
+        "TestLifecycle_ConfigErrors"
       ],
       "dependencies": ["process-state-machine", "process-start"]
     },
@@ -215,13 +226,13 @@
         "Write a unit test with autorestart=unexpected and exitcodes=[0,2] that verifies exit code 2 is treated as expected and does not trigger restart",
         "Write a unit test that verifies autorestart does not apply during STARTING/BACKOFF phases before RUNNING is reached"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
-        "TestState_AutorestartTrue",
-        "TestState_AutorestartFalse",
-        "TestState_AutorestartUnexpected",
-        "TestState_ExpectedExitCode",
-        "TestState_UnexpectedExitCode"
+        "TestLifecycle_AutorestartAfterRunning",
+        "TestLifecycle_RetriesToFatal",
+        "TestLifecycle_NoRespawnAfterStop",
+        "TestLifecycle_NoRespawnDuringShutdown",
+        "TestLifecycle_ConfigErrors"
       ],
       "dependencies": ["process-state-machine", "process-start"]
     },
@@ -240,9 +251,10 @@
       ],
       "passes": false,
       "verified_by": [
-        "TestState_BackoffToFatal",
-        "TestProcess_StartRetries",
-        "TestState_KilledDuringBackoff"
+        "TestLifecycle_BackoffDelaysDouble",
+        "TestLifecycle_RetriesToFatal",
+        "TestLifecycle_RetryCountResetsAfterRunning",
+        "TestZero_StartretriesNoRetry"
       ],
       "dependencies": ["process-state-machine", "process-start"]
     },
