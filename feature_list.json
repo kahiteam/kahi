@@ -134,7 +134,7 @@
         "Verify transition from STOPPING to EXITED works even if stop signal was not the cause of exit",
         "Write a unit test using a mock Clock to verify clock rollback during STARTING does not cause premature RUNNING transition"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": [
         "TestState_AutorestartFalse",
         "TestState_BackoffToFatal",
@@ -163,7 +163,7 @@
         "Write a unit test that verifies a non-executable command results in FATAL state with permission denied error",
         "Write a unit test that attempts to start an already-running process and verifies the error message"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": [
         "TestProcess_Start",
         "TestProcess_StartFails",
@@ -186,11 +186,11 @@
         "Write a unit test that verifies a process exiting before stopwaitsecs transitions to STOPPED without SIGKILL",
         "Write a unit test that stops a non-running process and verifies the error message 'process not running'",
         "Write a unit test that verifies multiple stop commands on the same process are idempotent",
-        "Write a unit test with stopwaitsecs=0 that verifies SIGKILL is sent immediately after the stop signal",
+        "Configure stopwaitsecs = 0 and verify the daemon refuses to start, naming the key (0 would SIGKILL with no grace period; #138)",
         "Write a unit test that verifies killasgroup=false with stopasgroup=true is rejected at config validation",
         "Write a unit test that verifies a process exiting during signal send does not cause errors"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": [
         "TestProcess_Stop",
         "TestProcess_StopWaitSecs",
@@ -215,7 +215,7 @@
         "Write a unit test with autorestart=unexpected and exitcodes=[0,2] that verifies exit code 2 is treated as expected and does not trigger restart",
         "Write a unit test that verifies autorestart does not apply during STARTING/BACKOFF phases before RUNNING is reached"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": [
         "TestState_AutorestartTrue",
         "TestState_AutorestartFalse",
@@ -238,7 +238,7 @@
         "Write a unit test that verifies backoff delay is capped at a maximum of 60 seconds",
         "Write a unit test using a mock Clock that verifies system clock rollback does not cause negative waits"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": [
         "TestState_BackoffToFatal",
         "TestProcess_StartRetries",
@@ -259,7 +259,7 @@
         "Write a unit test that verifies the reaping loop stops when waitpid returns ECHILD",
         "Write a unit test that verifies exit status includes both normal exit codes and signal-killed status"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": [
         "TestDaemon_SIGTERMShutdownIsPrompt",
         "TestState_AutorestartFalse"
@@ -470,7 +470,7 @@
       "title": "Default Config Generation via kahi init",
       "description": "Generate a complete, commented sample kahi.toml with annotated defaults that is valid for starting Kahi with no programs defined.",
       "testing_steps": [
-        "Run 'kahi init' and verify a complete, commented sample config is printed to stdout",
+        "Run 'kahi init --stdout' and verify a complete, commented sample config is printed to stdout; run 'kahi init' and verify it writes ./kahi.toml",
         "Run 'kahi init --output /tmp/test-kahi.toml' and verify the config is written to the file",
         "Parse the generated config with the TOML parser and verify it is valid",
         "Start Kahi with the generated config and verify it starts with no programs defined",
@@ -478,7 +478,7 @@
         "Run 'kahi init --output --force' targeting an existing file and verify it overwrites",
         "Verify the generated config includes commented-out sections for all configurable options"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": ["TestRegression_KahiInit"],
       "dependencies": ["toml-config-parser"]
     },
@@ -532,7 +532,7 @@
         "Write a test that verifies byte size parsing supports B, KB, MB, GB suffixes",
         "Write a test that simulates a rotation rename failure and verifies the daemon continues writing to the current file"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": ["TestLog_Rotation"],
       "dependencies": ["process-output-capture"]
     },
@@ -563,7 +563,7 @@
         "Write a test that verifies all CSI sequences (colors, cursor movement, etc.) are stripped",
         "Write a test that verifies partial escape sequences at buffer boundaries are handled correctly"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": ["TestLog_ANSIStrip"],
       "dependencies": ["process-output-capture"]
     },
@@ -633,7 +633,7 @@
         "Parse a config with an invalid listen address and verify a validation error is returned",
         "Configure listen='0.0.0.0:9876' and verify a security warning is logged"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": [
         "TestAuth_TCPNoCreds",
         "TestAuth_TCPBadCreds",
@@ -662,7 +662,7 @@
         "Verify all endpoints return Content-Type: application/json header",
         "Make a request using an unsupported HTTP method and verify 405 is returned"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": [
         "TestProcess_Status",
         "TestProcess_Start",
@@ -740,7 +740,8 @@
       "verified_by": [
         "TestDaemon_Health",
         "TestCLI_HealthOK",
-        "TestAuth_TCPNoCreds"
+        "TestAuth_TCPNoCreds",
+        "TestDaemon_SignalShutdownIsReported"
       ],
       "dependencies": ["unix-socket-server"]
     },
@@ -759,7 +760,7 @@
         "Verify processes with autostart=false are excluded from default readiness check",
         "Verify FATAL processes count as stabilized in the readiness check"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": [
         "TestDaemon_Ready",
         "TestCLI_Ready",
@@ -801,7 +802,7 @@
         "Verify exit status is shown for EXITED processes",
         "Run 'kahi ctl status' with no processes configured and verify an empty table with headers is printed"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": [
         "TestCLI_StatusTerminalColours",
         "TestCLI_StatusJSON",
@@ -935,7 +936,7 @@
         "Verify SIGCHLD is handled via signal.Notify channel in the main goroutine",
         "Verify multiple exits between polls are all collected in a single reaping loop"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": ["TestDaemon_SIGTERMShutdownIsPrompt"],
       "dependencies": ["process-reaping"]
     },
@@ -1412,7 +1413,7 @@
         "Verify %(ENV_X)s syntax is mapped to Kahi's ${X} syntax",
         "Verify boolean values (true/false, yes/no, on/off, 1/0) map to TOML booleans"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": ["TestCLI_MigrateErrors", "TestCLI_MigrateToStdout"],
       "dependencies": ["go-module-structure"]
     },
@@ -1429,7 +1430,7 @@
         "Verify byte size values (e.g., 50MB) are preserved in human-readable format",
         "Verify signal names are normalized to uppercase"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": ["TestCLI_MigrateToStdout"],
       "dependencies": ["migration-ini-parser"]
     },
@@ -1523,7 +1524,7 @@
         "TestEventStreamSubscribesBeforeFlush (internal/api): on a fresh events.NewBus(), serve GET /api/v1/events/stream through srv.handler with a ResponseWriter whose Flush records the bus subscriber count for PROCESS_STATE_RUNNING, cancel the request context after the first Flush, and verify the recorded count is 1; mutation check: moving the subscribe loop after flusher.Flush() in handleEventStream makes it fail",
         "Run 'go test -count=1 -run TestStatusPage ./internal/web/...' (covers steps 1-9) and 'go test -count=1 -run TestEventStreamSubscribesBeforeFlush ./internal/api/...'"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": ["TestWebUIE2EServed", "TestWebUIE2EBulk"],
       "dependencies": [
         "rest-api-endpoints",
@@ -1549,10 +1550,9 @@
         "TestLogViewerAssetEncoding: verify every line of log.js containing '/api/v1/processes/' also contains 'encodeURIComponent('",
         "TestStreamLogSubscribesBeforeFlush (internal/api): on a fresh events.NewBus(), serve GET /api/v1/processes/web/log/stdout/stream through srv.handler with a ResponseWriter whose Flush records the bus subscriber count for the stream's event type, cancel the request context after the first Flush, and verify the recorded count is 1",
         "Mutation check: move bus.Subscribe after flusher.Flush() in handleStreamLog and verify TestStreamLogSubscribesBeforeFlush fails",
-        "PR checklist item (not a passes gate): in a browser, tail a process printing '\\x1b[31mred\\x1b[0m <b>x</b>' and confirm red text, literal '<b>x</b>', auto-scroll, and scroll-up pausing auto-scroll",
         "Run 'go test -count=1 -run TestLogViewer ./internal/web/...' and 'go test -count=1 -run TestStreamLogSubscribesBeforeFlush ./internal/api/...'"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": ["TestWebUIE2ELogViewer"],
       "dependencies": [
         "sse-streaming",
@@ -1583,7 +1583,7 @@
         "Mutation check: change the ETag to sha256(name+ModTime.String()) and verify TestStaticETagIsContentHash and TestStaticETagChangesWithContent fail",
         "Run 'go test -count=1 -run TestStatic ./internal/web/...'; the existing TestStaticDirFallback and TestStaticCustomDir also match the filter"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": ["TestWebUIE2EAssets"],
       "dependencies": ["web-ui-status-page", "web-ui-log-viewer"]
     },
@@ -1599,7 +1599,7 @@
         "Run 'kahi hash-password' with an empty password and verify 'password cannot be empty' error",
         "Verify the password prompt suppresses echo for security"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": ["TestWebUIE2EServed"],
       "dependencies": ["cli-framework"]
     },
@@ -2176,7 +2176,7 @@
         "Run 'go test ./internal/config/... ./internal/api/...' and confirm both the config-validation and StartTCP guards are covered",
         "Verify the all-interfaces bind warning still logs in addition to the hard failure"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": ["TestWebUIE2EAuth"],
       "dependencies": ["tcp-http-server", "http-basic-auth"]
     },
@@ -2225,7 +2225,7 @@
         "Run 'go test -run TestCheckPassword ./internal/api/...' and confirm no plaintext path remains",
         "Verify test helpers use bcrypt hashes rather than plaintext passwords"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": ["TestWebUIE2EServed"],
       "dependencies": ["http-basic-auth"]
     },
@@ -2400,7 +2400,7 @@
         "Mutation check: make StopAllOrdered call sortedProcesses(true) and verify TestBulkStopOrder fails",
         "Run 'go test -count=1 -run TestBulk ./internal/process/... ./internal/api/...'; every test above is named TestBulk*"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": ["TestWebUIE2EBulk"],
       "dependencies": [
         "rest-api-endpoints",
@@ -2434,7 +2434,7 @@
         "Mutation check: register /ui/ without requireAuth and verify TestUIMountAuth fails",
         "Run 'go test -count=1 -run \"TestWebConfig|TestDefaultConfigTOMLHasWeb|TestUIMount|TestUIUnavailable|TestBuildUIHandlerDisabled|TestUIListerAdapter|TestReloadWarnsOnWebChange|TestREADMEDocumentsWebUI|TestStopClosesOpenStreams\" ./internal/config/... ./internal/api/... ./internal/supervisor/... ./cmd/kahi/...'"
       ],
-      "passes": true,
+      "passes": false,
       "verified_by": [
         "TestWebUIE2EServed",
         "TestWebUIE2EAuth",
