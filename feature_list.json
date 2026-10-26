@@ -607,13 +607,12 @@
       "description": "Serve the control API over a Unix domain socket with configurable path, permissions, and stale socket cleanup.",
       "testing_steps": [
         "Start Kahi and verify a Unix socket is created at the configured path",
-        "Configure socket_chmod='0770' and verify the socket file has permissions 0770",
+        "Configure [server.unix] chmod='0600' and verify the socket file has permissions 0600; configure chmod='0770' and verify startup fails with an owner-only error (SEC-022)",
         "Create a stale socket file from a simulated previous crashed run, start Kahi, and verify it is replaced",
         "Write a test that verifies the socket is cleaned up on graceful shutdown",
         "Write a test with a non-writable socket path and verify Kahi exits with error message 'cannot create socket: {path}: {error}'",
         "Write a test with a socket path longer than 108 characters and verify exit with 'socket path too long' error",
-        "Write a test that verifies chown on the socket when running as root",
-        "Write a test that verifies a warning is logged and chown is skipped when running as non-root",
+        "Configure [server.unix] chown and verify startup fails with 'server.unix.chown is not supported' (SEC-022)",
         "Write a test that connects to the Unix socket and makes an API request and verifies a valid JSON response",
         "Write a test that verifies the socket is not cleaned up on SIGKILL and stale detection handles it on next start"
       ],
@@ -627,7 +626,7 @@
       "description": "Optionally serve the API over TCP with HTTP, requiring authentication for all requests.",
       "testing_steps": [
         "Configure [server.http] enabled=true and listen='127.0.0.1:9876' and verify an HTTP server listens on that address",
-        "Make a request to the TCP server without auth and verify 401 Unauthorized is returned",
+        "Enable the TCP server without username/password and verify startup fails with 'http listener on {addr} requires username/password' (SEC-015)",
         "Configure auth and make a request with valid Basic Auth credentials and verify the request is processed",
         "Write a test that attempts to bind to an already-used port and verifies exit with error message 'cannot bind {address}: {error}'",
         "Parse a config with an invalid listen address and verify a validation error is returned",
@@ -832,12 +831,11 @@
       "title": "CLI Foreground Attach to Process",
       "description": "Attach to a running process's stdin/stdout/stderr for interactive control, with terminal raw mode management.",
       "testing_steps": [
-        "Run 'kahi ctl fg web' with web running and verify stdin is connected and stdout/stderr are streamed",
-        "Press Ctrl+C during fg session and verify the session ends but the process continues running",
-        "Run 'kahi ctl fg' for a non-running process and verify 'process not running' error",
-        "Run 'kahi ctl fg' for a process without stdin and verify 'does not accept stdin' error",
-        "Verify terminal raw mode is set during fg session and restored on exit",
-        "Write a test that attempts two fg sessions on the same process and verifies the second is rejected"
+        "Run 'kahi ctl attach web' with web running and verify stdin is connected and stdout/stderr are streamed",
+        "Press Ctrl+C during attach session and verify the session ends but the process continues running",
+        "Run 'kahi ctl attach' for a non-running process and verify 'process not running' error",
+        "Verify terminal raw mode is set during attach session and restored on exit",
+        "Write a test that attempts two attach sessions on the same process and verifies the second is rejected"
       ],
       "passes": false,
       "dependencies": ["cli-process-control"]
@@ -1499,7 +1497,6 @@
         "Make a POST request to /api/v1/processes/web/stdin with body {\"data\":\"quit\\n\"} and verify 'quit\\n' is written to the process stdin pipe",
         "Run 'kahi ctl send web quit' and verify the data is written to stdin with a trailing newline",
         "Write stdin to a non-running process and verify a 'not running' error",
-        "Write stdin to a process without stdin configured and verify 'does not accept stdin' error",
         "Write stdin to a process with a broken pipe and verify error message 'stdin pipe broken for {name}'"
       ],
       "passes": false,

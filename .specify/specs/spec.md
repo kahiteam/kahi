@@ -1354,9 +1354,13 @@ This feature adds two complementary mechanisms:
   **When** Kahi starts
   **Then** a Unix socket is created at the configured path (default: /var/run/kahi.sock or /tmp/kahi.sock)
 
-- **Given** `socket_chmod = "0770"` in config
+- **Given** `[server.unix] chmod = "0600"` in config
   **When** the socket is created
-  **Then** the socket file has permissions 0770
+  **Then** the socket file has permissions 0600
+
+- **Given** `[server.unix] chmod = "0770"` (group or other access) or any `chown`
+  **When** Kahi starts
+  **Then** startup fails with a config error: the socket is an unauthenticated control channel, so it must be owner-only (SEC-022)
 
 - **Given** the socket file already exists from a previous crashed run
   **When** Kahi starts
@@ -1373,7 +1377,7 @@ This feature adds two complementary mechanisms:
 
 - Socket is cleaned up on graceful shutdown
 - Socket is not cleaned up on SIGKILL (handled by stale detection on next start)
-- chown only works when running as root; otherwise, a warning is logged and chown is skipped
+- chown is not supported: a config that sets it is rejected (SEC-022). Share access through a reverse proxy that authenticates, not through socket ownership
 
 **Dependencies:** INFRA-004
 
@@ -1389,8 +1393,12 @@ This feature adds two complementary mechanisms:
   **When** Kahi starts
   **Then** an HTTP server listens on 127.0.0.1:9876
 
-- **Given** TCP server enabled without auth
-  **When** a request is made
+- **Given** TCP server enabled without username/password
+  **When** Kahi starts
+  **Then** startup fails with "http listener on {addr} requires username/password" (SEC-015)
+
+- **Given** TCP server with auth configured
+  **When** a request carries no or invalid credentials
   **Then** the request is rejected with 401 Unauthorized
 
 - **Given** TCP server with auth configured
@@ -1520,7 +1528,7 @@ This feature adds two complementary mechanisms:
 
 **Acceptance Criteria:**
 
-- **Given** `[server.http]` with `username` and a bcrypt-hashed `password_hash` field
+- **Given** `[server.http]` with `username` and a bcrypt-hashed `password` field
   **When** a request with matching Basic Auth is received
   **Then** the request is processed
 
@@ -1529,8 +1537,8 @@ This feature adds two complementary mechanisms:
   **Then** 401 Unauthorized is returned with `WWW-Authenticate: Basic` header
 
 - **Given** auth configured
-  **When** `kahi ctl` connects
-  **Then** credentials from the ctl config section or command-line flags are sent
+  **When** `kahi ctl --addr host:port -u <user> -p <password>` connects
+  **Then** the credentials from the `-u`/`-p` flags are sent (ctl has no config section; the daemon config holds only the bcrypt hash)
 
 **Error Handling:**
 
@@ -1540,7 +1548,7 @@ This feature adds two complementary mechanisms:
 
 **Edge Cases:**
 
-- Auth is required for TCP server, optional for Unix socket
+- Auth is required for the TCP server. The Unix socket has no authentication; it is owner-only instead (SEC-022)
 - `kahi hash-password` subcommand generates a bcrypt hash from stdin
 - bcrypt cost factor is not configurable (use the library default, typically 10)
 
@@ -1737,26 +1745,26 @@ This feature adds two complementary mechanisms:
 
 **Acceptance Criteria:**
 
-- **Given** `kahi ctl fg web` is issued
+- **Given** `kahi ctl attach web` is issued
   **When** web is running
   **Then** CLI stdin is connected to the process stdin, and process stdout/stderr are streamed to the terminal
 
-- **Given** the user presses Ctrl+C in fg mode
+- **Given** the user presses Ctrl+C in an attach session
   **When** attached to a process
-  **Then** the fg session ends but the process continues running
+  **Then** the attach session ends but the process continues running
 
 **Error Handling:**
 
-| Error Condition                  | Expected Behavior | User-Facing Message                    |
-| -------------------------------- | ----------------- | -------------------------------------- |
-| Process not running              | Error             | "process not running: {name}"          |
-| Stdin not configured for process | Error             | "process {name} does not accept stdin" |
+| Error Condition     | Expected Behavior | User-Facing Message           |
+| ------------------- | ----------------- | ----------------------------- |
+| Process not running | Error             | "process not running: {name}" |
 
 **Edge Cases:**
 
-- Terminal raw mode is set during fg session and restored on exit
-- Multiple fg sessions to the same process are rejected
-- Process exit during fg session cleanly terminates the session
+- The command is `attach` (supervisorctl calls it `fg`); decided 2026-10-26 (#157)
+- Terminal raw mode is set during an attach session and restored on exit
+- Multiple attach sessions to the same process are rejected
+- Process exit during an attach session cleanly terminates the session
 
 **Dependencies:** FUNC-031
 
@@ -3113,25 +3121,24 @@ This feature adds two complementary mechanisms:
 
 **Acceptance Criteria:**
 
-- **Given** a process with stdin configured
+- **Given** a running process
   **When** `POST /api/v1/processes/web/stdin` with body `{"data": "quit\n"}` is sent
   **Then** "quit\n" is written to the process's stdin pipe
 
 - **Given** `kahi ctl send web "quit"` is issued
-  **When** web has stdin enabled
+  **When** web is running
   **Then** "quit\n" is written to stdin
 
 **Error Handling:**
 
-| Error Condition      | Expected Behavior | User-Facing Message                    |
-| -------------------- | ----------------- | -------------------------------------- |
-| Process not running  | Return error      | "process not running: {name}"          |
-| Process has no stdin | Return error      | "process {name} does not accept stdin" |
-| Stdin pipe broken    | Return error      | "stdin pipe broken for {name}"         |
+| Error Condition     | Expected Behavior | User-Facing Message            |
+| ------------------- | ----------------- | ------------------------------ |
+| Process not running | Return error      | "process not running: {name}"  |
+| Stdin pipe broken   | Return error      | "stdin pipe broken for {name}" |
 
 **Edge Cases:**
 
-- stdin is optional per-process (default: no stdin pipe)
+- Every process gets a stdin pipe; there is no per-process option to turn it off (decided 2026-10-26: the spawner always creates one, so "does not accept stdin" cannot occur)
 - Data must include explicit newlines if needed
 
 **Dependencies:** FUNC-026, FUNC-002
