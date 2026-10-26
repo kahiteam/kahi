@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -199,5 +200,13 @@ func TestExpandAtLoadTime(t *testing.T) {
 	// Value should still be the original expansion.
 	if cfg.Programs["test"].Command != "loaded/bin" {
 		t.Fatalf("command = %q, want loaded/bin", cfg.Programs["test"].Command)
+	}
+}
+
+// The error names the unknown variable.
+func TestExpandUnknownVariableNamesIt(t *testing.T) {
+	_, err := expandString("%(nosuch)s", ExpandContext{})
+	if err == nil || !strings.Contains(err.Error(), "%(nosuch)s") {
+		t.Fatalf("err = %v, want it to name %%(nosuch)s", err)
 	}
 }
