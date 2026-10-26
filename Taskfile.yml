@@ -71,6 +71,11 @@ tasks:
     cmds:
       - ./scripts/check-wiring.sh
 
+  verified-by:
+    desc: Report passing feature_list entries without e2e proof (warnings only)
+    cmds:
+      - ./scripts/check-verified-by.sh
+
   coverage:
     desc: Generate coverage report and fail if below 85%
     cmds:

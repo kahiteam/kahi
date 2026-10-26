@@ -135,6 +135,13 @@
         "Write a unit test using a mock Clock to verify clock rollback during STARTING does not cause premature RUNNING transition"
       ],
       "passes": true,
+      "verified_by": [
+        "TestState_AutorestartFalse",
+        "TestState_BackoffToFatal",
+        "TestState_KilledDuringBackoff",
+        "TestProcess_Stop",
+        "TestProcess_StartSecs"
+      ],
       "dependencies": ["go-module-structure"]
     },
     {
@@ -157,6 +164,13 @@
         "Write a unit test that attempts to start an already-running process and verifies the error message"
       ],
       "passes": true,
+      "verified_by": [
+        "TestProcess_Start",
+        "TestProcess_StartFails",
+        "TestProcess_StartAlreadyRunning",
+        "TestEnv_Passthrough",
+        "TestEnv_CleanEnvironment"
+      ],
       "dependencies": ["process-state-machine", "structured-logging"]
     },
     {
@@ -177,6 +191,11 @@
         "Write a unit test that verifies a process exiting during signal send does not cause errors"
       ],
       "passes": true,
+      "verified_by": [
+        "TestProcess_Stop",
+        "TestProcess_StopWaitSecs",
+        "TestProcess_StopAlreadyStopped"
+      ],
       "dependencies": ["process-state-machine", "process-start"]
     },
     {
@@ -197,6 +216,13 @@
         "Write a unit test that verifies autorestart does not apply during STARTING/BACKOFF phases before RUNNING is reached"
       ],
       "passes": true,
+      "verified_by": [
+        "TestState_AutorestartTrue",
+        "TestState_AutorestartFalse",
+        "TestState_AutorestartUnexpected",
+        "TestState_ExpectedExitCode",
+        "TestState_UnexpectedExitCode"
+      ],
       "dependencies": ["process-state-machine", "process-start"]
     },
     {
@@ -213,6 +239,11 @@
         "Write a unit test using a mock Clock that verifies system clock rollback does not cause negative waits"
       ],
       "passes": true,
+      "verified_by": [
+        "TestState_BackoffToFatal",
+        "TestProcess_StartRetries",
+        "TestState_KilledDuringBackoff"
+      ],
       "dependencies": ["process-state-machine", "process-start"]
     },
     {
@@ -229,6 +260,10 @@
         "Write a unit test that verifies exit status includes both normal exit codes and signal-killed status"
       ],
       "passes": true,
+      "verified_by": [
+        "TestDaemon_SIGTERMShutdownIsPrompt",
+        "TestState_AutorestartFalse"
+      ],
       "dependencies": ["process-start"]
     },
     {
@@ -405,6 +440,7 @@
         "Verify the generated config includes commented-out sections for all configurable options"
       ],
       "passes": true,
+      "verified_by": ["TestRegression_KahiInit"],
       "dependencies": ["toml-config-parser"]
     },
     {
@@ -457,6 +493,7 @@
         "Write a test that simulates a rotation rename failure and verifies the daemon continues writing to the current file"
       ],
       "passes": true,
+      "verified_by": ["TestLog_Rotation"],
       "dependencies": ["process-output-capture"]
     },
     {
@@ -486,6 +523,7 @@
         "Write a test that verifies partial escape sequences at buffer boundaries are handled correctly"
       ],
       "passes": true,
+      "verified_by": ["TestLog_ANSIStrip"],
       "dependencies": ["process-output-capture"]
     },
     {
@@ -552,6 +590,12 @@
         "Configure listen='0.0.0.0:9876' and verify a security warning is logged"
       ],
       "passes": true,
+      "verified_by": [
+        "TestAuth_TCPNoCreds",
+        "TestAuth_TCPBadCreds",
+        "TestWebUIE2EAuth",
+        "TestWebUIE2EServed"
+      ],
       "dependencies": ["unix-socket-server"]
     },
     {
@@ -575,6 +619,17 @@
         "Make a request using an unsupported HTTP method and verify 405 is returned"
       ],
       "passes": true,
+      "verified_by": [
+        "TestProcess_Status",
+        "TestProcess_Start",
+        "TestProcess_Stop",
+        "TestProcess_Restart",
+        "TestProcess_Signal",
+        "TestLog_TailStdout",
+        "TestReload_AddProgram",
+        "TestDaemon_Shutdown",
+        "TestProcess_StartBadName"
+      ],
       "dependencies": [
         "unix-socket-server",
         "tcp-http-server",
@@ -630,6 +685,11 @@
         "Verify /healthz response contains no process-level information"
       ],
       "passes": true,
+      "verified_by": [
+        "TestDaemon_Health",
+        "TestCLI_HealthOK",
+        "TestAuth_TCPNoCreds"
+      ],
       "dependencies": ["unix-socket-server"]
     },
     {
@@ -648,6 +708,11 @@
         "Verify FATAL processes count as stabilized in the readiness check"
       ],
       "passes": true,
+      "verified_by": [
+        "TestDaemon_Ready",
+        "TestCLI_Ready",
+        "TestCLI_ReadyPending"
+      ],
       "dependencies": ["health-check-endpoint"]
     },
     {
@@ -685,6 +750,11 @@
         "Run 'kahi ctl status' with no processes configured and verify an empty table with headers is printed"
       ],
       "passes": true,
+      "verified_by": [
+        "TestCLI_StatusTerminalColours",
+        "TestCLI_StatusJSON",
+        "TestCLI_StatusPipedHasNoColour"
+      ],
       "dependencies": ["cli-process-control"]
     },
     {
@@ -813,6 +883,7 @@
         "Verify multiple exits between polls are all collected in a single reaping loop"
       ],
       "passes": true,
+      "verified_by": ["TestDaemon_SIGTERMShutdownIsPrompt"],
       "dependencies": ["process-reaping"]
     },
     {
@@ -1285,6 +1356,7 @@
         "Verify boolean values (true/false, yes/no, on/off, 1/0) map to TOML booleans"
       ],
       "passes": true,
+      "verified_by": ["TestCLI_MigrateErrors", "TestCLI_MigrateToStdout"],
       "dependencies": ["go-module-structure"]
     },
     {
@@ -1301,6 +1373,7 @@
         "Verify signal names are normalized to uppercase"
       ],
       "passes": true,
+      "verified_by": ["TestCLI_MigrateToStdout"],
       "dependencies": ["migration-ini-parser"]
     },
     {
@@ -1316,6 +1389,7 @@
         "Run dry-run migration and verify the output is valid TOML that can be parsed without errors"
       ],
       "passes": true,
+      "verified_by": ["TestCLI_MigrateToStdout"],
       "dependencies": ["config-migration-tool"]
     },
     {
@@ -1346,6 +1420,13 @@
         "Run 'kahi ctl health' when cannot connect to daemon and verify exit code 1 with connection error"
       ],
       "passes": true,
+      "verified_by": [
+        "TestCLI_HealthOK",
+        "TestCLI_HealthNotResponsive",
+        "TestCLI_HealthCannotConnect",
+        "TestCLI_Ready",
+        "TestCLI_ReadyPending"
+      ],
       "dependencies": [
         "health-check-endpoint",
         "readiness-check-endpoint",
@@ -1386,6 +1467,7 @@
         "Run 'go test -count=1 -run TestStatusPage ./internal/web/...' (covers steps 1-9) and 'go test -count=1 -run TestEventStreamSubscribesBeforeFlush ./internal/api/...'"
       ],
       "passes": true,
+      "verified_by": ["TestWebUIE2EServed", "TestWebUIE2EBulk"],
       "dependencies": [
         "rest-api-endpoints",
         "sse-streaming",
@@ -1414,6 +1496,7 @@
         "Run 'go test -count=1 -run TestLogViewer ./internal/web/...' and 'go test -count=1 -run TestStreamLogSubscribesBeforeFlush ./internal/api/...'"
       ],
       "passes": true,
+      "verified_by": ["TestWebUIE2ELogViewer"],
       "dependencies": [
         "sse-streaming",
         "web-ui-status-page",
@@ -1444,6 +1527,7 @@
         "Run 'go test -count=1 -run TestStatic ./internal/web/...'; the existing TestStaticDirFallback and TestStaticCustomDir also match the filter"
       ],
       "passes": true,
+      "verified_by": ["TestWebUIE2EAssets"],
       "dependencies": ["web-ui-status-page", "web-ui-log-viewer"]
     },
     {
@@ -1459,6 +1543,7 @@
         "Verify the password prompt suppresses echo for security"
       ],
       "passes": true,
+      "verified_by": ["TestWebUIE2EServed"],
       "dependencies": ["cli-framework"]
     },
     {
@@ -2035,6 +2120,7 @@
         "Verify the all-interfaces bind warning still logs in addition to the hard failure"
       ],
       "passes": true,
+      "verified_by": ["TestWebUIE2EAuth"],
       "dependencies": ["tcp-http-server", "http-basic-auth"]
     },
     {
@@ -2083,6 +2169,7 @@
         "Verify test helpers use bcrypt hashes rather than plaintext passwords"
       ],
       "passes": true,
+      "verified_by": ["TestWebUIE2EServed"],
       "dependencies": ["http-basic-auth"]
     },
     {
@@ -2257,6 +2344,7 @@
         "Run 'go test -count=1 -run TestBulk ./internal/process/... ./internal/api/...'; every test above is named TestBulk*"
       ],
       "passes": true,
+      "verified_by": ["TestWebUIE2EBulk"],
       "dependencies": [
         "rest-api-endpoints",
         "http-basic-auth",
@@ -2290,6 +2378,13 @@
         "Run 'go test -count=1 -run \"TestWebConfig|TestDefaultConfigTOMLHasWeb|TestUIMount|TestUIUnavailable|TestBuildUIHandlerDisabled|TestUIListerAdapter|TestReloadWarnsOnWebChange|TestREADMEDocumentsWebUI|TestStopClosesOpenStreams\" ./internal/config/... ./internal/api/... ./internal/supervisor/... ./cmd/kahi/...'"
       ],
       "passes": true,
+      "verified_by": [
+        "TestWebUIE2EServed",
+        "TestWebUIE2EAuth",
+        "TestWebUIE2EUnixSocket",
+        "TestWebUIE2EDisabled",
+        "TestWebUIE2EInvalidConfig"
+      ],
       "dependencies": [
         "rest-api-endpoints",
         "http-basic-auth",
