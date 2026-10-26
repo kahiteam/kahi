@@ -43,6 +43,9 @@ type Process struct {
 	// onLine receives each complete line read from a pipe, with the pipe's
 	// stream name; the last partial line is delivered when the pipe closes.
 	onLine func(name, stream string, line []byte)
+
+	// spawnErr is the last spawn failure, cleared by a successful spawn.
+	spawnErr string
 }
 
 // ProcessOption configures a Process.
@@ -124,6 +127,14 @@ func (p *Process) UpdateConfig(cfg config.ProgramConfig) {
 // State returns the current state.
 func (p *Process) State() State { return p.sm.State() }
 
+// SpawnError returns the last spawn failure, or "" after a successful
+// spawn.
+func (p *Process) SpawnError() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.spawnErr
+}
+
 // Pid returns the process ID, or 0 if not running.
 func (p *Process) Pid() int {
 	p.mu.Lock()
@@ -176,6 +187,11 @@ func (p *Process) startLocked() error {
 	if p.retired {
 		return fmt.Errorf("process %s: removed by config reload", p.name)
 	}
+	switch p.sm.State() {
+	case Starting, Running, Backoff:
+		// The API maps "already started" to 409 Conflict (FUNC-002).
+		return fmt.Errorf("process already started: %s", p.name)
+	}
 	if err := p.sm.RequestStart(); err != nil {
 		return fmt.Errorf("process %s: %w", p.name, err)
 	}
@@ -191,6 +207,13 @@ var geteuid = os.Geteuid
 // spawnLocked does the actual spawn without state transitions.
 // Called by startLocked (after RequestStart) and retryAfterBackoff (after RetryFromBackoff).
 func (p *Process) spawnLocked() error {
+	// exec reports a missing working directory as an error about the
+	// command, so check it first and name it (FUNC-002).
+	if dir := p.config.Directory; dir != "" {
+		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+			return p.failSpawnLocked(fmt.Errorf("directory %s does not exist", dir))
+		}
+	}
 	env := p.buildEnv()
 	cmd, args := p.parseCommand()
 
@@ -239,6 +262,7 @@ func (p *Process) spawnLocked() error {
 	}
 
 	p.spawned = spawned
+	p.spawnErr = ""
 	p.startedAt = time.Now()
 	p.logger.Info("started", "pid", spawned.Pid())
 
@@ -280,6 +304,9 @@ func (p *Process) spawnLocked() error {
 // this attempt, so HandleExit will not fire for it.
 func (p *Process) failSpawnLocked(err error) error {
 	p.logger.Error("spawn failed", "error", err)
+	// Kept for status, so a FATAL process shows why it never started
+	// (FUNC-002): "spawn error: /bin/nope: no such file or directory".
+	p.spawnErr = "spawn error: " + strings.TrimPrefix(err.Error(), "fork/exec ")
 	newState, fErr := p.sm.ProcessExitedEarly()
 	if fErr != nil {
 		p.logger.Error("state transition failed", "error", fErr)
@@ -344,8 +371,12 @@ func (p *Process) stopLocked() error {
 		return nil
 	}
 
+	// A stop is already under way: the second request is ignored (FUNC-003).
+	if state == Stopping {
+		return nil
+	}
 	if state != Running && state != Starting {
-		return fmt.Errorf("process %s: not running", p.name)
+		return fmt.Errorf("process not running: %s", p.name)
 	}
 
 	if err := p.sm.RequestStop(); err != nil {
@@ -431,7 +462,7 @@ func (p *Process) Signal(sig string) error {
 	defer p.mu.Unlock()
 
 	if p.spawned == nil {
-		return fmt.Errorf("process %s: not running", p.name)
+		return fmt.Errorf("process not running: %s", p.name)
 	}
 
 	s := ParseSignal(sig)
@@ -448,7 +479,7 @@ func (p *Process) WriteStdin(data []byte) error {
 	defer p.mu.Unlock()
 
 	if p.spawned == nil {
-		return fmt.Errorf("process %s: not running", p.name)
+		return fmt.Errorf("process not running: %s", p.name)
 	}
 
 	pipe := p.spawned.StdinPipe()
