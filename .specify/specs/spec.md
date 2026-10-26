@@ -1185,6 +1185,8 @@ This feature adds two complementary mechanisms:
 - Output is line-buffered when forwarding to container stdout
 - Large output bursts (>64KB/s) must not block the child process (non-blocking pipe reads)
 - Pipe is closed on process exit; remaining buffered data is flushed
+- Each stream is forwarded only when it has no log file. stdout goes to Kahi's stdout and stderr to Kahi's stderr. With redirect_stderr, stderr lines are part of the stdout stream ("stream":"stdout"). Lines are split per pipe, so output from the two streams never mixes within a line. A line over 64 KB without a newline is forwarded in 64 KB pieces.
+- Forwarding applies in the foreground only: `--daemon` redirects Kahi's stdout and stderr to /dev/null, so a daemonized Kahi needs log files
 
 **Dependencies:** FUNC-002, INFRA-006
 
@@ -1803,6 +1805,7 @@ This feature adds two complementary mechanisms:
 **Edge Cases:**
 
 - `kahi ctl avail` shows all configured programs with active/available status
+- `reread`, `update`, `reload` and `add` print the new config's warnings (unknown keys, settings that are accepted but ignored) to stderr as `warning: ...`. The reload API returns them in a `warnings` array, for a preview (`?dry_run=true`) as well as an applied reload.
 
 **Dependencies:** FUNC-031, FUNC-014
 

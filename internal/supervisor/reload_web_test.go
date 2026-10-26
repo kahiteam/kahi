@@ -58,7 +58,7 @@ func TestReloadWarnsOnWebChange(t *testing.T) {
 
 	<-s.handleReload()
 	<-s.handleReload()
-	added, changed, removed, err := s.Reload()
+	got, err := s.Reload()
 
 	if got := strings.Count(buf.String(), webRestartWarning); got != 3 {
 		t.Errorf("restart warning logged %d times, want 3 (once per reload)\nlog:\n%s", got, buf.String())
@@ -80,12 +80,10 @@ func TestReloadWarnsOnWebChange(t *testing.T) {
 	ctrlPath := filepath.Join(t.TempDir(), "kahi.toml")
 	writeWebConfig(t, ctrlPath, hash, false)
 	ctrl := newWebSupervisor(t, ctrlPath, discardLogger())
-	wantAdded, wantChanged, wantRemoved, wantErr := ctrl.Reload()
+	want, wantErr := ctrl.Reload()
 
-	if !reflect.DeepEqual(added, wantAdded) || !reflect.DeepEqual(changed, wantChanged) ||
-		!reflect.DeepEqual(removed, wantRemoved) || (err == nil) != (wantErr == nil) {
-		t.Errorf("Reload() = %v %v %v %v, want %v %v %v %v",
-			added, changed, removed, err, wantAdded, wantChanged, wantRemoved, wantErr)
+	if !reflect.DeepEqual(got, want) || (err == nil) != (wantErr == nil) {
+		t.Errorf("Reload() = %+v %v, want %+v %v", got, err, want, wantErr)
 	}
 }
 
@@ -100,7 +98,7 @@ func TestReloadNoWebWarningWhenUnchanged(t *testing.T) {
 	var buf bytes.Buffer
 	s := newWebSupervisor(t, cfgPath, slog.New(slog.NewTextHandler(&buf, nil)))
 	<-s.handleReload()
-	if _, _, _, err := s.Reload(); err != nil {
+	if _, err := s.Reload(); err != nil {
 		t.Fatal(err)
 	}
 

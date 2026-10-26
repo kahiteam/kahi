@@ -39,6 +39,9 @@ func ignoredSettingWarnings(cfg *Config) []string {
 	if s.Nocleanup {
 		ignored("supervisor.nocleanup")
 	}
+	if s.Identifier != "" {
+		ignored("supervisor.identifier")
+	}
 
 	names := make([]string, 0, len(cfg.Programs))
 	for name := range cfg.Programs {

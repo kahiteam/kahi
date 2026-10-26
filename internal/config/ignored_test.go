@@ -13,6 +13,7 @@ func TestLoadWithIncludesWarnsIgnoredSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "kahi.toml")
 	if err := os.WriteFile(path, []byte(`[supervisor]
 directory = "/srv"
+identifier = "web-host"
 minfds = 4096
 minprocs = 500
 nocleanup = true
@@ -39,6 +40,7 @@ events = ["process_state"]
 	for _, want := range []string{
 		"[webhooks] (slack)",
 		"supervisor.directory",
+		"supervisor.identifier",
 		"supervisor.minfds = 4096",
 		"supervisor.minprocs = 500",
 		"supervisor.nocleanup",

@@ -2,6 +2,7 @@ package process
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"reflect"
 	"sort"
@@ -25,6 +26,13 @@ type Manager struct {
 	logger     *slog.Logger
 	spawner    ProcessSpawner
 	shutdownCh chan struct{}
+
+	// The daemon's own stdout and stderr, which receive the output of
+	// streams that have no log file, as JSON lines (FUNC-018). passMu keeps
+	// lines from different processes whole.
+	passMu  sync.Mutex
+	passOut io.Writer
+	passErr io.Writer
 }
 
 // Group holds a named set of processes.
@@ -44,6 +52,48 @@ func NewManager(spawner ProcessSpawner, bus *events.Bus, logger *slog.Logger) *M
 		logger:     logger,
 		spawner:    spawner,
 		shutdownCh: make(chan struct{}),
+	}
+}
+
+// SetOutput sets the writers that receive, as JSON lines, the output of
+// process streams without a log file: stdout streams go to stdout, stderr
+// streams to stderr. It must be called before LoadConfig. With no writers,
+// such output is kept only in the capture buffer.
+func (m *Manager) SetOutput(stdout, stderr io.Writer) {
+	m.passOut, m.passErr = stdout, stderr
+}
+
+// passthroughHandler returns the line handler that forwards a process's
+// output streams without a log file to the daemon's stdout and stderr, or
+// nil when no stream of cfg is forwarded. With redirect_stderr, stderr
+// lines are part of the stdout stream.
+func (m *Manager) passthroughHandler(cfg config.ProgramConfig) func(name, stream string, line []byte) {
+	toStdout := cfg.StdoutLogfile == "" && m.passOut != nil
+	toStderr := cfg.StderrLogfile == "" && !cfg.RedirectStderr && m.passErr != nil
+	if !toStdout && !toStderr {
+		return nil
+	}
+	redirect, strip := cfg.RedirectStderr, cfg.StripAnsi
+	return func(name, stream string, line []byte) {
+		if redirect {
+			stream = "stdout"
+		}
+		var w io.Writer
+		switch {
+		case stream == "stdout" && toStdout:
+			w = m.passOut
+		case stream == "stderr" && toStderr:
+			w = m.passErr
+		default:
+			return
+		}
+		if strip {
+			line = logging.StripANSI(line)
+		}
+		out := logging.FormatJSONLine(name, stream, string(line))
+		m.passMu.Lock()
+		_, _ = w.Write(out)
+		m.passMu.Unlock()
 	}
 }
 
@@ -126,6 +176,10 @@ func (m *Manager) LoadConfig(cfg *config.Config) {
 						})
 					}
 				}))
+			}
+
+			if h := m.passthroughHandler(inst.Config); h != nil {
+				opts = append(opts, WithLineHandler(h))
 			}
 
 			p := NewProcess(

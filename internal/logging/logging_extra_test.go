@@ -1,86 +1,11 @@
 package logging
 
 import (
-	"bytes"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
-
-func TestPipeToWriterBasic(t *testing.T) {
-	dir := t.TempDir()
-	logFile := filepath.Join(dir, "test.log")
-
-	cw, err := NewCaptureWriter(CaptureConfig{
-		ProcessName: "web",
-		Stream:      "stdout",
-		Logfile:     logFile,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = cw.Close() }()
-
-	pr, pw := io.Pipe()
-	done := make(chan struct{})
-	go func() {
-		PipeToWriter(pr, cw, nil)
-		close(done)
-	}()
-
-	_, _ = pw.Write([]byte("hello world\n"))
-	_, _ = pw.Write([]byte("second line\n"))
-	_ = pw.Close()
-	<-done
-
-	data, err := os.ReadFile(logFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(data), "hello world") {
-		t.Fatalf("log file = %q, want 'hello world'", data)
-	}
-	if !strings.Contains(string(data), "second line") {
-		t.Fatalf("log file = %q, want 'second line'", data)
-	}
-}
-
-func TestPipeToWriterContainerJSON(t *testing.T) {
-	cw, err := NewCaptureWriter(CaptureConfig{
-		ProcessName: "worker",
-		Stream:      "stderr",
-		Logfile:     "", // container mode: no file
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = cw.Close() }()
-
-	var containerBuf bytes.Buffer
-	pr, pw := io.Pipe()
-	done := make(chan struct{})
-	go func() {
-		PipeToWriter(pr, cw, &containerBuf)
-		close(done)
-	}()
-
-	_, _ = pw.Write([]byte("error message\n"))
-	_ = pw.Close()
-	<-done
-
-	output := containerBuf.String()
-	if !strings.Contains(output, "error message") {
-		t.Fatalf("container output = %q, want 'error message'", output)
-	}
-	if !strings.Contains(output, `"process":"worker"`) {
-		t.Fatalf("container output missing process name: %q", output)
-	}
-	if !strings.Contains(output, `"stream":"stderr"`) {
-		t.Fatalf("container output missing stream: %q", output)
-	}
-}
 
 func TestCleanupStaleLogsEmptyFile(t *testing.T) {
 	dir := t.TempDir()

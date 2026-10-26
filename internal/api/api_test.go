@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/events"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -115,23 +116,23 @@ func (m *mockGroupManager) RestartGroup(name string) error { return m.StartGroup
 
 type mockConfigManager struct {
 	cfg       any
-	reloadFn  func() ([]string, []string, []string, error)
+	reloadFn  func() (config.ReloadResult, error)
 	previewed bool
 }
 
 func (m *mockConfigManager) GetConfig() any { return m.cfg }
-func (m *mockConfigManager) Reload() ([]string, []string, []string, error) {
+func (m *mockConfigManager) Reload() (config.ReloadResult, error) {
 	if m.reloadFn != nil {
 		return m.reloadFn()
 	}
-	return []string{"new"}, []string{"changed"}, []string{"removed"}, nil
+	return config.ReloadResult{Added: []string{"new"}, Changed: []string{"changed"}, Removed: []string{"removed"}}, nil
 }
 
 // PreviewReload reports a fixed diff and records that it ran, so tests can
 // tell a preview from an applied reload.
-func (m *mockConfigManager) PreviewReload() ([]string, []string, []string, error) {
+func (m *mockConfigManager) PreviewReload() (config.ReloadResult, error) {
 	m.previewed = true
-	return []string{"new"}, nil, nil, nil
+	return config.ReloadResult{Added: []string{"new"}, Warnings: []string{"supervisor.nocleanup is not implemented yet and is ignored"}}, nil
 }
 
 type mockDaemonInfo struct {
@@ -509,9 +510,9 @@ func TestReloadConfigDryRunOnlyPreviews(t *testing.T) {
 	pm := &mockProcessManager{}
 	gm := &mockGroupManager{}
 	reloaded := false
-	cm := &mockConfigManager{reloadFn: func() ([]string, []string, []string, error) {
+	cm := &mockConfigManager{reloadFn: func() (config.ReloadResult, error) {
 		reloaded = true
-		return nil, nil, nil, nil
+		return config.ReloadResult{}, nil
 	}}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := NewServer(Config{}, pm, gm, cm, &mockDaemonInfo{ready: true}, events.NewBus(logger), logger)
@@ -532,6 +533,10 @@ func TestReloadConfigDryRunOnlyPreviews(t *testing.T) {
 	}
 	if body["status"] != "preview" || fmt.Sprint(body["added"]) != "[new]" {
 		t.Fatalf("body = %v, want status preview with added [new]", body)
+	}
+	// The preview reports the new config's warnings, so ctl reread shows them.
+	if fmt.Sprint(body["warnings"]) != "[supervisor.nocleanup is not implemented yet and is ignored]" {
+		t.Fatalf("warnings = %v, want the preview's warning", body["warnings"])
 	}
 }
 
@@ -1253,8 +1258,8 @@ func TestReloadConfigError(t *testing.T) {
 	gm := &mockGroupManager{groups: []string{"web"}}
 	cm := &mockConfigManager{
 		cfg: map[string]string{"test": "config"},
-		reloadFn: func() ([]string, []string, []string, error) {
-			return nil, nil, nil, fmt.Errorf("config parse error: invalid TOML")
+		reloadFn: func() (config.ReloadResult, error) {
+			return config.ReloadResult{}, fmt.Errorf("config parse error: invalid TOML")
 		},
 	}
 	di := &mockDaemonInfo{ready: true}
