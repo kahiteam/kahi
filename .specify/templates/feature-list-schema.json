@@ -57,6 +57,15 @@
               "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
             },
             "uniqueItems": true
+          },
+          "verified_by": {
+            "description": "Top-level e2e test names (func TestXxx in e2e/) that prove the entry against the shipped binary. Required for passing functional entries; checked by scripts/check-verified-by.sh.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^Test[A-Z_0-9][A-Za-z0-9_]*$"
+            },
+            "uniqueItems": true
           }
         }
       }

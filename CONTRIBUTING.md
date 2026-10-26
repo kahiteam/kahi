@@ -110,6 +110,22 @@ Do not use emoji in commit messages.
   task coverage          # generate coverage report
   ```
 
+### Feature status
+
+`feature_list.json` tracks each specified feature. `passes: true` means the
+shipped binary delivers the feature and an end-to-end test proves it; package
+unit tests alone do not count. A passing functional entry lists those tests,
+by top-level name in `e2e/`, in `verified_by`:
+
+```json
+"passes": true,
+"verified_by": ["TestReload_SIGHUPChangeProgram", "TestReload_InvalidConfig"],
+```
+
+`task verified-by` reports passing functional entries without `verified_by`
+and names that match no test in `e2e/`. CI runs the same check and reports
+its findings as warnings. `task wiring` reports code the binary cannot reach.
+
 ## Reporting Issues
 
 - Use [GitHub Issues](https://github.com/kahiteam/kahi/issues) for bugs and

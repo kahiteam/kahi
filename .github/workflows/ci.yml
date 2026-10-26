@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-26.04
     outputs:
       golang: ${{ steps.filter.outputs.golang }}
+      features: ${{ steps.filter.outputs.features }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -42,6 +43,9 @@ jobs:
               # Workflow edits change the environment the suite runs in
               # (runner OS, tool versions), so they must run it.
               - '.github/workflows/**'
+            features:
+              - 'feature_list.json'
+              - '.specify/templates/feature-list-schema.json'
 
   golang:
     needs: changes
@@ -261,6 +265,19 @@ jobs:
             tools/go.sum
       - name: Report unreachable code
         run: ./scripts/check-wiring.sh
+
+  verified-by:
+    needs: changes
+    if: needs.changes.outputs.golang == 'true' || needs.changes.outputs.features == 'true'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Report passing entries without e2e proof
+        run: ./scripts/check-verified-by.sh
 
   commit-standards:
     if: github.event_name == 'pull_request'
