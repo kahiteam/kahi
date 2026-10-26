@@ -779,8 +779,12 @@ This feature adds two complementary mechanisms:
   **Then** processes are: worker-10, worker-11, worker-12
 
 - **Given** numprocs > 1
-  **When** process_name does not contain %(process_num)
+  **When** process_name is set and does not contain %(process_num)
   **Then** config validation fails
+
+- **Given** numprocs > 1
+  **When** process_name is unset
+  **Then** instances are named `<program>_<n>` (for example web_0, web_1)
 
 **Error Handling:**
 
@@ -792,6 +796,7 @@ This feature adds two complementary mechanisms:
 **Edge Cases:**
 
 - numprocs=1 with no %(process_num) in process_name is valid (default behavior)
+- Process names must be unique across all programs, included files too; this is checked at startup and on every reload
 - Template variables: %(process_num)d, %(program_name)s, %(group_name)s, %(numprocs)d
 - Individual instances can be started/stopped independently
 

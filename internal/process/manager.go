@@ -170,31 +170,24 @@ type ProcessInstance struct {
 	Config config.ProgramConfig
 }
 
-// ExpandNumprocs expands a program config with numprocs > 1 into individual instances.
+// ExpandNumprocs expands a program config with numprocs > 1 into individual
+// instances, named by config.InstanceNames.
 func ExpandNumprocs(progName string, cfg config.ProgramConfig) []ProcessInstance {
+	names := config.InstanceNames(progName, cfg)
 	if cfg.Numprocs <= 1 {
-		name := progName
-		// Use expanded ProcessName if set and different from the program key.
-		if cfg.ProcessName != "" && cfg.ProcessName != progName {
-			name = cfg.ProcessName
-		}
 		return []ProcessInstance{{
-			Name:   name,
+			Name:   names[0],
 			Group:  progName,
 			Config: cfg,
 		}}
 	}
 
-	instances := make([]ProcessInstance, 0, cfg.Numprocs)
-	for i := cfg.NumprocsStart; i < cfg.NumprocsStart+cfg.Numprocs; i++ {
-		name := expandProcessName(cfg.ProcessName, progName, i, cfg.Numprocs)
-		if name == "" {
-			name = fmt.Sprintf("%s_%d", progName, i)
-		}
+	instances := make([]ProcessInstance, 0, len(names))
+	for k, name := range names {
 		instances = append(instances, ProcessInstance{
 			Name:   name,
 			Group:  progName,
-			Config: instanceConfig(cfg, i),
+			Config: instanceConfig(cfg, cfg.NumprocsStart+k),
 		})
 	}
 	return instances
@@ -220,18 +213,6 @@ func instanceConfig(cfg config.ProgramConfig, num int) config.ProgramConfig {
 		cfg.Environment = env
 	}
 	return cfg
-}
-
-func expandProcessName(template, progName string, num, numprocs int) string {
-	if template == "" {
-		return ""
-	}
-	result := template
-	result = expandVar(result, "%(program_name)s", progName)
-	result = expandVar(result, "%(process_num)d", fmt.Sprintf("%d", num))
-	result = expandVar(result, "%(group_name)s", progName)
-	result = expandVar(result, "%(numprocs)d", fmt.Sprintf("%d", numprocs))
-	return result
 }
 
 func expandVar(s, pattern, value string) string {
