@@ -288,7 +288,11 @@
         "TestState_NumprocsExpansion",
         "TestRegression_NumprocsNames",
         "TestEnv_ProgramNameExpansion",
-        "TestEnv_ProcessNumPerInstance"
+        "TestEnv_ProcessNumPerInstance",
+        "TestNumprocs_StartOffset",
+        "TestNumprocs_FiveInstancesUniquePIDs",
+        "TestNumprocs_InstancesIndependent",
+        "TestNumprocs_TemplateVariables"
       ],
       "dependencies": ["process-start"]
     },
@@ -374,16 +378,19 @@
         "Parse a config referencing an unknown template variable and verify a config error is returned",
         "Verify that recursive expansion is not supported (variable referencing another variable stays literal)",
         "Verify that literal % can be escaped as %% and literal $ as $$",
-        "Verify that expansion happens at config load time, not at process start time",
-        "Parse a config with %(group_name)s in a process environment value and verify it resolves to the group name",
+        "Restart a process and verify its expanded values are unchanged: expansion happens once, at config load, not at each process start",
+        "Parse a config with %(group_name)s in a process environment value and verify it resolves to the program's own group (the program name), as in supervisord",
         "Parse a config with multiple variable references in a single value and verify all are expanded correctly"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
         "TestEnv_HereExpansion",
         "TestEnv_HereExpansionInIncludedFile",
         "TestEnv_ProgramNameExpansion",
-        "TestEnv_ProcessNumPerInstance"
+        "TestEnv_ProcessNumPerInstance",
+        "TestExpansion_ConfigValues",
+        "TestExpansion_Errors",
+        "TestNumprocs_TemplateVariables"
       ],
       "dependencies": ["toml-config-parser"]
     },

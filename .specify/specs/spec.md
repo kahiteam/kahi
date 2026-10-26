@@ -946,16 +946,17 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition                | Expected Behavior | User-Facing Message                      |
-| ------------------------------ | ----------------- | ---------------------------------------- |
-| Undefined environment variable | Config error      | "undefined environment variable: {name}" |
-| Unknown template variable      | Config error      | "unknown variable: {name}"               |
+| Error Condition                | Expected Behavior | User-Facing Message                         |
+| ------------------------------ | ----------------- | ------------------------------------------- |
+| Undefined environment variable | Config error      | "undefined environment variable: ${{name}}" |
+| Unknown template variable      | Config error      | "unknown template variable: %({name})s"     |
 
 **Edge Cases:**
 
 - Recursive expansion is not supported (a variable cannot reference another variable)
 - Literal `%` and `$` can be escaped as `%%` and `$$`
 - Expansion happens at config load time, not at process start time
+- `%(group_name)s` is the program's own group, which is the program name, even when the program is also listed in an explicit `[groups.x]` table. This matches supervisord, which expands it in the program section before any regrouping (#167).
 
 **Dependencies:** INFRA-005
 
