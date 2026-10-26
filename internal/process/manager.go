@@ -191,14 +191,35 @@ func ExpandNumprocs(progName string, cfg config.ProgramConfig) []ProcessInstance
 		if name == "" {
 			name = fmt.Sprintf("%s_%d", progName, i)
 		}
-		instanceCfg := cfg
 		instances = append(instances, ProcessInstance{
 			Name:   name,
 			Group:  progName,
-			Config: instanceCfg,
+			Config: instanceConfig(cfg, i),
 		})
 	}
 	return instances
+}
+
+// instanceConfig returns one instance's config: config loading leaves
+// %(process_num)d in place for numprocs > 1, so each instance substitutes its
+// own number into the fields that may use it. Environment is copied so the
+// instances do not share one map.
+func instanceConfig(cfg config.ProgramConfig, num int) config.ProgramConfig {
+	n := fmt.Sprintf("%d", num)
+	sub := func(s string) string { return expandVar(s, "%(process_num)d", n) }
+	cfg.Command = sub(cfg.Command)
+	cfg.Directory = sub(cfg.Directory)
+	cfg.StdoutLogfile = sub(cfg.StdoutLogfile)
+	cfg.StderrLogfile = sub(cfg.StderrLogfile)
+	cfg.User = sub(cfg.User)
+	if cfg.Environment != nil {
+		env := make(map[string]string, len(cfg.Environment))
+		for k, v := range cfg.Environment {
+			env[k] = sub(v)
+		}
+		cfg.Environment = env
+	}
+	return cfg
 }
 
 func expandProcessName(template, progName string, num, numprocs int) string {

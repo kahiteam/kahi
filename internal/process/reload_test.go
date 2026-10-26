@@ -2,6 +2,8 @@ package process
 
 import (
 	"os"
+	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -285,5 +287,56 @@ func TestNeedsRestart(t *testing.T) {
 		if !needsRestart(base, c) {
 			t.Errorf("%s change does not restart", name)
 		}
+	}
+}
+
+// Each instance of a numprocs > 1 program gets its own %(process_num)d in
+// every field that may use it, and its own environment map (#128).
+func TestExpandNumprocsPerInstanceFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kahi.toml")
+	if err := os.WriteFile(path, []byte(`[programs.web]
+command = "/bin/run --port 80%(process_num)d"
+numprocs = 3
+numprocs_start = 1
+process_name = "web-%(process_num)d"
+stdout_logfile = "/var/log/web-%(process_num)d.log"
+
+[programs.web.environment]
+SLOT = "slot-%(process_num)d"
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := config.LoadWithIncludes(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	insts := ExpandNumprocs("web", cfg.Programs["web"])
+	if len(insts) != 3 {
+		t.Fatalf("instances = %d, want 3", len(insts))
+	}
+	for i, inst := range insts {
+		n := i + 1
+		want := map[string]string{
+			"name":    "web-" + strconv.Itoa(n),
+			"command": "/bin/run --port 80" + strconv.Itoa(n),
+			"logfile": "/var/log/web-" + strconv.Itoa(n) + ".log",
+			"env":     "slot-" + strconv.Itoa(n),
+		}
+		got := map[string]string{
+			"name":    inst.Name,
+			"command": inst.Config.Command,
+			"logfile": inst.Config.StdoutLogfile,
+			"env":     inst.Config.Environment["SLOT"],
+		}
+		for k := range want {
+			if got[k] != want[k] {
+				t.Errorf("instance %d %s = %q, want %q", n, k, got[k], want[k])
+			}
+		}
+	}
+	insts[0].Config.Environment["SLOT"] = "changed"
+	if insts[1].Config.Environment["SLOT"] == "changed" {
+		t.Fatal("instances share one environment map")
 	}
 }

@@ -14,6 +14,10 @@ type ExpandContext struct {
 	ProcessNum  int
 	GroupName   string
 	NumProcs    int
+	// KeepProcessNum leaves %(process_num)d in place, for programs with
+	// numprocs > 1: each instance substitutes its own number later
+	// (process.ExpandNumprocs).
+	KeepProcessNum bool
 }
 
 // ExpandVariables expands template variables and environment references
@@ -46,6 +50,8 @@ func ExpandVariables(cfg *Config, configPath string) error {
 		pCtx.ProgramName = name
 		pCtx.GroupName = name
 		pCtx.NumProcs = p.Numprocs
+		pCtx.ProcessNum = p.NumprocsStart
+		pCtx.KeepProcessNum = p.Numprocs > 1
 
 		p.Command, err = expandString(p.Command, pCtx)
 		if err != nil {
@@ -63,13 +69,9 @@ func ExpandVariables(cfg *Config, configPath string) error {
 		if err != nil {
 			return fmt.Errorf("programs.%s.stderr_logfile: %w", name, err)
 		}
-		// Skip ProcessName expansion when numprocs > 1: the %(process_num)d
-		// template must be preserved for per-instance expansion in ExpandNumprocs.
-		if p.Numprocs <= 1 {
-			p.ProcessName, err = expandString(p.ProcessName, pCtx)
-			if err != nil {
-				return fmt.Errorf("programs.%s.process_name: %w", name, err)
-			}
+		p.ProcessName, err = expandString(p.ProcessName, pCtx)
+		if err != nil {
+			return fmt.Errorf("programs.%s.process_name: %w", name, err)
 		}
 		p.User, err = expandString(p.User, pCtx)
 		if err != nil {
@@ -168,13 +170,16 @@ func resolveTemplateVar(name string, ctx ExpandContext) (string, error) {
 	case "program_name":
 		return ctx.ProgramName, nil
 	case "process_num":
+		if ctx.KeepProcessNum {
+			return "%(process_num)d", nil
+		}
 		return fmt.Sprintf("%d", ctx.ProcessNum), nil
 	case "group_name":
 		return ctx.GroupName, nil
 	case "numprocs":
 		return fmt.Sprintf("%d", ctx.NumProcs), nil
 	default:
-		return "", fmt.Errorf("unknown template variable: %%(%.0s)s", name)
+		return "", fmt.Errorf("unknown template variable: %%(%s)s", name)
 	}
 }
 
