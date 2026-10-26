@@ -4,6 +4,7 @@
 /kahi
 cover.out
 coverage.out
+e2e-coverage.out
 *-results.xml
 .task/
 

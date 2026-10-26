@@ -33,7 +33,27 @@ func TestMain(m *testing.M) {
 	defer os.RemoveAll(tmpDir)
 
 	kahiBinary = filepath.Join(tmpDir, "kahi")
-	cmd := exec.Command("go", "build", "-race", "-o", kahiBinary, "github.com/kahiteam/kahi/cmd/kahi")
+	buildArgs := []string{"build", "-race", "-o", kahiBinary}
+	// With KAHI_E2E_COVERDIR set, build the binary with coverage of every
+	// package in the module, and have each kahi process the suite starts
+	// write its counters there (#135). scripts/e2e-coverage.sh reports them.
+	if dir := os.Getenv("KAHI_E2E_COVERDIR"); dir != "" {
+		coverDir, err := filepath.Abs(dir)
+		if err == nil {
+			err = os.MkdirAll(coverDir, 0o755)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to prepare KAHI_E2E_COVERDIR: %v\n", err)
+			os.Exit(1)
+		}
+		buildArgs = append(buildArgs, "-cover", "-coverpkg=github.com/kahiteam/kahi/...")
+		if err := os.Setenv("GOCOVERDIR", coverDir); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to set GOCOVERDIR: %v\n", err)
+			os.Exit(1)
+		}
+	}
+	buildArgs = append(buildArgs, "github.com/kahiteam/kahi/cmd/kahi")
+	cmd := exec.Command("go", buildArgs...)
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to build kahi binary: %v\n", err)

@@ -108,6 +108,7 @@ Do not use emoji in commit messages.
   task test              # unit tests with -race
   task test-integration  # integration tests
   task coverage          # generate coverage report
+  task e2e-coverage      # e2e tests, then coverage of the kahi binary per package
   ```
 
 ### Feature status

@@ -113,6 +113,15 @@ tasks:
     cmds:
       - '{{.GOTESTSUM}} --format testdox --junitfile e2e-results.xml -- -race -count=1 -timeout=15m -tags=e2e ./...'
 
+  e2e-coverage:
+    desc: Run end-to-end tests against a coverage build and report per-package coverage of the binary
+    env:
+      KAHI_E2E_COVERDIR: '{{.ROOT_DIR}}/.task/e2e-cover'
+    cmds:
+      - rm -rf .task/e2e-cover
+      - '{{.GOTESTSUM}} --format testdox --junitfile e2e-results.xml -- -race -count=1 -timeout=15m -tags=e2e ./...'
+      - ./scripts/e2e-coverage.sh .task/e2e-cover
+
   setup:
     desc: Install development tools at their pinned versions
     cmds:

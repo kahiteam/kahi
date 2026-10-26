@@ -11,6 +11,7 @@ on:
       - 'tools/go.sum'
       - '.github/workflows/**'
       - 'Taskfile.yml'
+      - 'scripts/e2e-coverage.sh'
   pull_request:
     branches: [main]
     # labeled re-runs the suite so tiles regenerate when full-test-report is
@@ -24,6 +25,7 @@ on:
       - 'tools/go.sum'
       - '.github/workflows/**'
       - 'Taskfile.yml'
+      - 'scripts/e2e-coverage.sh'
 
 permissions:
   contents: read
@@ -51,6 +53,14 @@ jobs:
         name: Integration tests
       - run: task test-e2e
         name: E2E tests
+        id: e2e
+        env:
+          # Build kahi with coverage so the next step can report what the e2e
+          # suite executes in the shipped binary (#135).
+          KAHI_E2E_COVERDIR: ${{ runner.temp }}/e2e-cover
+      - name: E2E coverage of the binary
+        if: always() && steps.e2e.outcome != 'skipped'
+        run: ./scripts/e2e-coverage.sh "$RUNNER_TEMP/e2e-cover"
       - name: Integration test check run
         if: always()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
