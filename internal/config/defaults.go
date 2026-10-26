@@ -1,7 +1,19 @@
 package config
 
-// ApplyDefaults fills in zero-value fields with their default values.
-func ApplyDefaults(cfg *Config) {
+import "github.com/BurntSushi/toml"
+
+// ApplyDefaults fills in unset fields with their default values. For the
+// numeric settings where 0 is meaningful (priority 0 starts first,
+// startretries 0 never retries, backups 0 keeps none, exitcodes [] expects
+// no exit), a field gets its default only when the TOML does not set the
+// key, so an explicit 0 is kept (#138). Validation then rejects the zeros
+// that are unsafe, such as stopwaitsecs = 0. md may be empty for a config
+// built in code; zero values are then defaulted as before.
+func ApplyDefaults(cfg *Config, md toml.MetaData) {
+	// unset reports whether a field with zero value v was left out of the
+	// TOML, so it should get its default.
+	unset := func(v int, key ...string) bool { return v == 0 && !md.IsDefined(key...) }
+
 	// Supervisor defaults.
 	if cfg.Supervisor.LogLevel == "" {
 		cfg.Supervisor.LogLevel = "info"
@@ -15,7 +27,7 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.Supervisor.Minprocs == 0 {
 		cfg.Supervisor.Minprocs = 200
 	}
-	if cfg.Supervisor.ShutdownTimeout == 0 {
+	if unset(cfg.Supervisor.ShutdownTimeout, "supervisor", "shutdown_timeout") {
 		cfg.Supervisor.ShutdownTimeout = 30
 	}
 
@@ -29,10 +41,10 @@ func ApplyDefaults(cfg *Config) {
 
 	// Program defaults.
 	for name, p := range cfg.Programs {
-		if p.Numprocs == 0 {
+		if unset(p.Numprocs, "programs", name, "numprocs") {
 			p.Numprocs = 1
 		}
-		if p.Priority == 0 {
+		if unset(p.Priority, "programs", name, "priority") {
 			p.Priority = 999
 		}
 		if p.Autostart == nil {
@@ -42,31 +54,31 @@ func ApplyDefaults(cfg *Config) {
 		if p.Autorestart == "" {
 			p.Autorestart = "unexpected"
 		}
-		if p.Startsecs == 0 {
+		if unset(p.Startsecs, "programs", name, "startsecs") {
 			p.Startsecs = 1
 		}
-		if p.Startretries == 0 {
+		if unset(p.Startretries, "programs", name, "startretries") {
 			p.Startretries = 3
 		}
-		if len(p.Exitcodes) == 0 {
+		if len(p.Exitcodes) == 0 && !md.IsDefined("programs", name, "exitcodes") {
 			p.Exitcodes = []int{0}
 		}
 		if p.Stopsignal == "" {
 			p.Stopsignal = "TERM"
 		}
-		if p.Stopwaitsecs == 0 {
+		if unset(p.Stopwaitsecs, "programs", name, "stopwaitsecs") {
 			p.Stopwaitsecs = 10
 		}
 		if p.StdoutLogfileMaxbytes == "" {
 			p.StdoutLogfileMaxbytes = "50MB"
 		}
-		if p.StdoutLogfileBackups == 0 {
+		if unset(p.StdoutLogfileBackups, "programs", name, "stdout_logfile_backups") {
 			p.StdoutLogfileBackups = 10
 		}
 		if p.StderrLogfileMaxbytes == "" {
 			p.StderrLogfileMaxbytes = "50MB"
 		}
-		if p.StderrLogfileBackups == 0 {
+		if unset(p.StderrLogfileBackups, "programs", name, "stderr_logfile_backups") {
 			p.StderrLogfileBackups = 10
 		}
 		cfg.Programs[name] = p

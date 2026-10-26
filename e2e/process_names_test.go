@@ -109,3 +109,18 @@ startsecs = 0
 		t.Fatalf("got %d processes after rejected reload, want 1: %+v", len(infos), infos)
 	}
 }
+
+// With process_name unset, numprocs > 1 names instances <program>_<n>, so
+// they cannot collide (#166).
+func TestNumprocs_AutoNames(t *testing.T) {
+	client, _ := startDaemon(t, `
+[programs.web]
+command = "/bin/sleep 300"
+numprocs = 2
+startsecs = 0
+stopwaitsecs = 2
+`)
+	for _, name := range []string{"web_0", "web_1"} {
+		waitForState(t, client, name, "RUNNING", 10*time.Second)
+	}
+}

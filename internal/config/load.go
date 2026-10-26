@@ -34,7 +34,7 @@ func LoadBytes(data []byte, path string) (*Config, []string, error) {
 		warnings = append(warnings, fmt.Sprintf("unknown config key: %s", strings.Join(key, ".")))
 	}
 
-	ApplyDefaults(&cfg)
+	ApplyDefaults(&cfg, md)
 
 	if errs := Validate(&cfg); len(errs) > 0 {
 		msgs := make([]string, len(errs))

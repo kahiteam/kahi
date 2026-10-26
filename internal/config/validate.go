@@ -63,7 +63,38 @@ func Validate(cfg *Config) []error {
 			errs = append(errs, fmt.Errorf("%s: numprocs must be >= 1, got %d", prefix, p.Numprocs))
 		}
 
+		// A stop timeout of 0 or less sends SIGKILL right after the stop
+		// signal, with no grace period (#138).
+		if p.Stopwaitsecs < 1 {
+			errs = append(errs, fmt.Errorf("%s: stopwaitsecs must be >= 1, got %d; use stopsignal = \"KILL\" for an immediate kill", prefix, p.Stopwaitsecs))
+		}
+		for _, f := range []struct {
+			key string
+			v   int
+		}{
+			{"startsecs", p.Startsecs},
+			{"startretries", p.Startretries},
+			{"stdout_logfile_backups", p.StdoutLogfileBackups},
+			{"stderr_logfile_backups", p.StderrLogfileBackups},
+		} {
+			if f.v < 0 {
+				errs = append(errs, fmt.Errorf("%s: %s must be >= 0, got %d", prefix, f.key, f.v))
+			}
+		}
+
 		errs = append(errs, validateRLimits(prefix, p.Environment)...)
+	}
+
+	// shutdown_timeout 0 or less would SIGKILL every process the moment
+	// shutdown begins (#138).
+	if cfg.Supervisor.ShutdownTimeout < 1 {
+		errs = append(errs, fmt.Errorf("supervisor.shutdown_timeout must be >= 1, got %d", cfg.Supervisor.ShutdownTimeout))
+	}
+	if cfg.Supervisor.Minfds < 0 {
+		errs = append(errs, fmt.Errorf("supervisor.minfds must be >= 0, got %d", cfg.Supervisor.Minfds))
+	}
+	if cfg.Supervisor.Minprocs < 0 {
+		errs = append(errs, fmt.Errorf("supervisor.minprocs must be >= 0, got %d", cfg.Supervisor.Minprocs))
 	}
 
 	// Fail-closed TCP authentication (SEC-015): enabling the HTTP listener

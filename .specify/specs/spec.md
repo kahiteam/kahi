@@ -114,6 +114,11 @@ Infrastructure features have NO dependencies. They establish the foundation.
 - [ ] Validates value ranges (e.g., port 1-65535, priority 0-999)
 - [ ] Unknown fields produce warnings, not errors (forward compatibility)
 
+**Edge Cases:**
+
+- A key that is absent gets its default. A key that is set keeps its value, including 0 (#138): `priority = 0` starts first, `startsecs = 0` counts a process as RUNNING at once, `startretries = 0` never retries, `*_logfile_backups = 0` keeps no backups, and `exitcodes = []` expects no exit status.
+- Zero or negative values that would kill processes without a grace period are config errors: `stopwaitsecs` and `supervisor.shutdown_timeout` must be >= 1, and `numprocs` must be >= 1. Negative `startsecs`, `startretries`, `*_logfile_backups`, `minfds` and `minprocs` are config errors too.
+
 **Dependencies:** None
 
 ---
@@ -652,7 +657,7 @@ This feature adds two complementary mechanisms:
 
 - Process that exits during the stop signal send (race condition) must not cause errors
 - Multiple stop commands on the same process are idempotent (second is ignored)
-- Stopwaitsecs=0 sends SIGKILL immediately after stop signal
+- stopwaitsecs must be >= 1: 0 is a config error, because it would SIGKILL right after the stop signal (#138). For an immediate kill, set `stopsignal = "KILL"`. `kahi migrate` writes a supervisord `stopwaitsecs = 0` as 1, with a warning.
 
 **Dependencies:** FUNC-001, FUNC-002
 

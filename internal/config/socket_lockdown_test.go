@@ -79,6 +79,7 @@ func TestControlSocketOwnerOnly(t *testing.T) {
 // each reported so an operator sees every problem in one pass.
 func TestValidateUnixServerReportsAllErrors(t *testing.T) {
 	cfg := &Config{}
+	cfg.Supervisor.ShutdownTimeout = 30
 	cfg.Server.Unix.Chown = "nobody:nogroup"
 	cfg.Server.Unix.Chmod = "0777"
 

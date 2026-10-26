@@ -9,17 +9,19 @@ import (
 // test can isolate rlimit validation behavior.
 func validProgram(env map[string]string) ProgramConfig {
 	return ProgramConfig{
-		Command:     "/bin/true",
-		Priority:    999,
-		Autorestart: "unexpected",
-		Stopsignal:  "TERM",
-		Numprocs:    1,
-		Environment: env,
+		Command:      "/bin/true",
+		Priority:     999,
+		Autorestart:  "unexpected",
+		Stopsignal:   "TERM",
+		Stopwaitsecs: 10,
+		Numprocs:     1,
+		Environment:  env,
 	}
 }
 
 func validateProgram(p ProgramConfig) []error {
 	cfg := &Config{Programs: map[string]ProgramConfig{"app": p}}
+	cfg.Supervisor.ShutdownTimeout = 30
 	return Validate(cfg)
 }
 
