@@ -131,6 +131,42 @@ autorestart = "always"
 	}
 }
 
+// autorestart accepts the TOML booleans as well as strings (#181).
+func TestAutorestartAcceptsBoolAndString(t *testing.T) {
+	for value, want := range map[string]Autorestart{
+		`true`:         "true",
+		`false`:        "false",
+		`"true"`:       "true",
+		`"false"`:      "false",
+		`"unexpected"`: "unexpected",
+	} {
+		tomlData := "[programs.web]\ncommand = \"/bin/true\"\nautorestart = " + value + "\n"
+		cfg, warnings, err := LoadBytes([]byte(tomlData), "test.toml")
+		if err != nil {
+			t.Fatalf("autorestart = %s: %v", value, err)
+		}
+		if len(warnings) != 0 {
+			t.Errorf("autorestart = %s: warnings %v", value, warnings)
+		}
+		if got := cfg.Programs["web"].Autorestart; got != want {
+			t.Errorf("autorestart = %s: got %q, want %q", value, got, want)
+		}
+	}
+}
+
+func TestAutorestartOtherTypeIsParseError(t *testing.T) {
+	tomlData := "[programs.web]\ncommand = \"/bin/true\"\nautorestart = 1\n"
+	_, _, err := LoadBytes([]byte(tomlData), "test.toml")
+	if err == nil {
+		t.Fatal("expected an error for autorestart = 1")
+	}
+	for _, want := range []string{"programs.web.autorestart", `autorestart must be true, false, or "unexpected", got 1`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+		}
+	}
+}
+
 func TestUnknownFieldsProduceWarnings(t *testing.T) {
 	tomlData := `
 [supervisor]

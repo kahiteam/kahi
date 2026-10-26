@@ -46,7 +46,7 @@ func Validate(cfg *Config) []error {
 			errs = append(errs, fmt.Errorf("%s: priority must be between 0 and 999, got %d", prefix, p.Priority))
 		}
 
-		if !validAutorestartValues[p.Autorestart] {
+		if !validAutorestartValues[string(p.Autorestart)] {
 			errs = append(errs, fmt.Errorf("%s: autorestart must be true, false, or unexpected, got %q", prefix, p.Autorestart))
 		}
 
