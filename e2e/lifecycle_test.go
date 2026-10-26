@@ -199,6 +199,44 @@ startretries = 3
 	waitForState(t, client, "fail", "FATAL", 5*time.Second)
 }
 
+// The backoff delay stops doubling at 60s: the seventh delay is 60s, not
+// 64s. The test sits through 1+2+4+8+16+32+60s of backoff.
+func TestLifecycle_BackoffCappedAt60s(t *testing.T) {
+	dir := t.TempDir()
+	runs := filepath.Join(dir, "runs")
+	script := writeScript(t, dir, "fail.sh", "echo run >> "+runs+"\nexit 1")
+
+	client, _ := startDaemon(t, `
+[programs.fail]
+command = "`+script+`"
+autostart = false
+startsecs = 1
+startretries = 7
+`)
+	if err := client.Start("fail"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	var spawns []time.Time
+	deadline := time.Now().Add(150 * time.Second)
+	for len(spawns) < 8 && time.Now().Before(deadline) {
+		if countLines(runs) > len(spawns) {
+			spawns = append(spawns, time.Now())
+			continue
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(spawns) != 8 {
+		t.Fatalf("saw %d spawns, want 8", len(spawns))
+	}
+	for i, want := range []time.Duration{32 * time.Second, 60 * time.Second} {
+		gap := spawns[6+i].Sub(spawns[5+i])
+		if gap < want-500*time.Millisecond || gap > want+time.Second {
+			t.Errorf("gap %d = %v, want about %v", 6+i, gap, want)
+		}
+	}
+	waitForState(t, client, "fail", "FATAL", 5*time.Second)
+}
+
 // A stop shows STOPPING until the child is gone; a second stop meanwhile is
 // ignored; a stop of a stopped process is an error.
 func TestLifecycle_StoppingVisible(t *testing.T) {
