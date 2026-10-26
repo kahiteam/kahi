@@ -312,7 +312,7 @@
         "Write a unit test that verifies priority ordering applies to group-level operations",
         "Write a unit test that verifies shutdown uses the same reverse-priority ordering"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-start"]
     },
     {
@@ -327,7 +327,7 @@
         "Verify a program with numprocs=1 creates a group with a single process",
         "Verify group name collisions between programs are caught at config validation time"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["numprocs-instances"]
     },
     {
@@ -461,7 +461,7 @@
         "Write a test with KAHI_CONFIG env var set and verify it takes precedence over search paths",
         "Write a test with a non-readable config file and verify exit with error message 'cannot read config: {path}: {error}'"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["toml-config-parser"]
     },
     {
@@ -785,7 +785,7 @@
         "Run 'kahi ctl signal INVALID web' and verify exit code 1 with 'invalid signal' message",
         "Run 'kahi ctl stop web:*' and verify all processes in the web group are stopped"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["rest-api-endpoints", "cli-framework"]
     },
     {
@@ -824,7 +824,7 @@
         "Run 'kahi ctl tail --bytes 500 web' and verify the byte count is honored",
         "Verify tail reads from the ring buffer when no log file is configured"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["sse-streaming", "cli-process-control"]
     },
     {
@@ -970,7 +970,7 @@
         "Verify the signal channel buffer size is at least 16 to handle burst scenarios",
         "Verify signal processing always occurs in the main goroutine with no concurrent handlers"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["go-module-structure"]
     },
     {
@@ -984,7 +984,7 @@
         "Write a test that simulates setpgid failure and verifies a warning is logged but the process still starts",
         "Verify process group isolation enables stop-as-group behavior for signaling entire child trees"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-start"]
     },
     {
@@ -1061,7 +1061,7 @@
         "Start Kahi as root with user config and verify no warning is logged",
         "Verify the warning is logged once at startup and not repeated"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["structured-logging"]
     },
     {
@@ -1081,7 +1081,7 @@
         "Write a unit test that publishes 1000 events rapidly and verifies all subscribers receive all events in order",
         "Write a unit test that registers and unregisters subscribers concurrently from multiple goroutines and verifies no race conditions"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["go-module-structure"]
     },
     {
@@ -1096,7 +1096,7 @@
         "Write a test that verifies events are emitted after the state transition is committed",
         "Write a test that verifies all 8 states have corresponding event types"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["event-bus", "process-state-machine"]
     },
     {
@@ -1461,7 +1461,7 @@
         "Verify the generated file is still available for manual correction even when validation errors exist",
         "Verify validation catches missing required fields that could not be inferred from supervisord config"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["config-migration-tool", "toml-config-parser"]
     },
     {
@@ -2160,7 +2160,7 @@
         "Run 'go test -run TestGetConfig ./internal/api/...' and confirm the regression test asserts absence of the seeded secrets",
         "Verify any config reload or diff response that echoes config applies the same redaction"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["rest-api-endpoints", "http-basic-auth"]
     },
     {
@@ -2193,7 +2193,7 @@
         "Verify HOME resolves from the target user's passwd entry and falls back to / when unresolved",
         "Run 'go test -run TestBuildEnv ./internal/process/...' and confirm the differing-user clean-by-default path is covered"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["per-process-user-switching"]
     },
     {
@@ -2209,7 +2209,7 @@
         "With no config in system paths and none explicit, verify the daemon exits non-zero listing the searched paths",
         "Run 'go test -run TestResolve ./internal/config/...' and confirm the daemon search order excludes the CWD entry"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["config-search-paths"]
     },
     {
@@ -2241,7 +2241,7 @@
         "On a platform lacking openat semantics, verify the final-component O_NOFOLLOW guard remains and the trusted-path assumption is documented",
         "Run 'go test -run TestLogOpen ./internal/logging/...' covering the parent-symlink case"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["process-output-capture"]
     },
     {
@@ -2274,7 +2274,7 @@
         "Verify limits and umask are applied in the child post-fork pre-exec via SysProcAttr or child init",
         "Run 'go test -run TestApplyRLimits ./internal/process/...' and 'go test -run TestApplyUmask ./internal/process/...' and confirm they are exercised through the spawn path, not only directly"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["resource-limits", "process-umask"]
     },
     {
@@ -2290,7 +2290,7 @@
         "Verify the migrator does not emit chown into generated config and the generated template drops the commented chown example",
         "Run 'go test ./internal/api/... ./internal/config/...' covering the chown and chmod rejections"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["unix-socket-server"]
     },
     {
@@ -2326,7 +2326,7 @@
         "Add TestUnixControlSocketChmodFailureClosesListener: stub api.chmodSocket to return an error and verify StartUnix returns 'cannot set socket permissions', the server holds no listener, and the socket path accepts no connections",
         "Run 'go test -count=1 ./internal/sockutil/... ./internal/api/...'"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": [
         "unix-socket-server",
         "control-socket-owner-only-lockdown"
@@ -2345,7 +2345,7 @@
         "With t.Chdir(t.TempDir()), verify ValidateSocketPermissions('kahi.sock') succeeds; the pre-fix code fails it with 'socket directory does not exist'",
         "Run 'go test -count=1 -run TestValidateSocketPermissions ./internal/supervisor/...' and 'go test -count=1 -run TestSocketDir ./internal/supervisor/...'"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": ["unix-socket-server", "log-open-symlink-hardening"]
     },
     {
@@ -2364,7 +2364,7 @@
         "TestCrossOriginBothServersWired: start a real TCP listener (127.0.0.1:0, auth set) and a real Unix socket, send a cross-site POST /api/v1/processes/web/stop to each, and verify each returns 403 FORBIDDEN; also assert neither http.Server's Handler is a bare *http.ServeMux",
         "Run 'go test -count=1 -run TestCrossOrigin ./internal/api/...'; every new test is named TestCrossOrigin* so the filter covers steps 1-8"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": [
         "rest-api-endpoints",
         "http-basic-auth",
@@ -2471,7 +2471,7 @@
         "Recorded review (by the implementing session, not a human approval gate): after mounting, review templates, app.js, log.js and the handlers for any path where request or process data reaches markup, a URL or a script without the encodings above, and record the verdict and findings in the PR description",
         "Run 'go test -count=1 -run TestUISecurity ./internal/web/... ./internal/api/...'; every test above is named TestUISecurity*"
       ],
-      "passes": true,
+      "passes": false,
       "dependencies": [
         "web-ui-status-page",
         "web-ui-log-viewer",
