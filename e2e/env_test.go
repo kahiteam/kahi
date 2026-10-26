@@ -197,14 +197,8 @@ stopwaitsecs = 2
 	client := ctl.NewUnixClient(socketPath)
 	waitForHealth(t, client, 3*time.Second)
 	waitForState(t, client, "web", "RUNNING", 5*time.Second)
-
-	var buf bytes.Buffer
-	if err := client.Tail("web", "stdout", 4096, &buf); err != nil {
-		t.Fatalf("tail: %v", err)
-	}
-	if !strings.Contains(buf.String(), "started-from-include") {
-		t.Fatalf("stdout = %q, want started-from-include", buf.String())
-	}
+	// With startsecs = 0 the process is RUNNING before it prints.
+	waitForOutput(t, client, "web", "started-from-include")
 }
 
 // With numprocs > 1, %(process_num)d in log paths and arguments is each

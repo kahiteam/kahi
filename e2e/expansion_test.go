@@ -274,8 +274,18 @@ MULTI = "%(program_name)s-%(process_num)d-${KAHI_E2E_X}"
 		t.Fatalf("restart show-1: %v", err)
 	}
 	waitForState(t, client, "show-1", "RUNNING", 5*time.Second)
-	if out := waitForOutput(t, client, "show-1", "MULTI="); strings.Count(out, "MULTI=show-1-xval") < 2 {
-		t.Fatalf("after restart show-1 stdout = %q, want MULTI=show-1-xval from both starts", out)
+	// The capture buffer keeps both starts' output; wait for the second.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var buf bytes.Buffer
+		_ = client.Tail("show-1", "stdout", 4096, &buf)
+		if strings.Count(buf.String(), "MULTI=show-1-xval") >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("after restart show-1 stdout = %q, want MULTI=show-1-xval from both starts", buf.String())
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
