@@ -88,13 +88,14 @@ func TestMain(m *testing.M) {
 
 // processInfo mirrors the API response for a process.
 type processInfo struct {
-	Name       string `json:"name"`
-	Group      string `json:"group"`
-	State      string `json:"state"`
-	StateCode  int    `json:"statecode"`
-	PID        int    `json:"pid"`
-	Uptime     int64  `json:"uptime"`
-	ExitStatus int    `json:"exitstatus"`
+	Name        string `json:"name"`
+	Group       string `json:"group"`
+	State       string `json:"state"`
+	StateCode   int    `json:"statecode"`
+	PID         int    `json:"pid"`
+	Uptime      int64  `json:"uptime"`
+	Description string `json:"description"`
+	ExitStatus  int    `json:"exitstatus"`
 }
 
 // startDaemon writes configTOML to a temp directory, starts the kahi daemon,

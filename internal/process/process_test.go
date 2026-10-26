@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -335,6 +336,32 @@ func TestProcessStop(t *testing.T) {
 	}
 	if signalSent == nil {
 		t.Fatal("no signal sent")
+	}
+}
+
+// A child that exits while the stop signal is being sent (ESRCH) does not
+// make the stop fail: the exit completes it.
+func TestProcessStopESRCH(t *testing.T) {
+	mp := NewMockProcess(1234)
+	mp.signalFn = func(os.Signal) error { return syscall.ESRCH }
+
+	spawner := &MockSpawner{
+		SpawnFn: func(cfg SpawnConfig) (SpawnedProcess, error) {
+			return mp, nil
+		},
+	}
+	cfg := defaultProgramConfig()
+	p := NewProcess("test", "test", cfg, spawner, testBus(), testLogger())
+
+	_ = p.Start()
+	time.Sleep(10 * time.Millisecond) // let state reach RUNNING
+
+	if err := p.Stop(); err != nil {
+		t.Fatalf("stop with ESRCH: %v", err)
+	}
+	p.HandleExit(0)
+	if p.State() != Stopped {
+		t.Fatalf("state = %s, want STOPPED", p.State())
 	}
 }
 
