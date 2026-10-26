@@ -284,6 +284,12 @@
         "Write a unit test with numprocs=5 and verify all 5 processes are created with sequential numbering"
       ],
       "passes": false,
+      "verified_by": [
+        "TestState_NumprocsExpansion",
+        "TestRegression_NumprocsNames",
+        "TestEnv_ProgramNameExpansion",
+        "TestEnv_ProcessNumPerInstance"
+      ],
       "dependencies": ["process-start"]
     },
     {
@@ -331,6 +337,12 @@
         "Parse a config with an empty group (no programs) and verify it is rejected at config validation"
       ],
       "passes": false,
+      "verified_by": [
+        "TestGroup_StartAll",
+        "TestGroup_StopAll",
+        "TestGroup_RestartAll",
+        "TestGroup_Heterogeneous"
+      ],
       "dependencies": ["homogeneous-groups"]
     },
     {
@@ -367,6 +379,12 @@
         "Parse a config with multiple variable references in a single value and verify all are expanded correctly"
       ],
       "passes": false,
+      "verified_by": [
+        "TestEnv_HereExpansion",
+        "TestEnv_HereExpansionInIncludedFile",
+        "TestEnv_ProgramNameExpansion",
+        "TestEnv_ProcessNumPerInstance"
+      ],
       "dependencies": ["toml-config-parser"]
     },
     {
@@ -384,6 +402,7 @@
         "Verify included files can define programs but cannot override [supervisor] settings"
       ],
       "passes": false,
+      "verified_by": ["TestEnv_HereExpansionInIncludedFile"],
       "dependencies": ["toml-config-parser", "toml-variable-expansion"]
     },
     {
@@ -404,6 +423,15 @@
         "Write a test that changes numprocs from 2 to 4 and verifies 2 new process instances are added on reload"
       ],
       "passes": false,
+      "verified_by": [
+        "TestReload_SIGHUPChangeProgram",
+        "TestReload_AddProgram",
+        "TestReload_RemoveProgram",
+        "TestReload_ChangeProgram",
+        "TestReload_InvalidConfig",
+        "TestReload_NoChange",
+        "TestReload_Reread"
+      ],
       "dependencies": [
         "toml-variable-expansion",
         "config-include-system",
@@ -506,7 +534,8 @@
         "Write a test that verifies multi-line output is sent as separate syslog messages",
         "Write a test that simulates a syslog connection failure and verifies the daemon logs an error and continues without syslog",
         "Verify syslog forwarding works alongside file logging and console passthrough",
-        "Verify syslog facility and priority are configurable with defaults of LOCAL0 and INFO"
+        "Verify syslog facility and priority are configurable with defaults of LOCAL0 and INFO",
+        "Send SIGUSR2 while forwarding to syslog and verify syslog delivery continues without interruption (moved from the SIGUSR2 entries)"
       ],
       "passes": false,
       "dependencies": ["process-output-capture"]
@@ -533,12 +562,15 @@
       "description": "Reopen all log file handles on SIGUSR2 signal to support external log rotation tools like logrotate.",
       "testing_steps": [
         "Write a test that sends SIGUSR2 while Kahi is writing to log files and verifies all file handles are closed and reopened",
-        "Write a test that verifies syslog connections are not affected by SIGUSR2",
         "Write a test that simulates a file reopen failure and verifies the daemon logs an error and continues",
         "Write a test that verifies log reopen is safe to call concurrently with log writes",
         "Write a test that verifies SIGUSR2 during shutdown is ignored"
       ],
       "passes": false,
+      "verified_by": [
+        "TestLog_SIGUSR2ReopensRotatedLog",
+        "TestLog_SIGUSR2ReopensDaemonLog"
+      ],
       "dependencies": ["process-output-capture"]
     },
     {
@@ -668,9 +700,17 @@
         "Make a request with wrong credentials and verify 401 Unauthorized",
         "Parse a config with a plaintext password and verify a validation error about bcrypt hashing",
         "Verify auth is required for the TCP server but optional for the Unix socket",
-        "Verify kahi ctl sends credentials from config or command-line flags"
+        "Run kahi ctl --addr host:port -u admin -p <password> status against a TCP listener and verify it succeeds, and that the same command without -u/-p fails as unauthorized"
       ],
       "passes": false,
+      "verified_by": [
+        "TestWebUIE2EServed",
+        "TestWebUIE2EBulk",
+        "TestWebUIE2EAuth",
+        "TestWebUIE2EUnixSocket",
+        "TestAuth_TCPNoCreds",
+        "TestAuth_TCPBadCreds"
+      ],
       "dependencies": ["tcp-http-server"]
     },
     {
@@ -869,6 +909,7 @@
         "Verify multiple rapid SIGHUPs are coalesced into a single reload"
       ],
       "passes": false,
+      "verified_by": ["TestReload_SIGHUPChangeProgram"],
       "dependencies": ["config-hot-reload"]
     },
     {
@@ -893,12 +934,16 @@
       "description": "Handle SIGUSR2 by triggering log file reopen for all active log file handles.",
       "testing_steps": [
         "Send SIGUSR2 to Kahi and verify all log file handles are closed and reopened",
-        "Verify SIGUSR2 only affects file-based logs, not console or syslog destinations",
+        "Verify SIGUSR2 only affects file-based logs: console output keeps flowing without interruption",
         "Verify a file reopen failure is logged but does not crash the daemon",
         "Send SIGUSR2 when no log files are configured and verify the signal is acknowledged without error",
         "Send SIGUSR2 during active log writing and verify no log entries are lost during rotation"
       ],
       "passes": false,
+      "verified_by": [
+        "TestLog_SIGUSR2ReopensRotatedLog",
+        "TestLog_SIGUSR2ReopensDaemonLog"
+      ],
       "dependencies": ["log-reopen-sigusr2"]
     },
     {
@@ -1872,8 +1917,8 @@
       "description": "CONTRIBUTING.md covering dev setup, branching, commits, PR process, code style, and testing. Aligned with project constitution.",
       "testing_steps": [
         "Verify CONTRIBUTING.md exists at repo root",
-        "Verify document covers prerequisites (Go 1.26+, Task)",
-        "Verify document covers getting started (clone, init.sh, task test)",
+        "Verify document covers prerequisites (Go at the version named in go.mod, Task)",
+        "Verify document covers getting started (clone, scripts/install-hooks.sh, task setup, task test)",
         "Verify document covers branching model (feature branches, PR required)",
         "Verify document covers conventional commit format with examples",
         "Verify document covers PR requirements (tests pass, lint clean)",
@@ -1883,7 +1928,7 @@
         "Verify document references CODE_OF_CONDUCT.md",
         "Verify document contains no emoji or AI-isms"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["security-policy", "code-of-conduct"]
     },
     {
