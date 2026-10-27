@@ -128,7 +128,8 @@ func TestDaemon_Shutdown(t *testing.T) {
 
 func TestDaemon_ShutdownTimeout(t *testing.T) {
 	dir := t.TempDir()
-	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\nsleep 300")
+	ready := filepath.Join(dir, "ready")
+	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\necho ready > "+ready+"\nsleep 300")
 
 	client, _ := startDaemon(t, `
 [programs.stubborn]
@@ -138,6 +139,7 @@ startsecs = 0
 stopwaitsecs = 2
 `)
 	waitForState(t, client, "stubborn", "RUNNING", 5*time.Second)
+	waitForMarker(t, ready, "ready", 5*time.Second)
 
 	start := time.Now()
 	err := client.Shutdown()
@@ -226,7 +228,10 @@ func TestDaemon_ShutdownTimeoutKillsChildren(t *testing.T) {
 	dir := t.TempDir()
 	// The ignored disposition survives exec, so the PID kahi tracks is the
 	// one that ignores SIGTERM.
-	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\nexec sleep 300")
+	// The ready file is written after the trap: with startsecs = 0 the
+	// daemon is signalled as soon as the worker is RUNNING.
+	ready := filepath.Join(dir, "ready")
+	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\necho ready > "+ready+"\nexec sleep 300")
 
 	cmd, pid, done, _, _ := shutdownDaemon(t, 2, `
 [programs.worker]
@@ -235,6 +240,7 @@ autostart = true
 startsecs = 0
 stopwaitsecs = 60
 `)
+	waitForMarker(t, ready, "ready", 5*time.Second)
 
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatalf("signal daemon: %v", err)
@@ -257,7 +263,10 @@ stopwaitsecs = 60
 func TestDaemon_SignalShutdownIsReported(t *testing.T) {
 	dir := t.TempDir()
 	// Ignores SIGTERM, so shutdown stays in progress until shutdown_timeout.
-	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\nexec sleep 300")
+	// The ready file is written after the trap: with startsecs = 0 the
+	// daemon is signalled as soon as the worker is RUNNING.
+	ready := filepath.Join(dir, "ready")
+	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\necho ready > "+ready+"\nexec sleep 300")
 
 	cmd, _, done, client, socketPath := shutdownDaemon(t, 5, `
 [programs.worker]
@@ -270,6 +279,7 @@ stopwaitsecs = 60
 command = "/bin/sleep 300"
 autostart = false
 `)
+	waitForMarker(t, ready, "ready", 5*time.Second)
 
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatalf("signal daemon: %v", err)

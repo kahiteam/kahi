@@ -137,13 +137,42 @@ func TestExpandSupervisordVars(t *testing.T) {
 	}{
 		{"%(ENV_HOME)s/app", "${HOME}/app"},
 		{"%(ENV_PORT)s", "${PORT}"},
-		{"%(here)s/conf.d", "${here}/conf.d"},
+		// Kahi expands these itself, with the same syntax (#188).
+		{"%(here)s/conf.d", "%(here)s/conf.d"},
+		{"%(program_name)s-%(process_num)d", "%(program_name)s-%(process_num)d"},
 		{"no variables here", "no variables here"},
 	}
 	for _, tt := range tests {
-		got := expandSupervisordVars(tt.input)
-		if got != tt.want {
-			t.Errorf("expandSupervisordVars(%q) = %q, want %q", tt.input, got, tt.want)
+		got, warnings := expandSupervisordVars(tt.input)
+		if got != tt.want || len(warnings) != 0 {
+			t.Errorf("expandSupervisordVars(%q) = %q, %q; want %q and no warning", tt.input, got, warnings, tt.want)
+		}
+	}
+
+	// Padding is dropped and an unknown variable is kept, both with a warning.
+	for input, want := range map[string]string{
+		"w%(process_num)02d":    "w%(process_num)d",
+		"%(host_node_name)s-ap": "%(host_node_name)s-ap",
+	} {
+		got, warnings := expandSupervisordVars(input)
+		if got != want || len(warnings) != 1 {
+			t.Errorf("expandSupervisordVars(%q) = %q, %q; want %q and one warning", input, got, warnings, want)
+		}
+	}
+}
+
+// A ; starts a comment only at the start of a line or after whitespace,
+// as in supervisord (#188).
+func TestStripInlineCommentNeedsWhitespace(t *testing.T) {
+	for line, want := range map[string]string{
+		"command=/bin/sh -c a;b":    "command=/bin/sh -c a;b",
+		"command=/bin/sh -c a ;b":   "command=/bin/sh -c a ",
+		"command=/bin/sh -c a\t; b": "command=/bin/sh -c a\t",
+		"; whole line":              "",
+		`command=echo "x ; y"`:      `command=echo "x ; y"`,
+	} {
+		if got := stripInlineComment(line); got != want {
+			t.Errorf("stripInlineComment(%q) = %q, want %q", line, got, want)
 		}
 	}
 }
