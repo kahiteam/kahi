@@ -1436,8 +1436,15 @@
         "Verify %(ENV_X)s syntax is mapped to Kahi's ${X} syntax",
         "Verify boolean values (true/false, yes/no, on/off, 1/0) map to TOML booleans"
       ],
-      "passes": false,
-      "verified_by": ["TestCLI_MigrateErrors", "TestCLI_MigrateToStdout"],
+      "passes": true,
+      "verified_by": [
+        "TestMigrate_SectionTypes",
+        "TestMigrate_Values",
+        "TestMigrate_ParseErrorLine",
+        "TestMigrate_TemplateVariablesRun",
+        "TestCLI_MigrateErrors",
+        "TestCLI_MigrateToStdout"
+      ],
       "dependencies": ["go-module-structure"]
     },
     {
@@ -1453,8 +1460,12 @@
         "Verify byte size values (e.g., 50MB) are preserved in human-readable format",
         "Verify signal names are normalized to uppercase"
       ],
-      "passes": false,
-      "verified_by": ["TestCLI_MigrateToStdout"],
+      "passes": true,
+      "verified_by": [
+        "TestMigrate_Values",
+        "TestMigrate_SectionTypes",
+        "TestCLI_MigrateToStdout"
+      ],
       "dependencies": ["migration-ini-parser"]
     },
     {

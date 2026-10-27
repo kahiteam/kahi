@@ -100,7 +100,10 @@ func ParseINI(r io.Reader) (*INIFile, error) {
 		value = strings.TrimSpace(value)
 
 		// Expand %(ENV_X)s to ${X} syntax.
-		value = expandSupervisordVars(value)
+		value, varWarnings := expandSupervisordVars(value)
+		for _, w := range varWarnings {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("line %d: %s", lineNum, w))
+		}
 
 		currentSection.Options[key] = value
 		lastKey = key
@@ -113,8 +116,10 @@ func ParseINI(r io.Reader) (*INIFile, error) {
 	return result, nil
 }
 
-// stripInlineComment removes inline comments (;) from a line,
-// preserving semicolons inside quoted strings.
+// stripInlineComment removes an inline comment from a line. As in
+// supervisord, a comment starts at a ; at the start of the line or after
+// whitespace, so "a;b" keeps its semicolon (#188); semicolons inside quotes
+// are kept too.
 func stripInlineComment(line string) string {
 	inSingle := false
 	inDouble := false
@@ -129,7 +134,7 @@ func stripInlineComment(line string) string {
 				inDouble = !inDouble
 			}
 		case ';':
-			if !inSingle && !inDouble {
+			if !inSingle && !inDouble && (i == 0 || line[i-1] == ' ' || line[i-1] == '\t') {
 				return line[:i]
 			}
 		}
@@ -137,16 +142,36 @@ func stripInlineComment(line string) string {
 	return line
 }
 
-// expandSupervisordVars converts %(ENV_X)s to ${X} and %(here)s, etc.
-var supervisordVarRe = regexp.MustCompile(`%\(ENV_([A-Za-z_][A-Za-z0-9_]*)\)s`)
-var supervisordBuiltinVarRe = regexp.MustCompile(`%\(([a-z_]+)\)s`)
+var supervisordEnvVarRe = regexp.MustCompile(`%\(ENV_([A-Za-z_][A-Za-z0-9_]*)\)s`)
+var supervisordVarRe = regexp.MustCompile(`%\(([a-z_]+)\)(\d*)([sd])`)
 
-func expandSupervisordVars(value string) string {
-	// First handle %(ENV_X)s -> ${X}
-	value = supervisordVarRe.ReplaceAllString(value, "${$1}")
-	// Then handle other builtins like %(here)s -> ${here}
-	value = supervisordBuiltinVarRe.ReplaceAllString(value, "${$1}")
-	return value
+// kahiVars are the supervisord template variables Kahi expands itself, with
+// the same %(name)s / %(name)d syntax.
+var kahiVars = map[string]bool{
+	"here": true, "program_name": true, "group_name": true, "process_num": true, "numprocs": true,
+}
+
+// expandSupervisordVars converts %(ENV_X)s to Kahi's ${X} and keeps the
+// template variables Kahi shares. Kahi has no number padding, so
+// %(process_num)02d becomes %(process_num)d; a variable Kahi does not know is
+// left in place. Both are reported (#188).
+func expandSupervisordVars(value string) (string, []string) {
+	value = supervisordEnvVarRe.ReplaceAllString(value, "${$1}")
+	var warnings []string
+	value = supervisordVarRe.ReplaceAllStringFunc(value, func(m string) string {
+		sub := supervisordVarRe.FindStringSubmatch(m)
+		name, width, verb := sub[1], sub[2], sub[3]
+		switch {
+		case !kahiVars[name]:
+			warnings = append(warnings, fmt.Sprintf("%s is not a Kahi variable; left as is", m))
+		case width != "":
+			short := "%(" + name + ")" + verb
+			warnings = append(warnings, fmt.Sprintf("%s: Kahi has no number padding; wrote %s", m, short))
+			return short
+		}
+		return m
+	})
+	return value, warnings
 }
 
 // ParseBool converts supervisord boolean values to Go booleans.
