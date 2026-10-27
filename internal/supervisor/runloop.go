@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -418,33 +419,38 @@ func (s *Supervisor) IsShuttingDown() bool {
 	return s.shutting
 }
 
-// IsReady returns true if the supervisor is running and all autostart
-// processes have reached RUNNING state.
-func (s *Supervisor) IsReady() bool {
-	for _, p := range s.manager.Processes() {
-		cfg := p.Config()
-		if cfg.Autostart != nil && *cfg.Autostart {
-			if p.State() != process.Running {
-				return false
+// Readiness reports which of the named processes, or of the autostart
+// processes when names is empty, are not RUNNING (FUNC-030). STARTING and
+// BACKOFF are pending: they may still come up. Any other state, FATAL
+// included, is failing. The unfiltered lists are sorted by name.
+func (s *Supervisor) Readiness(names []string) (pending, failing []string, err error) {
+	var procs []*process.Process
+	if len(names) == 0 {
+		for _, p := range s.manager.Processes() {
+			if cfg := p.Config(); cfg.Autostart != nil && *cfg.Autostart {
+				procs = append(procs, p)
 			}
 		}
-	}
-	return true
-}
-
-// CheckReady checks if specific processes are ready.
-func (s *Supervisor) CheckReady(processes []string) (bool, []string, error) {
-	var pending []string
-	for _, name := range processes {
-		p, err := s.manager.GetProcess(name)
-		if err != nil {
-			return false, nil, err
-		}
-		if p.State() != process.Running {
-			pending = append(pending, name)
+		sort.Slice(procs, func(i, j int) bool { return procs[i].Name() < procs[j].Name() })
+	} else {
+		for _, name := range names {
+			p, err := s.manager.GetProcess(name)
+			if err != nil {
+				return nil, nil, err
+			}
+			procs = append(procs, p)
 		}
 	}
-	return len(pending) == 0, pending, nil
+	for _, p := range procs {
+		switch p.State() {
+		case process.Running:
+		case process.Starting, process.Backoff:
+			pending = append(pending, p.Name())
+		default:
+			failing = append(failing, p.Name())
+		}
+	}
+	return pending, failing, nil
 }
 
 // Version returns version info.

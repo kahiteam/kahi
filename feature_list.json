@@ -675,30 +675,24 @@
       "description": "JSON API for process management with endpoints for listing, starting, stopping, restarting, signaling processes, reading logs, config operations, and shutdown.",
       "testing_steps": [
         "Make a GET request to /api/v1/processes and verify a JSON array of process info objects is returned",
-        "Make a POST request to /api/v1/processes/web/start and verify the process is started with 200 response",
+        "Make a POST request to /api/v1/processes/web/start and verify the process is started with 200 and {\"status\":\"started\",\"name\":\"web\"}",
         "Make a POST request to /api/v1/processes/web/stop and verify the process is stopped with 200 response",
         "Make a POST request to /api/v1/processes/web/restart and verify the process is restarted",
         "Make a POST request to /api/v1/processes/web/signal with body {\"signal\":\"HUP\"} and verify SIGHUP is sent",
-        "Make a GET request to /api/v1/processes/web/log/stdout and verify log content is returned",
-        "Make a POST request to /api/v1/config/reload and verify config is re-read and diff is returned",
+        "Make a GET request to /api/v1/processes/web/log/stdout and verify the captured output is returned as text/plain",
+        "Make a POST request to /api/v1/config/reload and verify config is re-read and the added/changed/removed diff is returned",
         "Make a POST request to /api/v1/shutdown and verify graceful shutdown is initiated",
         "Make a GET request to /api/v1/config and verify all process config info is returned",
         "Make a GET request for a nonexistent process and verify 404 with JSON error body",
-        "Make a POST request with an invalid signal name and verify 400 with JSON error body",
-        "Verify all endpoints return Content-Type: application/json header",
-        "Make a request using an unsupported HTTP method and verify 405 is returned"
+        "Make a POST request with an invalid signal name and verify 400 with a JSON error body (process web: invalid signal \"FOO\")",
+        "Verify JSON responses and every error carry Content-Type: application/json, and the log endpoint text/plain",
+        "Make a request using an unsupported HTTP method and verify 405 with a JSON error body and an Allow header"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
-        "TestProcess_Status",
-        "TestProcess_Start",
-        "TestProcess_Stop",
-        "TestProcess_Restart",
-        "TestProcess_Signal",
-        "TestLog_TailStdout",
-        "TestReload_AddProgram",
-        "TestDaemon_Shutdown",
-        "TestProcess_StartBadName"
+        "TestREST_ProcessEndpoints",
+        "TestREST_Reload",
+        "TestREST_Shutdown"
       ],
       "dependencies": [
         "unix-socket-server",
@@ -778,17 +772,19 @@
       "description": "Readiness probe endpoint reporting whether managed processes have stabilized, with optional process filter parameter.",
       "testing_steps": [
         "Start all autostart processes, wait for RUNNING state, and verify GET /readyz returns 200 with {\"status\":\"ready\"}",
-        "Start processes and query /readyz before they reach RUNNING and verify 503 with {\"status\":\"not_ready\"} listing pending processes",
+        "Start processes and query /readyz before they reach RUNNING and verify 503 with {\"status\":\"not_ready\"} listing them under \"pending\"",
         "Make a GET request to /readyz?process=web,api with both RUNNING and verify 200",
-        "Make a GET request to /readyz?process=web,api with api STOPPED and verify 503 with failing list",
-        "Make a GET request to /readyz?process=unknown and verify 400 with error about unknown process",
+        "Make a GET request to /readyz?process=web,api with api STOPPED and verify 503 listing api under \"failing\"",
+        "Make a GET request to /readyz?process=unknown and verify 400 with the error no such process: unknown",
         "Verify /readyz does not require authentication",
         "Verify processes with autostart=false are excluded from default readiness check",
-        "Verify FATAL processes count as stabilized in the readiness check"
+        "Verify an autostart process in FATAL keeps /readyz at 503 and is listed under \"failing\""
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
-        "TestDaemon_Ready",
+        "TestReadyz_States",
+        "TestReadyz_FatalAutostartNotReady",
+        "TestReadyz_NoAuthOnTCP",
         "TestCLI_Ready",
         "TestCLI_ReadyPending"
       ],

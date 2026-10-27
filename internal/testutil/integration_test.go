@@ -58,9 +58,8 @@ func (m *mockConfigManager) PreviewReload() (config.ReloadResult, error) {
 type mockDaemonInfo struct{}
 
 func (m *mockDaemonInfo) IsShuttingDown() bool { return false }
-func (m *mockDaemonInfo) IsReady() bool        { return true }
-func (m *mockDaemonInfo) CheckReady(processes []string) (ready bool, pending []string, err error) {
-	return true, nil, nil
+func (m *mockDaemonInfo) Readiness(names []string) (pending, failing []string, err error) {
+	return nil, nil, nil
 }
 func (m *mockDaemonInfo) Version() map[string]string { return map[string]string{"version": "test"} }
 func (m *mockDaemonInfo) PID() int                   { return 12345 }

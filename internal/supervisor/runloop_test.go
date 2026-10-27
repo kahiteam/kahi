@@ -165,8 +165,10 @@ func TestSupervisorIsReady(t *testing.T) {
 
 	// Processes start in STOPPED state, not RUNNING. So with autostart=true
 	// processes, IsReady should be false until they reach RUNNING.
-	if s.IsReady() {
-		t.Fatal("should not be ready before processes start")
+	// STOPPED is failing, not pending: it will not come up by itself.
+	pending, failing, err := s.Readiness(nil)
+	if err != nil || len(pending) != 0 || len(failing) == 0 {
+		t.Fatalf("Readiness = %v, %v, %v; want the stopped autostart processes failing", pending, failing, err)
 	}
 }
 
@@ -192,8 +194,8 @@ func TestSupervisorIsReadyNoAutostart(t *testing.T) {
 	s.manager.LoadConfig(cfg)
 
 	// No autostart processes means IsReady should be true.
-	if !s.IsReady() {
-		t.Fatal("should be ready when no autostart processes exist")
+	if pending, failing, err := s.Readiness(nil); err != nil || len(pending)+len(failing) != 0 {
+		t.Fatalf("Readiness = %v, %v, %v; want ready with no autostart processes", pending, failing, err)
 	}
 }
 
@@ -201,7 +203,7 @@ func TestSupervisorCheckReadyMissing(t *testing.T) {
 	s := testSupervisor()
 	s.manager.LoadConfig(s.config)
 
-	_, _, err := s.CheckReady([]string{"nonexistent"})
+	_, _, err := s.Readiness([]string{"nonexistent"})
 	if err == nil {
 		t.Fatal("expected error for nonexistent process")
 	}
@@ -211,16 +213,13 @@ func TestSupervisorCheckReadyPending(t *testing.T) {
 	s := testSupervisor()
 	s.manager.LoadConfig(s.config)
 
-	ready, pending, err := s.CheckReady([]string{"web"})
+	pending, failing, err := s.Readiness([]string{"web"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// web is in STOPPED state.
-	if ready {
-		t.Fatal("should not be ready when process is stopped")
-	}
-	if len(pending) != 1 || pending[0] != "web" {
-		t.Fatalf("pending = %v, want [web]", pending)
+	if len(pending) != 0 || len(failing) != 1 || failing[0] != "web" {
+		t.Fatalf("pending = %v, failing = %v; want web failing", pending, failing)
 	}
 }
 
