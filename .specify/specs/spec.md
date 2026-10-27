@@ -696,6 +696,7 @@ This feature adds two complementary mechanisms:
 - Autorestart applies only after process has reached RUNNING state (not during STARTING/BACKOFF)
 - Process manually stopped (via stop command) is never autorestarted regardless of setting
 - Autorestart during shutdown is suppressed
+- `autorestart` accepts the TOML booleans `true` and `false` as well as the strings `"true"`, `"false"` and `"unexpected"`; a value of any other type is a config error naming the key
 
 **Dependencies:** FUNC-001, FUNC-002
 

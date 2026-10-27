@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -212,5 +213,40 @@ priority = 999
 	}
 	if running < 2 {
 		t.Fatalf("only %d processes running, want >= 2", running)
+	}
+}
+
+// autorestart accepts the TOML booleans: true restarts, false does not (#181).
+func TestState_AutorestartBool(t *testing.T) {
+	dir := t.TempDir()
+	restartRuns := filepath.Join(dir, "restart")
+	onceRuns := filepath.Join(dir, "once")
+	restart := writeScript(t, dir, "restart.sh", "echo run >> "+restartRuns+"\nsleep 1.5\nexit 0")
+	once := writeScript(t, dir, "once.sh", "echo run >> "+onceRuns+"\nsleep 1.5\nexit 1")
+
+	client, _ := startDaemon(t, `
+[programs.restart]
+command = "`+restart+`"
+autostart = true
+startsecs = 1
+autorestart = true
+
+[programs.once]
+command = "`+once+`"
+autostart = true
+startsecs = 1
+autorestart = false
+`)
+	waitForState(t, client, "once", "EXITED", 10*time.Second)
+	deadline := time.Now().Add(10 * time.Second)
+	for countLines(restartRuns) < 2 && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if got := countLines(restartRuns); got < 2 {
+		t.Fatalf("autorestart = true: %d runs, want >= 2", got)
+	}
+	time.Sleep(time.Second)
+	if got := countLines(onceRuns); got != 1 {
+		t.Fatalf("autorestart = false: %d runs, want 1", got)
 	}
 }

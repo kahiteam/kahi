@@ -1,6 +1,11 @@
 // Package config handles loading and validating Kahi configuration.
 package config
 
+import (
+	"fmt"
+	"strconv"
+)
+
 // Config is the top-level Kahi configuration.
 type Config struct {
 	Supervisor SupervisorConfig         `toml:"supervisor"`
@@ -32,7 +37,7 @@ type ProgramConfig struct {
 	NumprocsStart         int               `toml:"numprocs_start"`
 	Priority              int               `toml:"priority"`
 	Autostart             *bool             `toml:"autostart"`
-	Autorestart           string            `toml:"autorestart"`
+	Autorestart           Autorestart       `toml:"autorestart"`
 	Startsecs             int               `toml:"startsecs"`
 	Startretries          int               `toml:"startretries"`
 	Exitcodes             []int             `toml:"exitcodes"`
@@ -103,4 +108,22 @@ type WebhookConfig struct {
 	Headers map[string]string `toml:"headers"`
 	Timeout int               `toml:"timeout"`
 	Retries int               `toml:"retries"`
+}
+
+// Autorestart is a program's autorestart policy: "true", "false" or
+// "unexpected". It accepts the TOML booleans as well as strings, so
+// autorestart = true is not a parse error (#181).
+type Autorestart string
+
+// UnmarshalTOML implements toml.Unmarshaler.
+func (a *Autorestart) UnmarshalTOML(v any) error {
+	switch v := v.(type) {
+	case bool:
+		*a = Autorestart(strconv.FormatBool(v))
+	case string:
+		*a = Autorestart(v)
+	default:
+		return fmt.Errorf("autorestart must be true, false, or \"unexpected\", got %v (%T)", v, v)
+	}
+	return nil
 }

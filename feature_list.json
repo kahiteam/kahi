@@ -224,7 +224,8 @@
         "Write a unit test that verifies autorestart is suppressed during daemon shutdown",
         "Parse a config with an invalid autorestart value and verify a validation error is returned",
         "Write a unit test with autorestart=unexpected and exitcodes=[0,2] that verifies exit code 2 is treated as expected and does not trigger restart",
-        "Write a unit test that verifies autorestart does not apply during STARTING/BACKOFF phases before RUNNING is reached"
+        "Write a unit test that verifies autorestart does not apply during STARTING/BACKOFF phases before RUNNING is reached",
+        "Configure autorestart = true and autorestart = false as TOML booleans and verify the daemon starts and applies them like the strings \"true\" and \"false\"; a value of another type is a config error naming the key"
       ],
       "passes": true,
       "verified_by": [
@@ -232,7 +233,8 @@
         "TestLifecycle_RetriesToFatal",
         "TestLifecycle_NoRespawnAfterStop",
         "TestLifecycle_NoRespawnDuringShutdown",
-        "TestLifecycle_ConfigErrors"
+        "TestLifecycle_ConfigErrors",
+        "TestState_AutorestartBool"
       ],
       "dependencies": ["process-state-machine", "process-start"]
     },
