@@ -108,7 +108,7 @@ func mapOption(key, value string, mappings map[string]OptionMapping) MappedOptio
 		return MappedOption{
 			Key:         key,
 			Value:       fmt.Sprintf("%q", value),
-			Comment:     "UNSUPPORTED: unknown option",
+			Comment:     fmt.Sprintf("UNSUPPORTED: %s = %s (unknown option)", key, value),
 			Unsupported: true,
 		}
 	}

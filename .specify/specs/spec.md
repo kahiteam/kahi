@@ -2899,7 +2899,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
   **When** parsed
   **Then** all section types are recognized: [supervisord], [program:name], [group:name], [eventlistener:name], [fcgi-program:name], [include], [unix_http_server], [inet_http_server]
 
-- **Given** INI file with inline comments (`;` prefixed)
+- **Given** INI file with inline comments (a `;` at the start of a line or after whitespace, as in supervisord; `a;b` keeps its semicolon)
   **When** parsed
   **Then** comments are stripped from values
 
@@ -2917,6 +2917,8 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 **Edge Cases:**
 
 - supervisord.conf supports `%(ENV_X)s` syntax, which must be mapped to Kahi's `${X}` syntax
+- `%(here)s`, `%(program_name)s`, `%(group_name)s`, `%(process_num)d` and `%(numprocs)d` are kept: Kahi expands them with the same syntax. A width such as `%(process_num)02d` is written as `%(process_num)d` with a warning (Kahi has no padding); a variable Kahi does not know is kept with a warning
+- An unknown option is written as `# UNSUPPORTED: key = value (unknown option)`, keeping its key and value
 - Boolean values in supervisord (true/false, yes/no, on/off, 1/0) map to TOML booleans
 
 **Dependencies:** INFRA-001
