@@ -124,6 +124,8 @@ func (m *Manager) LoadConfig(cfg *config.Config) {
 				Backups:     inst.Config.StdoutLogfileBackups,
 				Logger:      m.logger,
 			})
+			// A log file that cannot be opened fails each start until it can
+			// (FUNC-018, #171); the writer still keeps the ring buffer.
 			if err != nil {
 				m.logger.Error("create stdout capture", "process", inst.Name, "error", err)
 			}
@@ -147,7 +149,21 @@ func (m *Manager) LoadConfig(cfg *config.Config) {
 			}
 
 			bus := m.bus
-			opts := []ProcessOption{WithShutdownCh(m.shutdownCh)}
+			name := inst.Name
+			opts := []ProcessOption{
+				WithShutdownCh(m.shutdownCh),
+				WithPreSpawn(func() error {
+					for _, cw := range []*logging.CaptureWriter{stdoutCW, stderrCW} {
+						if cw == nil {
+							continue
+						}
+						if err := cw.EnsureOpen(); err != nil {
+							return fmt.Errorf("cannot open log file for %s: %w", name, err)
+						}
+					}
+					return nil
+				}),
+			}
 			if stdoutCW != nil {
 				cw := stdoutCW
 				opts = append(opts, WithStdoutHandler(func(name string, data []byte) {

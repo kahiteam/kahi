@@ -44,6 +44,10 @@ type Process struct {
 	// stream name; the last partial line is delivered when the pipe closes.
 	onLine func(name, stream string, line []byte)
 
+	// preSpawn runs before every spawn; an error fails the start, and its
+	// message is shown in status as is.
+	preSpawn func() error
+
 	// spawnErr is the last spawn failure, cleared by a successful spawn.
 	spawnErr string
 }
@@ -65,6 +69,12 @@ func WithStderrHandler(fn func(name string, data []byte)) ProcessOption {
 // stdout and stderr never mix within a line.
 func WithLineHandler(fn func(name, stream string, line []byte)) ProcessOption {
 	return func(p *Process) { p.onLine = fn }
+}
+
+// WithPreSpawn sets a check that runs before every spawn, such as opening
+// the program's log files (FUNC-018).
+func WithPreSpawn(fn func() error) ProcessOption {
+	return func(p *Process) { p.preSpawn = fn }
 }
 
 // WithShutdownCh sets the daemon shutdown channel.
@@ -214,6 +224,11 @@ func (p *Process) spawnLocked() error {
 			return p.failSpawnLocked(fmt.Errorf("directory %s does not exist", dir))
 		}
 	}
+	if p.preSpawn != nil {
+		if err := p.preSpawn(); err != nil {
+			return p.failStartLocked(err.Error(), err)
+		}
+	}
 	env := p.buildEnv()
 	cmd, args := p.parseCommand()
 
@@ -303,10 +318,15 @@ func (p *Process) spawnLocked() error {
 // the process entered BACKOFF, and returns a wrapped error. No child exists for
 // this attempt, so HandleExit will not fire for it.
 func (p *Process) failSpawnLocked(err error) error {
-	p.logger.Error("spawn failed", "error", err)
 	// Kept for status, so a FATAL process shows why it never started
 	// (FUNC-002): "spawn error: /bin/nope: no such file or directory".
-	p.spawnErr = "spawn error: " + strings.TrimPrefix(err.Error(), "fork/exec ")
+	return p.failStartLocked("spawn error: "+strings.TrimPrefix(err.Error(), "fork/exec "), err)
+}
+
+// failStartLocked is failSpawnLocked with the status description given as is.
+func (p *Process) failStartLocked(desc string, err error) error {
+	p.logger.Error("spawn failed", "error", err)
+	p.spawnErr = desc
 	newState, fErr := p.sm.ProcessExitedEarly()
 	if fErr != nil {
 		p.logger.Error("state transition failed", "error", fErr)

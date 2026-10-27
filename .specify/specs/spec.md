@@ -1188,6 +1188,7 @@ This feature adds two complementary mechanisms:
 - Pipe is closed on process exit; remaining buffered data is flushed
 - Each stream is forwarded only when it has no log file. stdout goes to Kahi's stdout and stderr to Kahi's stderr. With redirect_stderr, stderr lines are part of the stdout stream ("stream":"stdout"). Lines are split per pipe, so output from the two streams never mixes within a line. A line over 64 KB without a newline is forwarded in 64 KB pieces.
 - Forwarding applies in the foreground only: `--daemon` redirects Kahi's stdout and stderr to /dev/null, so a daemonized Kahi needs log files
+- A log file that cannot be opened fails the start like a spawn error: BACKOFF, then FATAL after startretries, with the message shown in status. Each start retries the file, so the program starts once the path becomes writable; until then its output stays in the in-memory buffer only
 
 **Dependencies:** FUNC-002, INFRA-006
 
