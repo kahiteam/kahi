@@ -91,8 +91,10 @@ type ConfigManager interface {
 // DaemonInfo describes the running daemon.
 type DaemonInfo interface {
 	IsShuttingDown() bool
-	IsReady() bool
-	CheckReady(processes []string) (ready bool, pending []string, err error)
+	// Readiness reports which of the named processes, or of the autostart
+	// processes when names is empty, are not RUNNING: pending while STARTING
+	// or in BACKOFF, failing in any other state (FUNC-030).
+	Readiness(names []string) (pending, failing []string, err error)
 	Version() map[string]string
 	PID() int
 	Shutdown()
@@ -148,7 +150,7 @@ func NewServer(cfg Config, pm ProcessManager, gm GroupManager, cm ConfigManager,
 		authPass:  cfg.Password,
 	}
 	s.mux = s.buildMux()
-	s.handler = protectCrossOrigin(s.mux)
+	s.handler = protectCrossOrigin(jsonMuxErrors(s.mux))
 	return s
 }
 
@@ -175,6 +177,40 @@ func protectCrossOrigin(next http.Handler) http.Handler {
 	}))
 	return csrf.Handler(next)
 }
+
+// jsonMuxErrors serves the mux's own 404 and 405 under /api/ as the API's
+// JSON errors, so every API error has one shape (FUNC-026). The 405 keeps its
+// Allow header. Paths outside /api/ keep the mux's plain responses.
+func jsonMuxErrors(mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h, pattern := mux.Handler(r)
+		if pattern != "" || !strings.HasPrefix(r.URL.Path, "/api/") {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		rec := &statusRecorder{header: http.Header{}, status: http.StatusNotFound}
+		h.ServeHTTP(rec, r)
+		if allow := rec.header.Get("Allow"); allow != "" {
+			w.Header().Set("Allow", allow)
+		}
+		msg := "not found"
+		if rec.status == http.StatusMethodNotAllowed {
+			msg = "method not allowed"
+		}
+		writeError(w, rec.status, msg, errorCode(rec.status))
+	})
+}
+
+// statusRecorder keeps the status and headers a handler writes and discards
+// its body.
+type statusRecorder struct {
+	header http.Header
+	status int
+}
+
+func (r *statusRecorder) Header() http.Header         { return r.header }
+func (r *statusRecorder) Write(b []byte) (int, error) { return len(b), nil }
+func (r *statusRecorder) WriteHeader(status int)      { r.status = status }
 
 func (s *Server) buildMux() *http.ServeMux {
 	mux := http.NewServeMux()
@@ -390,32 +426,29 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
-	processFilter := r.URL.Query().Get("process")
-	if processFilter != "" {
-		processes := strings.Split(processFilter, ",")
-		ready, pending, err := s.daemon.CheckReady(processes)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error(), "BAD_REQUEST")
-			return
-		}
-		if !ready {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-				"status":  "not_ready",
-				"pending": pending,
-			})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	if s.daemon == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "not_ready"})
 		return
 	}
-
-	if s.daemon != nil && s.daemon.IsReady() {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+	var names []string
+	if filter := r.URL.Query().Get("process"); filter != "" {
+		names = strings.Split(filter, ",")
+	}
+	pending, failing, err := s.daemon.Readiness(names)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), "BAD_REQUEST")
 		return
 	}
-	writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-		"status": "not_ready",
-	})
+	if len(pending) > 0 || len(failing) > 0 {
+		// Both lists are always present, so a probe log shows what blocks.
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"status":  "not_ready",
+			"pending": append([]string{}, pending...),
+			"failing": append([]string{}, failing...),
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
 func (s *Server) handleListProcesses(w http.ResponseWriter, r *http.Request) {
@@ -885,6 +918,8 @@ func errorCode(status int) string {
 		return "UNAUTHORIZED"
 	case http.StatusForbidden:
 		return "FORBIDDEN"
+	case http.StatusMethodNotAllowed:
+		return "METHOD_NOT_ALLOWED"
 	default:
 		return "SERVER_ERROR"
 	}

@@ -141,17 +141,19 @@ type mockDaemonInfo struct {
 }
 
 func (m *mockDaemonInfo) IsShuttingDown() bool { return m.shuttingDown }
-func (m *mockDaemonInfo) IsReady() bool        { return m.ready }
-func (m *mockDaemonInfo) CheckReady(processes []string) (bool, []string, error) {
-	for _, p := range processes {
+func (m *mockDaemonInfo) Readiness(names []string) ([]string, []string, error) {
+	for _, p := range names {
 		if p == "unknown" {
-			return false, nil, fmt.Errorf("unknown process: %s", p)
+			return nil, nil, fmt.Errorf("no such process: %s", p)
 		}
 	}
 	if m.ready {
-		return true, nil, nil
+		return nil, nil, nil
 	}
-	return false, processes, nil
+	if len(names) == 0 {
+		names = []string{"web"}
+	}
+	return names, nil, nil
 }
 func (m *mockDaemonInfo) Version() map[string]string {
 	return map[string]string{"version": "dev", "commit": "abc123"}
@@ -1396,5 +1398,41 @@ func TestLogStreamSSEInvalidStream(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+// The mux's own 404 and 405 under /api/ are JSON like every other API error;
+// the 405 keeps its Allow header (FUNC-026).
+func TestMuxErrorsAreJSONUnderAPI(t *testing.T) {
+	srv, _, _ := testServer()
+	for _, tc := range []struct {
+		method, path string
+		status       int
+		msg, code    string
+	}{
+		{"GET", "/api/v1/shutdown", http.StatusMethodNotAllowed, "method not allowed", "METHOD_NOT_ALLOWED"},
+		{"DELETE", "/api/v1/processes", http.StatusMethodNotAllowed, "method not allowed", "METHOD_NOT_ALLOWED"},
+		{"GET", "/api/v1/nosuchroute", http.StatusNotFound, "not found", "NOT_FOUND"},
+	} {
+		w := httptest.NewRecorder()
+		srv.handler.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
+		var body map[string]string
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || w.Code != tc.status ||
+			body["error"] != tc.msg || body["code"] != tc.code {
+			t.Errorf("%s %s: %d %s, want %d {error: %q, code: %q}", tc.method, tc.path, w.Code, w.Body, tc.status, tc.msg, tc.code)
+		}
+		if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("%s %s: Content-Type %q", tc.method, tc.path, ct)
+		}
+		if tc.status == http.StatusMethodNotAllowed && w.Header().Get("Allow") == "" {
+			t.Errorf("%s %s: no Allow header", tc.method, tc.path)
+		}
+	}
+
+	// Outside /api/ the mux's plain responses stay.
+	w := httptest.NewRecorder()
+	srv.handler.ServeHTTP(w, httptest.NewRequest("GET", "/nosuchpage", nil))
+	if w.Code != http.StatusNotFound || w.Header().Get("Content-Type") == "application/json" {
+		t.Errorf("GET /nosuchpage: %d %q", w.Code, w.Header().Get("Content-Type"))
 	}
 }

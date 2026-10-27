@@ -1432,35 +1432,35 @@ This feature adds two complementary mechanisms:
 
 - **Given** the API server is running
   **When** `GET /api/v1/processes` is requested
-  **Then** a JSON array of all process info objects is returned (name, group, state, pid, uptime, exit_status, logfile)
+  **Then** a JSON array of all process info objects is returned (name, group, state, statecode, pid, uptime, description, exitstatus)
 
 - **Given** a process named "web"
   **When** `POST /api/v1/processes/web/start` is requested
-  **Then** the process is started and 200 is returned with process info
+  **Then** the process is started and 200 is returned with `{"status": "started", "name": "web"}`
 
 - **Given** a process named "web"
   **When** `POST /api/v1/processes/web/stop` is requested
-  **Then** the process is stopped and 200 is returned
+  **Then** the process is stopped and 200 is returned with `{"status": "stopped", "name": "web"}`
 
 - **Given** a process named "web"
   **When** `POST /api/v1/processes/web/restart` is requested
-  **Then** the process is stopped then started
+  **Then** the process is stopped then started, and 200 is returned with `{"status": "restarted", "name": "web"}`
 
 - **Given** a process named "web"
   **When** `POST /api/v1/processes/web/signal` with body `{"signal": "HUP"}` is requested
-  **Then** SIGHUP is sent to the process
+  **Then** SIGHUP is sent to the process, and 200 is returned with `{"status": "signaled", "name": "web", "signal": "HUP"}`
 
 - **Given** the API server
-  **When** `GET /api/v1/processes/web/log/stdout?offset=-1000&length=1000` is requested
-  **Then** the last 1000 bytes of stdout log are returned
+  **When** `GET /api/v1/processes/web/log/stdout?length=1000` is requested
+  **Then** the last 1000 bytes of the in-memory stdout buffer are returned as `text/plain` (`length` defaults to 1600, at most 65536)
 
 - **Given** the API server
-  **When** `POST /api/v1/reload` is requested
-  **Then** config is re-read and a diff of added/changed/removed is returned
+  **When** `POST /api/v1/config/reload` is requested
+  **Then** config is re-read and `{"status": "reloaded", "added": [...], "changed": [...], "removed": [...], "warnings": [...]}` is returned; with `?dry_run=true` nothing is applied and the status is `"preview"`
 
 - **Given** the API server
   **When** `POST /api/v1/shutdown` is requested
-  **Then** graceful shutdown is initiated
+  **Then** graceful shutdown is initiated and 200 is returned with `{"status": "shutting_down"}`
 
 - **Given** the API server
   **When** `GET /api/v1/config` is requested
@@ -1468,12 +1468,15 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition          | Expected Behavior   | User-Facing Message                                             |
-| ------------------------ | ------------------- | --------------------------------------------------------------- |
-| Unknown process name     | 404 with JSON error | `{"error": "no such process: web"}`                             |
-| Invalid signal name      | 400 with JSON error | `{"error": "invalid signal: FOO"}`                              |
-| Method not allowed       | 405 with JSON error | `{"error": "method not allowed"}`                               |
-| Server in shutdown state | 409 with JSON error | `{"error": "daemon is shutting down", "code": "SHUTTING_DOWN"}` |
+Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: application/json`. Successful responses are JSON too, except the log (`text/plain`) and the SSE streams (`text/event-stream`).
+
+| Error Condition             | Expected Behavior               | User-Facing Message                                                       |
+| --------------------------- | ------------------------------- | ------------------------------------------------------------------------- |
+| Unknown process name        | 404 with JSON error             | `{"error": "no such process: web", "code": "NOT_FOUND"}`                  |
+| Invalid signal name         | 400 with JSON error             | `{"error": "process web: invalid signal \"FOO\"", "code": "BAD_REQUEST"}` |
+| Method not allowed          | 405 with JSON error and `Allow` | `{"error": "method not allowed", "code": "METHOD_NOT_ALLOWED"}`           |
+| Unknown route under `/api/` | 404 with JSON error             | `{"error": "not found", "code": "NOT_FOUND"}`                             |
+| Server in shutdown state    | 409 with JSON error             | `{"error": "daemon is shutting down", "code": "SHUTTING_DOWN"}`           |
 
 **Edge Cases:**
 
@@ -1593,13 +1596,13 @@ This feature adds two complementary mechanisms:
 
 **Acceptance Criteria:**
 
-- **Given** all autostart processes are in RUNNING or FATAL state
+- **Given** all autostart processes are in RUNNING state
   **When** `GET /readyz` is requested
-  **Then** 200 OK is returned with `{"status": "ready", "processes": {...}}`
+  **Then** 200 OK is returned with `{"status": "ready"}`
 
 - **Given** some autostart processes are still in STARTING or BACKOFF state
   **When** `GET /readyz` is requested
-  **Then** 503 is returned with `{"status": "not_ready", "pending": ["web", "api"]}`
+  **Then** 503 is returned with `{"status": "not_ready", "pending": ["api", "web"], "failing": []}`
 
 - **Given** `GET /readyz?process=web,api` is requested
   **When** web is RUNNING and api is RUNNING
@@ -1607,19 +1610,21 @@ This feature adds two complementary mechanisms:
 
 - **Given** `GET /readyz?process=web,api` is requested
   **When** web is RUNNING and api is STOPPED
-  **Then** 503 is returned with `{"status": "not_ready", "failing": ["api"]}`
+  **Then** 503 is returned with `{"status": "not_ready", "pending": [], "failing": ["api"]}`
 
 **Error Handling:**
 
-| Error Condition                     | Expected Behavior | User-Facing Message                 |
-| ----------------------------------- | ----------------- | ----------------------------------- |
-| Unknown process in ?process= filter | 400               | `{"error": "unknown process: foo"}` |
+| Error Condition                     | Expected Behavior | User-Facing Message                                        |
+| ----------------------------------- | ----------------- | ---------------------------------------------------------- |
+| Unknown process in ?process= filter | 400               | `{"error": "no such process: foo", "code": "BAD_REQUEST"}` |
 
 **Edge Cases:**
 
 - /readyz does not require authentication
-- A process is "ready" if in RUNNING state; FATAL counts as "stabilized" but not healthy
-- STOPPED and EXITED processes are not ready
+- A process is ready only in RUNNING state. A 503 lists the others in two arrays, always both present: `pending` for STARTING and BACKOFF (may still come up) and `failing` for every other state
+- FATAL is not ready and is listed as `failing`: a program that gave up fails the probe, so the orchestrator sees it
+- STOPPED and EXITED processes are not ready (`failing`)
+- The unfiltered lists are sorted by name; the filtered ones keep the order of `?process=`
 - If `?process=` list is empty or missing, check all autostart processes
 - Processes with autostart=false are excluded from default readiness check
 
