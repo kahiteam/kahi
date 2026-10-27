@@ -64,11 +64,26 @@ func rotateFile(path string, backups int) error {
 }
 
 // ParseSize parses a human-readable size string to bytes.
-// Supports B, KB, MB, GB suffixes. Defaults to bytes if no suffix.
+// Supports B, KB, MB, GB suffixes. Defaults to bytes if no suffix. An empty
+// or unparseable size is 0, no limit; config validation refuses the
+// unparseable ones (CheckSize).
 func ParseSize(s string) int64 {
+	n, _ := parseSize(s)
+	return n
+}
+
+// CheckSize reports whether s is a size ParseSize understands: a
+// non-negative integer with an optional B, KB, MB or GB suffix (#187).
+func CheckSize(s string) error {
+	_, err := parseSize(s)
+	return err
+}
+
+func parseSize(s string) (int64, error) {
+	orig := s
 	s = strings.TrimSpace(s)
 	if s == "" || s == "0" {
-		return 0
+		return 0, nil
 	}
 
 	s = strings.ToUpper(s)
@@ -90,10 +105,10 @@ func ParseSize(s string) int64 {
 
 	s = strings.TrimSpace(s)
 	val, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0
+	if err != nil || val < 0 {
+		return 0, fmt.Errorf("must be a size like 50MB (B, KB, MB or GB), got %q", orig)
 	}
-	return val * multiplier
+	return val * multiplier, nil
 }
 
 // CleanupStaleLogs removes stale log files on daemon startup.

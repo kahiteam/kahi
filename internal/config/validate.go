@@ -5,6 +5,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/kahiteam/kahi/internal/logging"
 )
 
 // validSignals lists the supported stop signals.
@@ -80,6 +82,16 @@ func Validate(cfg *Config) []error {
 		} {
 			if f.v < 0 {
 				errs = append(errs, fmt.Errorf("%s: %s must be >= 0, got %d", prefix, f.key, f.v))
+			}
+		}
+
+		for _, f := range []struct{ key, v string }{
+			{"stdout_logfile_maxbytes", p.StdoutLogfileMaxbytes},
+			{"stderr_logfile_maxbytes", p.StderrLogfileMaxbytes},
+		} {
+			// An unparseable size used to mean no limit (#187).
+			if err := logging.CheckSize(f.v); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %s %v", prefix, f.key, err))
 			}
 		}
 

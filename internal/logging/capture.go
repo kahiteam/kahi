@@ -37,6 +37,7 @@ type CaptureWriter struct {
 	file     *os.File
 	handlers []func(name string, data []byte)
 	ringBuf  *RingBuffer
+	stripper ANSIStripper
 }
 
 // NewCaptureWriter creates a capture writer for a process stream. If the log
@@ -71,12 +72,20 @@ func (cw *CaptureWriter) EnsureOpen() error {
 
 // Write implements io.Writer.
 func (cw *CaptureWriter) Write(p []byte) (int, error) {
+	cw.Capture(p)
+	return len(p), nil
+}
+
+// Capture writes p like Write and returns the data as captured, with ANSI
+// sequences stripped when strip_ansi is set, so the event stream carries the
+// same output as the log file (#186).
+func (cw *CaptureWriter) Capture(p []byte) []byte {
 	cw.mu.Lock()
 	defer cw.mu.Unlock()
 
 	data := p
 	if cw.config.StripAnsi {
-		data = StripANSI(data)
+		data = cw.stripper.Strip(data)
 	}
 
 	// Write to ring buffer.
@@ -97,7 +106,7 @@ func (cw *CaptureWriter) Write(p []byte) (int, error) {
 		h(cw.config.ProcessName, data)
 	}
 
-	return len(p), nil
+	return data
 }
 
 // AddHandler adds a callback for captured data.
@@ -143,16 +152,26 @@ func (cw *CaptureWriter) rotateIfNeeded() {
 		_ = cw.file.Truncate(0)
 		return
 	}
-	// Close current file before rotating.
+	// Close current file before rotating. If the rename fails the reopen
+	// below opens the same file again, so writing goes on there (#187).
 	_ = cw.file.Close()
-	_ = rotateFile(cw.config.Logfile, cw.config.Backups)
-	// Reopen a fresh file.
+	if err := rotateFile(cw.config.Logfile, cw.config.Backups); err != nil {
+		cw.logError("log rotation failed; writing on to the current file", err)
+	}
 	f, err := openLogFile(cw.config.Logfile, 0644)
 	if err != nil {
+		// The next start retries the file (EnsureOpen).
+		cw.logError("cannot reopen log file after rotation; output goes to the in-memory buffer only", err)
 		cw.file = nil
 		return
 	}
 	cw.file = f
+}
+
+func (cw *CaptureWriter) logError(msg string, err error) {
+	if cw.config.Logger != nil {
+		cw.config.Logger.Error(msg, "process", cw.config.ProcessName, "file", cw.config.Logfile, "error", err)
+	}
 }
 
 // Reopen closes and reopens the log file (for log rotation tools).

@@ -555,8 +555,15 @@
         "Write a test that verifies byte size parsing supports B, KB, MB, GB suffixes",
         "Write a test that simulates a rotation rename failure and verifies the daemon continues writing to the current file"
       ],
-      "passes": false,
-      "verified_by": ["TestLog_Rotation"],
+      "passes": true,
+      "verified_by": [
+        "TestLog_RotationKeepsNBackups",
+        "TestZero_LogfileBackupsKeepsNone",
+        "TestLog_RotationUnlimited",
+        "TestLog_RotationRenameFailureKeepsWriting",
+        "TestLog_InvalidMaxbytesRefused",
+        "TestLog_Rotation"
+      ],
       "dependencies": ["process-output-capture"]
     },
     {
@@ -586,8 +593,8 @@
         "Write a test that verifies all CSI sequences (colors, cursor movement, etc.) are stripped",
         "Write a test that verifies partial escape sequences at buffer boundaries are handled correctly"
       ],
-      "passes": false,
-      "verified_by": ["TestLog_ANSIStrip"],
+      "passes": true,
+      "verified_by": ["TestLog_ANSIStripEverywhere", "TestLog_ANSIStrip"],
       "dependencies": ["process-output-capture"]
     },
     {
