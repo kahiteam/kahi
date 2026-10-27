@@ -2423,8 +2423,18 @@
         "Mutation check: make StopAllOrdered call sortedProcesses(true) and verify TestBulkStopOrder fails",
         "Run 'go test -count=1 -run TestBulk ./internal/process/... ./internal/api/...'; every test above is named TestBulk*"
       ],
-      "passes": false,
-      "verified_by": ["TestWebUIE2EBulk"],
+      "passes": true,
+      "verified_by": [
+        "TestBulk_Order",
+        "TestBulk_StartPerState",
+        "TestBulk_StopPerState",
+        "TestBulk_ConflictAndDisconnect",
+        "TestBulk_ShuttingDown",
+        "TestBulk_EmptyAndRoutes",
+        "TestBulk_AuthAndCrossOrigin",
+        "TestBulk_ProcessNamedAll",
+        "TestWebUIE2EBulk"
+      ],
       "dependencies": [
         "rest-api-endpoints",
         "http-basic-auth",
