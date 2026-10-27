@@ -548,6 +548,8 @@ startsecs = 0
 autorestart = "true"
 `)
 	waitForState(t, client, "job", "RUNNING", 5*time.Second)
+	// With startsecs = 0 the process is RUNNING before its script has run.
+	waitForLines(t, runs, 1, 5*time.Second)
 	if err := client.Stop("job"); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
@@ -572,6 +574,7 @@ autostart = true
 startsecs = 0
 autorestart = "true"
 `)
+	waitForLines(t, runs, 1, 5*time.Second)
 	if err := client.Shutdown(); err != nil {
 		t.Fatalf("shutdown: %v", err)
 	}

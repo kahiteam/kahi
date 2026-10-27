@@ -650,8 +650,12 @@
         "Parse a config with an invalid listen address and verify a validation error is returned",
         "Configure listen='0.0.0.0:9876' and verify a security warning is logged"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
+        "TestTCP_ServesAPIWithCreds",
+        "TestTCP_RefusedWithoutCredentials",
+        "TestTCP_PortInUse",
+        "TestTCP_InvalidListenAddress",
         "TestAuth_TCPNoCreds",
         "TestAuth_TCPBadCreds",
         "TestWebUIE2EAuth",
@@ -2187,8 +2191,12 @@
         "Run 'go test ./internal/config/... ./internal/api/...' and confirm both the config-validation and StartTCP guards are covered",
         "Verify the all-interfaces bind warning still logs in addition to the hard failure"
       ],
-      "passes": false,
-      "verified_by": ["TestWebUIE2EAuth"],
+      "passes": true,
+      "verified_by": [
+        "TestTCP_RefusedWithoutCredentials",
+        "TestTCP_ServesAPIWithCreds",
+        "TestWebUIE2EAuth"
+      ],
       "dependencies": ["tcp-http-server", "http-basic-auth"]
     },
     {
@@ -2236,8 +2244,12 @@
         "Run 'go test -run TestCheckPassword ./internal/api/...' and confirm no plaintext path remains",
         "Verify test helpers use bcrypt hashes rather than plaintext passwords"
       ],
-      "passes": false,
-      "verified_by": ["TestWebUIE2EServed"],
+      "passes": true,
+      "verified_by": [
+        "TestTCP_PlaintextPasswordRefused",
+        "TestTCP_ServesAPIWithCreds",
+        "TestWebUIE2EServed"
+      ],
       "dependencies": ["http-basic-auth"]
     },
     {
