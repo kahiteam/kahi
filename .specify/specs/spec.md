@@ -566,7 +566,7 @@ This feature adds two complementary mechanisms:
 
 **Edge Cases:**
 
-- Transition from STOPPING to EXITED must work even if stop signal was not the cause of exit
+- A process that exits on its own during STOPPING ends STOPPED, not EXITED: a stop was requested, so the exit completes it (as in supervisord)
 - BACKOFF retry counter resets when process successfully reaches RUNNING state
 - Clock rollback during STARTING state must not cause premature transition to RUNNING
 

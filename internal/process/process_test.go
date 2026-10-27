@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -215,14 +216,35 @@ func TestProcessAutostartFalse(t *testing.T) {
 func TestProcessStartWithDirectory(t *testing.T) {
 	spawner := &MockSpawner{}
 	cfg := defaultProgramConfig()
-	cfg.Directory = "/tmp/workdir"
+	dir := t.TempDir()
+	cfg.Directory = dir
 	p := NewProcess("test", "test", cfg, spawner, testBus(), testLogger())
 
 	_ = p.Start()
 
 	call := spawner.SpawnCalls[0]
-	if call.Dir != "/tmp/workdir" {
-		t.Fatalf("directory = %q, want /tmp/workdir", call.Dir)
+	if call.Dir != dir {
+		t.Fatalf("directory = %q, want %s", call.Dir, dir)
+	}
+}
+
+// A missing working directory fails the spawn, names the directory and is
+// kept as the process's spawn error (FUNC-002).
+func TestProcessStartMissingDirectory(t *testing.T) {
+	spawner := &MockSpawner{}
+	cfg := defaultProgramConfig()
+	cfg.Directory = "/nonexistent-kahi-dir"
+	cfg.Startretries = 0
+	p := NewProcess("test", "test", cfg, spawner, testBus(), testLogger())
+
+	if err := p.Start(); err == nil || !strings.Contains(err.Error(), "directory /nonexistent-kahi-dir does not exist") {
+		t.Fatalf("Start() = %v, want the missing directory named", err)
+	}
+	if len(spawner.SpawnCalls) != 0 {
+		t.Fatal("spawner was called despite the missing directory")
+	}
+	if got := p.SpawnError(); got != "spawn error: directory /nonexistent-kahi-dir does not exist" {
+		t.Fatalf("SpawnError() = %q", got)
 	}
 }
 
@@ -314,6 +336,32 @@ func TestProcessStop(t *testing.T) {
 	}
 	if signalSent == nil {
 		t.Fatal("no signal sent")
+	}
+}
+
+// A child that exits while the stop signal is being sent (ESRCH) does not
+// make the stop fail: the exit completes it.
+func TestProcessStopESRCH(t *testing.T) {
+	mp := NewMockProcess(1234)
+	mp.signalFn = func(os.Signal) error { return syscall.ESRCH }
+
+	spawner := &MockSpawner{
+		SpawnFn: func(cfg SpawnConfig) (SpawnedProcess, error) {
+			return mp, nil
+		},
+	}
+	cfg := defaultProgramConfig()
+	p := NewProcess("test", "test", cfg, spawner, testBus(), testLogger())
+
+	_ = p.Start()
+	time.Sleep(10 * time.Millisecond) // let state reach RUNNING
+
+	if err := p.Stop(); err != nil {
+		t.Fatalf("stop with ESRCH: %v", err)
+	}
+	p.HandleExit(0)
+	if p.State() != Stopped {
+		t.Fatalf("state = %s, want STOPPED", p.State())
 	}
 }
 
