@@ -35,6 +35,7 @@ func LoadBytes(data []byte, path string) (*Config, []string, error) {
 	}
 
 	ApplyDefaults(&cfg, md)
+	warnings = append(warnings, listenWarnings(&cfg)...)
 
 	if errs := Validate(&cfg); len(errs) > 0 {
 		msgs := make([]string, len(errs))

@@ -50,12 +50,14 @@ func daemonRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load config with includes and variable expansion.
+	// Warnings come first, also for a refused config: the all-interfaces
+	// warning accompanies the missing-credentials error (SEC-015).
 	cfg, warnings, err := config.LoadWithIncludes(cfgPath)
-	if err != nil {
-		return err
-	}
 	for _, w := range warnings {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+	}
+	if err != nil {
+		return err
 	}
 
 	// Create structured logger.

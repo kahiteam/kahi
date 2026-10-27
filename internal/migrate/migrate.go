@@ -237,7 +237,7 @@ func writeHTTPServerSection(b *strings.Builder, sec INISection, result *Result) 
 	b.WriteString("[server.http]\n")
 	b.WriteString("enabled = true\n")
 	if port, ok := sec.Options["port"]; ok {
-		fmt.Fprintf(b, "listen = %q\n", port)
+		fmt.Fprintf(b, "listen = %q\n", listenAddress(port))
 	}
 	if user, ok := sec.Options["username"]; ok {
 		fmt.Fprintf(b, "username = %q\n", user)
@@ -253,6 +253,19 @@ func writeHTTPServerSection(b *strings.Builder, sec INISection, result *Result) 
 		}
 	}
 	b.WriteString("\n")
+}
+
+// listenAddress converts supervisord's inet_http_server port to a host:port
+// listen address. supervisord reads "9001" and "*:9001" as all interfaces,
+// which is ":9001" for Kahi.
+func listenAddress(port string) string {
+	if p, ok := strings.CutPrefix(port, "*:"); ok {
+		return ":" + p
+	}
+	if !strings.Contains(port, ":") {
+		return ":" + port
+	}
+	return port
 }
 
 // writeIncludeSection writes supervisord's [include] as a commented-out
