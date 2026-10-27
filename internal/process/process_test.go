@@ -1,6 +1,7 @@
 package process
 
 import (
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -336,6 +337,37 @@ func TestProcessStop(t *testing.T) {
 	}
 	if signalSent == nil {
 		t.Fatal("no signal sent")
+	}
+}
+
+// A failing pre-spawn check fails the start without spawning, and status
+// shows its message as is.
+func TestProcessPreSpawnFailureIsFatal(t *testing.T) {
+	spawned := false
+	spawner := &MockSpawner{
+		SpawnFn: func(cfg SpawnConfig) (SpawnedProcess, error) {
+			spawned = true
+			return NewMockProcess(1234), nil
+		},
+	}
+	cfg := defaultProgramConfig()
+	cfg.Startretries = 0
+	p := NewProcess("test", "test", cfg, spawner, testBus(), testLogger(),
+		WithPreSpawn(func() error {
+			return errors.New("cannot open log file for test: /x/test.log: no such file or directory")
+		}))
+
+	if err := p.Start(); err == nil {
+		t.Fatal("start succeeded, want the pre-spawn error")
+	}
+	if spawned {
+		t.Error("spawned despite the pre-spawn error")
+	}
+	if p.State() != Fatal {
+		t.Errorf("state = %s, want FATAL", p.State())
+	}
+	if got, want := p.SpawnError(), "cannot open log file for test: /x/test.log: no such file or directory"; got != want {
+		t.Errorf("SpawnError = %q, want %q", got, want)
 	}
 }
 

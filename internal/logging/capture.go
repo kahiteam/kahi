@@ -39,22 +39,34 @@ type CaptureWriter struct {
 	ringBuf  *RingBuffer
 }
 
-// NewCaptureWriter creates a capture writer for a process stream.
+// NewCaptureWriter creates a capture writer for a process stream. If the log
+// file cannot be opened it returns the error together with a writer that
+// keeps only the ring buffer; EnsureOpen retries the file (#171).
 func NewCaptureWriter(cfg CaptureConfig) (*CaptureWriter, error) {
 	cw := &CaptureWriter{
 		config:  cfg,
 		ringBuf: NewRingBuffer(64 * 1024), // 64KB ring buffer
 	}
-
-	if cfg.Logfile != "" {
-		f, err := openLogFile(cfg.Logfile, 0644)
-		if err != nil {
-			return nil, fmt.Errorf("cannot open log file: %s: %w", cfg.Logfile, err)
-		}
-		cw.file = f
+	if err := cw.EnsureOpen(); err != nil {
+		return cw, fmt.Errorf("cannot open log file: %w", err)
 	}
-
 	return cw, nil
+}
+
+// EnsureOpen opens the configured log file if it is not open yet. The error
+// names the path.
+func (cw *CaptureWriter) EnsureOpen() error {
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
+	if cw.config.Logfile == "" || cw.file != nil {
+		return nil
+	}
+	f, err := openLogFile(cw.config.Logfile, 0644)
+	if err != nil {
+		return fmt.Errorf("%s: %w", cw.config.Logfile, err)
+	}
+	cw.file = f
+	return nil
 }
 
 // Write implements io.Writer.

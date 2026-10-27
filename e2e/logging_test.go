@@ -293,3 +293,48 @@ func TestLog_SIGUSR2ReopensDaemonLog(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// A log file that cannot be opened fails the start: the process goes FATAL
+// and status says why. Each start retries the file, so the process starts
+// once the directory exists (FUNC-018, #171).
+func TestLog_UnwritableLogfileFatal(t *testing.T) {
+	dir := t.TempDir()
+	logDir := filepath.Join(dir, "later")
+	logPath := filepath.Join(logDir, "web.log")
+	script := writeScript(t, dir, "hello.sh", "echo hello\nexec sleep 300")
+
+	for _, stream := range []string{"stdout", "stderr"} {
+		t.Run(stream, func(t *testing.T) {
+			_ = os.RemoveAll(logDir)
+			client, _ := startDaemon(t, `
+[programs.web]
+command = "`+script+`"
+autostart = true
+startsecs = 0
+startretries = 0
+`+stream+`_logfile = "`+logPath+`"
+`)
+			waitForState(t, client, "web", "FATAL", 5*time.Second)
+			info, err := getProcessInfo(client, "web")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := "cannot open log file for web: " + logPath + ": "; !strings.HasPrefix(info.Description, want) {
+				t.Fatalf("description %q, want it to start with %q", info.Description, want)
+			}
+
+			if err := os.Mkdir(logDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := client.Start("web"); err != nil {
+				t.Fatalf("start after mkdir: %v", err)
+			}
+			waitForState(t, client, "web", "RUNNING", 5*time.Second)
+			if stream == "stdout" {
+				waitForMarker(t, logPath, "hello", 5*time.Second)
+			} else if _, err := os.Stat(logPath); err != nil {
+				t.Fatalf("stderr log file not created: %v", err)
+			}
+		})
+	}
+}

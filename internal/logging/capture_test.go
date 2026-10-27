@@ -166,6 +166,39 @@ func TestCaptureWriterNonWritablePath(t *testing.T) {
 	}
 }
 
+// A writer whose log file cannot be opened still buffers output, and
+// EnsureOpen opens the file once its directory exists (#171).
+func TestCaptureWriterEnsureOpenRetries(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "later")
+	path := filepath.Join(dir, "test.log")
+	cw, err := NewCaptureWriter(CaptureConfig{ProcessName: "test", Stream: "stdout", Logfile: path})
+	if err == nil || cw == nil {
+		t.Fatalf("NewCaptureWriter = %v, %v; want a writer and an error", cw, err)
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("error %q does not name %s", err, path)
+	}
+	_, _ = cw.Write([]byte("buffered\n"))
+	if got := string(cw.ReadTail(100)); got != "buffered\n" {
+		t.Errorf("ring buffer = %q", got)
+	}
+	if err := cw.EnsureOpen(); err == nil {
+		t.Fatal("EnsureOpen succeeded without the directory")
+	}
+
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := cw.EnsureOpen(); err != nil {
+		t.Fatalf("EnsureOpen after mkdir: %v", err)
+	}
+	_, _ = cw.Write([]byte("to file\n"))
+	_ = cw.Close()
+	if b, _ := os.ReadFile(path); string(b) != "to file\n" {
+		t.Errorf("log file = %q, want %q", b, "to file\n")
+	}
+}
+
 func TestFormatJSONLine(t *testing.T) {
 	line := FormatJSONLine("web", "stdout", "server started")
 	s := string(line)

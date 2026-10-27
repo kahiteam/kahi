@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -111,7 +112,10 @@ func TestProcess_Signal(t *testing.T) {
 	dir := t.TempDir()
 	// Use a script that traps USR1 so it doesn't terminate
 	// (/bin/sleep exits on USR1 on macOS).
-	script := writeScript(t, dir, "trapper.sh", "trap 'echo got-usr1' USR1\nwhile true; do sleep 1; done")
+	// The ready file is written after the trap: with startsecs = 0 the process
+	// is RUNNING before the shell has installed it.
+	ready := filepath.Join(dir, "ready")
+	script := writeScript(t, dir, "trapper.sh", "trap 'echo got-usr1' USR1\necho ready > "+ready+"\nwhile true; do sleep 1; done")
 
 	client, _ := startDaemon(t, `
 [programs.trapper]
@@ -120,6 +124,7 @@ autostart = true
 startsecs = 0
 `)
 	waitForState(t, client, "trapper", "RUNNING", 5*time.Second)
+	waitForMarker(t, ready, "ready", 5*time.Second)
 
 	info1, _ := getProcessInfo(client, "trapper")
 
@@ -209,7 +214,8 @@ startretries = 1
 
 func TestProcess_StopWaitSecs(t *testing.T) {
 	dir := t.TempDir()
-	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\nsleep 300")
+	ready := filepath.Join(dir, "ready")
+	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\necho ready > "+ready+"\nsleep 300")
 
 	client, _ := startDaemon(t, `
 [programs.stubborn]
@@ -219,6 +225,7 @@ startsecs = 0
 stopwaitsecs = 2
 `)
 	waitForState(t, client, "stubborn", "RUNNING", 5*time.Second)
+	waitForMarker(t, ready, "ready", 5*time.Second)
 
 	start := time.Now()
 	if err := client.Stop("stubborn"); err != nil {

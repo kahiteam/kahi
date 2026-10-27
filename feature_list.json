@@ -531,7 +531,10 @@
         "Regression (SEC-012): point a logfile at a symlink and assert the open fails (O_NOFOLLOW), so a planted symlink cannot redirect log writes"
       ],
       "passes": false,
-      "verified_by": ["TestOutput_PassthroughJSONLines"],
+      "verified_by": [
+        "TestOutput_PassthroughJSONLines",
+        "TestLog_UnwritableLogfileFatal"
+      ],
       "dependencies": ["process-start", "structured-logging"]
     },
     {
