@@ -129,6 +129,12 @@ func Validate(cfg *Config) []error {
 		errs = append(errs, fmt.Errorf("http.password must be a bcrypt hash"))
 	}
 
+	for name, g := range cfg.Groups {
+		if g.Priority < 0 || g.Priority > 999 {
+			errs = append(errs, fmt.Errorf("groups.%s: priority must be between 0 and 999, got %d", name, g.Priority))
+		}
+	}
+
 	errs = append(errs, validateUnixServer(&cfg.Server.Unix)...)
 
 	// Browsers cannot reach the Unix socket, so a Web UI without the TCP

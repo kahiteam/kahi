@@ -83,4 +83,13 @@ func ApplyDefaults(cfg *Config, md toml.MetaData) {
 		}
 		cfg.Programs[name] = p
 	}
+
+	// Group defaults: an unset priority is 999 like a program's, so a group
+	// that sets none does not move its members ahead (#196).
+	for name, g := range cfg.Groups {
+		if unset(g.Priority, "groups", name, "priority") {
+			g.Priority = 999
+		}
+		cfg.Groups[name] = g
+	}
 }

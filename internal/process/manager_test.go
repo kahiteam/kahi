@@ -1,6 +1,7 @@
 package process
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -440,5 +441,45 @@ func TestManagerProcessInfo(t *testing.T) {
 	}
 	if info.PID != 0 {
 		t.Fatalf("pid = %d, want 0 (not started)", info.PID)
+	}
+}
+
+// Programs in a [groups] table are ordered by the group's priority first,
+// then their own, then by name; others by their own priority (#196).
+func TestOrderGroupPriorityFirst(t *testing.T) {
+	mgr := NewManager(&MockSpawner{}, testBus(), testLogger())
+	progs := map[string]config.ProgramConfig{}
+	for name, prio := range map[string]int{"a": 1, "b": 500, "c": 900, "d": 5, "e": 3} {
+		cfg := defaultProgramConfig()
+		cfg.Priority = prio
+		progs[name] = cfg
+	}
+	mgr.LoadConfig(&config.Config{
+		Programs: progs,
+		Groups:   map[string]config.GroupConfig{"g": {Programs: []string{"c", "b"}, Priority: 3}},
+	})
+
+	names := func(procs []*Process) string {
+		out := make([]string, len(procs))
+		for i, p := range procs {
+			out[i] = p.Name()
+		}
+		return strings.Join(out, ",")
+	}
+	mgr.mu.RLock()
+	up, down := names(mgr.sortedProcesses(true)), names(mgr.sortedProcesses(false))
+	group := names(mgr.groupProcessesSorted(mgr.groups["g"], true))
+	mgr.mu.RUnlock()
+
+	// b and c sort as priority 3, after e (3, own 3) because their own
+	// priorities are higher.
+	if up != "a,e,b,c,d" {
+		t.Errorf("ascending %s, want a,e,b,c,d", up)
+	}
+	if down != "d,c,b,e,a" {
+		t.Errorf("descending %s, want d,c,b,e,a", down)
+	}
+	if group != "b,c" {
+		t.Errorf("group order %s, want b,c", group)
 	}
 }

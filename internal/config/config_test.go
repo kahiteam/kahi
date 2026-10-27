@@ -320,3 +320,21 @@ func TestAllInterfacesListenWarns(t *testing.T) {
 		t.Errorf("loopback listen: warnings %q, want none", warnings)
 	}
 }
+
+// An unset group priority is 999, like a program's; out of range is refused
+// (#196).
+func TestGroupPriorityDefaultAndRange(t *testing.T) {
+	base := "[programs.web]\ncommand = \"/bin/true\"\n\n[groups.site]\nprograms = [\"web\"]\n"
+	cfg, _, err := LoadBytes([]byte(base), "test.toml")
+	if err != nil || cfg.Groups["site"].Priority != 999 {
+		t.Fatalf("unset group priority: %v, %+v", err, cfg)
+	}
+	cfg, _, err = LoadBytes([]byte(base+"priority = 0\n"), "test.toml")
+	if err != nil || cfg.Groups["site"].Priority != 0 {
+		t.Fatalf("group priority 0: %v", err)
+	}
+	if _, _, err := LoadBytes([]byte(base+"priority = 1000\n"), "test.toml"); err == nil ||
+		!strings.Contains(err.Error(), "groups.site: priority must be between 0 and 999, got 1000") {
+		t.Fatalf("group priority 1000: %v", err)
+	}
+}

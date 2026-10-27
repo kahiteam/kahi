@@ -828,15 +828,21 @@ This feature adds two complementary mechanisms:
   **When** ordered operations execute
   **Then** processes with equal priority start/stop in lexicographic order by name
 
+- **Given** programs m1 (priority 900) and m2 (priority 800) in `[groups.g]` with priority 1, and a program solo (priority 5)
+  **When** "start all" is issued
+  **Then** they start in order m2, m1, solo, and "stop all" stops them in order solo, m1, m2: a program in a `[groups]` table is ordered by the group's priority first, then by its own, then by name (#196)
+
 **Error Handling:**
 
-| Error Condition        | Expected Behavior       | User-Facing Message                  |
-| ---------------------- | ----------------------- | ------------------------------------ |
-| Priority outside 0-999 | Config validation error | "priority must be between 0 and 999" |
+| Error Condition        | Expected Behavior       | User-Facing Message                                                   |
+| ---------------------- | ----------------------- | --------------------------------------------------------------------- |
+| Priority outside 0-999 | Config validation error | "priority must be between 0 and 999" (programs and `[groups]` tables) |
 
 **Edge Cases:**
 
 - Priority ordering applies to group-level operations as well
+- One ordering key serves every ordered action (daemon start and shutdown, group start and stop, the bulk API): the `[groups]` table's priority if the program is in one, else its own priority; then its own priority; then its name
+- An unset `[groups]` priority is 999, like a program's
 - Shutdown uses the same reverse-priority ordering
 
 **Dependencies:** FUNC-002
@@ -3461,7 +3467,7 @@ None specific.
 - `start` returns once each process has been asked to start, not after `startsecs` (same semantics as the per-process start route)
 - `start` includes processes with `autostart = false`, as `supervisorctl start all` does; `autostart` only governs daemon startup
 - Skips are decided by checking state before acting, not by interpreting the error a start or stop returns (ADR-030)
-- Group membership does not change the order; only `priority` does, with ties broken by name (ascending for start, descending for stop)
+- The order is the FUNC-008 ordering key: a program in a `[groups]` table takes the group's priority first (#196), then its own priority, then its name (ascending for start, descending for stop)
 - `kahi ctl` support (e.g. `kahi ctl stop all`) is not part of this feature
 
 **Dependencies:** FUNC-003, FUNC-008, FUNC-026, FUNC-028, FUNC-066, SEC-025
