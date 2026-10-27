@@ -167,8 +167,8 @@ func (m *Manager) LoadConfig(cfg *config.Config) {
 			if stdoutCW != nil {
 				cw := stdoutCW
 				opts = append(opts, WithStdoutHandler(func(name string, data []byte) {
-					_, _ = cw.Write(data)
-					if bus != nil {
+					data = cw.Capture(data)
+					if bus != nil && len(data) > 0 {
 						bus.Publish(events.Event{
 							Type: events.ProcessLogStdout,
 							Data: map[string]string{"name": name, "data": string(data)},
@@ -181,11 +181,11 @@ func (m *Manager) LoadConfig(cfg *config.Config) {
 				redirect := inst.Config.RedirectStderr
 				opts = append(opts, WithStderrHandler(func(name string, data []byte) {
 					if redirect && stdoutCW != nil {
-						_, _ = stdoutCW.Write(data)
+						data = stdoutCW.Capture(data)
 					} else {
-						_, _ = cw.Write(data)
+						data = cw.Capture(data)
 					}
-					if bus != nil {
+					if bus != nil && len(data) > 0 {
 						bus.Publish(events.Event{
 							Type: events.ProcessLogStderr,
 							Data: map[string]string{"name": name, "data": string(data)},
