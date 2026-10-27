@@ -1417,7 +1417,8 @@ This feature adds two complementary mechanisms:
 **Edge Cases:**
 
 - TCP server requires authentication; Unix socket does not by default
-- Binding to 0.0.0.0 logs a security warning
+- `listen` must be `host:port` (a numeric port or a service name); an empty or malformed address is a config error, not a bind failure
+- Binding to all interfaces (`0.0.0.0`, `::` or an empty host) prints a config warning on stderr ("server.http.listen {address} binds all interfaces; ..."), and the daemon log repeats it when the listener starts
 - TLS is not included in initial release but the architecture supports adding it
 
 **Dependencies:** FUNC-024
@@ -4142,7 +4143,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 - The Unix socket path is unaffected (its trust boundary is filesystem permissions, default 0700; see SEC-022)
 - Cross-container control without a password is achieved by sharing the socket via a mounted volume, not by loopback TCP; loopback TCP for cross-container use still requires credentials
-- The existing all-interfaces warning is retained in addition to the hard failure
+- The all-interfaces warning is retained in addition to the hard failure: config warnings are printed on stderr before the config error
 
 **Dependencies:** FUNC-025
 

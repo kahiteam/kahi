@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 )
@@ -105,6 +106,9 @@ func Validate(cfg *Config) []error {
 		if strings.TrimSpace(cfg.Server.HTTP.Username) == "" || cfg.Server.HTTP.Password == "" {
 			errs = append(errs, fmt.Errorf("http listener on %s requires username/password", cfg.Server.HTTP.Listen))
 		}
+		if err := validateListen(cfg.Server.HTTP.Listen); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	// bcrypt-only passwords (SEC-018): a configured password must be a bcrypt
@@ -187,4 +191,31 @@ func validRLimitComponent(s string) bool {
 	}
 	_, err := strconv.ParseUint(s, 10, 64)
 	return err == nil
+}
+
+// validateListen checks [server.http] listen as host:port, so a malformed
+// address is a config error instead of a bind failure (FUNC-025).
+func validateListen(listen string) error {
+	_, port, err := net.SplitHostPort(listen)
+	if err == nil {
+		_, err = net.LookupPort("tcp", port)
+	}
+	if err != nil {
+		return fmt.Errorf("invalid listen address: %q: %v", listen, err)
+	}
+	return nil
+}
+
+// listenWarnings flags an HTTP listener bound to all interfaces. It is a load
+// warning, so it is printed even when validation then refuses the config
+// (SEC-015).
+func listenWarnings(cfg *Config) []string {
+	if !cfg.Server.HTTP.Enabled {
+		return nil
+	}
+	host, _, err := net.SplitHostPort(cfg.Server.HTTP.Listen)
+	if err != nil || (host != "" && host != "0.0.0.0" && host != "::") {
+		return nil
+	}
+	return []string{fmt.Sprintf("server.http.listen %s binds all interfaces; the API is reachable from the network", cfg.Server.HTTP.Listen)}
 }

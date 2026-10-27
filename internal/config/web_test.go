@@ -16,7 +16,7 @@ func webTestHTTPSection(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return fmt.Sprintf("[server.http]\nenabled = true\nusername = \"admin\"\n%s = %q\n",
+	return fmt.Sprintf("[server.http]\nenabled = true\nlisten = \"127.0.0.1:9876\"\nusername = \"admin\"\n%s = %q\n",
 		"pass"+"word", string(hash))
 }
 

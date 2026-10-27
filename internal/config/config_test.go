@@ -215,7 +215,7 @@ killasgroup = false
 // value. Building it here (rather than an inline literal) keeps a real-looking
 // credential assignment out of the source tree.
 func httpConfigTOML(pw string) string {
-	return fmt.Sprintf("[server.http]\nenabled = true\nusername = \"admin\"\n%s = %q\n",
+	return fmt.Sprintf("[server.http]\nenabled = true\nlisten = \"127.0.0.1:9876\"\nusername = \"admin\"\n%s = %q\n",
 		"pass"+"word", pw)
 }
 
@@ -278,5 +278,45 @@ nocleanup = true
 	}
 	if !cfg.Supervisor.Nocleanup {
 		t.Error("nocleanup should be true")
+	}
+}
+
+// A malformed [server.http] listen is a config error, not a bind failure
+// (FUNC-025, #176).
+func TestInvalidListenAddress(t *testing.T) {
+	for _, listen := range []string{"", "notanaddr", "127.0.0.1", "127.0.0.1:99999", "127.0.0.1:nosuchservice"} {
+		src := strings.Replace(httpConfigTOML("$2a$10$abcdefghijklmnopqrstuuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0"),
+			`listen = "127.0.0.1:9876"`, fmt.Sprintf("listen = %q", listen), 1)
+		_, _, err := LoadBytes([]byte(src), "test.toml")
+		if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("invalid listen address: %q", listen)) {
+			t.Errorf("listen %q: err = %v, want an invalid listen address error", listen, err)
+		}
+	}
+	for _, listen := range []string{"127.0.0.1:9876", "localhost:9876", "[::1]:9876", ":9876"} {
+		src := strings.Replace(httpConfigTOML("$2a$10$abcdefghijklmnopqrstuuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0"),
+			`listen = "127.0.0.1:9876"`, fmt.Sprintf("listen = %q", listen), 1)
+		if _, _, err := LoadBytes([]byte(src), "test.toml"); err != nil {
+			t.Errorf("listen %q: %v", listen, err)
+		}
+	}
+}
+
+// An all-interfaces listener is a load warning, also when the config is then
+// refused for missing credentials (SEC-015, #176).
+func TestAllInterfacesListenWarns(t *testing.T) {
+	for _, listen := range []string{"0.0.0.0:9876", ":9876", "[::]:9876"} {
+		src := fmt.Sprintf("[server.http]\nenabled = true\nlisten = %q\n", listen)
+		_, warnings, err := LoadBytes([]byte(src), "test.toml")
+		if err == nil || !strings.Contains(err.Error(), "requires username/password") {
+			t.Errorf("listen %q: err = %v, want the missing credentials error", listen, err)
+		}
+		want := "server.http.listen " + listen + " binds all interfaces"
+		if len(warnings) != 1 || !strings.HasPrefix(warnings[0], want) {
+			t.Errorf("listen %q: warnings %q, want one starting with %q", listen, warnings, want)
+		}
+	}
+	src := "[server.http]\nenabled = true\nlisten = \"127.0.0.1:9876\"\n"
+	if _, warnings, _ := LoadBytes([]byte(src), "test.toml"); len(warnings) != 0 {
+		t.Errorf("loopback listen: warnings %q, want none", warnings)
 	}
 }

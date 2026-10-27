@@ -246,3 +246,21 @@ command = /usr/bin/web
 		t.Fatalf("expected include directive, got:\n%s", result.TOML)
 	}
 }
+
+// supervisord's port forms map to a host:port listen address (#176).
+func TestMigrateInetHTTPServerPortForms(t *testing.T) {
+	for port, want := range map[string]string{
+		"127.0.0.1:9001": "127.0.0.1:9001",
+		"9001":           ":9001",
+		"*:9001":         ":9001",
+		"[::1]:9001":     "[::1]:9001",
+	} {
+		result, err := MigrateReader(strings.NewReader("[inet_http_server]\nport = "+port+"\n"), Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(result.TOML, "listen = \""+want+"\"") {
+			t.Errorf("port %s: want listen = %q, got:\n%s", port, want, result.TOML)
+		}
+	}
+}
