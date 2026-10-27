@@ -597,6 +597,11 @@ func TestLifecycle_ConfigErrors(t *testing.T) {
 			want:   `programs.web: autorestart must be true, false, or unexpected, got "sometimes"`,
 		},
 		{
+			name:   "autorestart of another type",
+			config: "[programs.web]\ncommand = \"/bin/sleep 300\"\nautorestart = 1\n",
+			want:   `autorestart must be true, false, or "unexpected", got 1`,
+		},
+		{
 			name:   "stopasgroup without killasgroup",
 			config: "[programs.web]\ncommand = \"/bin/sleep 300\"\nstopasgroup = true\nkillasgroup = false\n",
 			want:   "programs.web: killasgroup cannot be false when stopasgroup is true",
