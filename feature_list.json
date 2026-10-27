@@ -488,13 +488,18 @@
         "Run 'kahi init --stdout' and verify a complete, commented sample config is printed to stdout; run 'kahi init' and verify it writes ./kahi.toml",
         "Run 'kahi init --output /tmp/test-kahi.toml' and verify the config is written to the file",
         "Parse the generated config with the TOML parser and verify it is valid",
-        "Start Kahi with the generated config and verify it starts with no programs defined",
+        "Start Kahi with the generated config, with only its socket path set (the default /var/run socket needs root, #146), and verify it starts with no programs defined",
         "Run 'kahi init --output' targeting an existing file and verify it refuses with a message about --force",
         "Run 'kahi init --output --force' targeting an existing file and verify it overwrites",
-        "Verify the generated config includes commented-out sections for all configurable options"
+        "Verify the generated config has a commented-out line for every key a user can set (keys that are refused or ignored with a warning are left out)"
       ],
-      "passes": false,
-      "verified_by": ["TestRegression_KahiInit"],
+      "passes": true,
+      "verified_by": [
+        "TestCLI_InitStdoutAndFiles",
+        "TestCLI_InitDocumentsEveryKey",
+        "TestCLI_InitConfigStartsDaemon",
+        "TestRegression_KahiInit"
+      ],
       "dependencies": ["toml-config-parser"]
     },
     {
@@ -819,10 +824,12 @@
         "Verify exit status is shown for EXITED processes",
         "Run 'kahi ctl status' with no processes configured and verify an empty table with headers is printed"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
-        "TestCLI_StatusTerminalColours",
+        "TestCLI_StatusTableContents",
+        "TestCLI_StatusEmpty",
         "TestCLI_StatusJSON",
+        "TestCLI_StatusTerminalColours",
         "TestCLI_StatusPipedHasNoColour"
       ],
       "dependencies": ["cli-process-control"]
@@ -1625,8 +1632,11 @@
         "Run 'kahi hash-password' with an empty password and verify 'password cannot be empty' error",
         "Verify the password prompt suppresses echo for security"
       ],
-      "passes": false,
-      "verified_by": ["TestWebUIE2EServed"],
+      "passes": true,
+      "verified_by": [
+        "TestCLI_HashPasswordPiped",
+        "TestCLI_HashPasswordTerminal"
+      ],
       "dependencies": ["cli-framework"]
     },
     {
