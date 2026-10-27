@@ -176,7 +176,8 @@ func (c *Client) StatusWithOptions(names []string, opts StatusOptions, w io.Writ
 		for _, n := range names {
 			filter[n] = true
 		}
-		var filtered []ProcessInfo
+		// Empty, not nil: --json prints [] when nothing matches (#189).
+		filtered := []ProcessInfo{}
 		for _, p := range procs {
 			if filter[p.Name] {
 				filtered = append(filtered, p)
