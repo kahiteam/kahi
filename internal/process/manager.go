@@ -730,14 +730,20 @@ func (m *Manager) groupProcessesSorted(g *Group, ascending bool) []*Process {
 }
 
 func (m *Manager) processInfo(p *Process) api.ProcessInfo {
+	state := p.State()
+	desc := p.Config().Description
+	// A process that could not be spawned shows why, as supervisord does.
+	if spawnErr := p.SpawnError(); spawnErr != "" && (state == Fatal || state == Backoff) {
+		desc = spawnErr
+	}
 	return api.ProcessInfo{
 		Name:        p.Name(),
 		Group:       p.Group(),
-		State:       p.State().String(),
-		StateCode:   int(p.State()),
+		State:       state.String(),
+		StateCode:   int(state),
 		PID:         p.Pid(),
 		Uptime:      p.Uptime(),
-		Description: p.Config().Description,
+		Description: desc,
 		ExitStatus:  p.ExitCode(),
 	}
 }
