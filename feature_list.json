@@ -1195,12 +1195,13 @@
         "Write a test using a mock Clock that verifies TICK_5 events are emitted every 5 seconds",
         "Write a test that verifies TICK_60 events are emitted every 60 seconds",
         "Write a test that verifies TICK_3600 events are emitted every 3600 seconds",
-        "Verify tick events include the timestamp of the tick",
+        "Verify tick events include the timestamp of the tick as \"when\" (Unix seconds), delivered on /api/v1/events/stream?types=TICK_5",
         "Verify ticks are not emitted during shutdown",
         "Verify monotonic time is used so clock drift does not cause missed ticks"
       ],
-      "passes": false,
-      "dependencies": ["event-bus"]
+      "passes": true,
+      "dependencies": ["event-bus"],
+      "verified_by": ["TestTickEvents_StreamAndShutdown"]
     },
     {
       "id": "event-listener-pools",
