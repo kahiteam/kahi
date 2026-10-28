@@ -2389,9 +2389,10 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Edge Cases:**
 
-- Tick events include the timestamp of the tick
-- Ticks are not emitted during shutdown
+- Tick events include the timestamp of the tick: `{"when": "<Unix seconds>"}`, as supervisord's TICK events
+- Ticks are not emitted during shutdown: the ticker stops when shutdown begins
 - Clock drift does not cause missed ticks (use monotonic time)
+- `GET /api/v1/events/stream` sends TICK_5, TICK_60 and TICK_3600 only when they are named in `?types=`; the default stream carries no ticks (decided 2026-10-28, #147)
 
 **Dependencies:** FUNC-049
 

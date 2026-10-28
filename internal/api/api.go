@@ -772,6 +772,11 @@ func (s *Server) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		events.SupervisorStateRunning, events.SupervisorStateStopping,
 		events.ProcessGroupAdded, events.ProcessGroupRemoved,
 	}
+	// Ticks come only when asked for by name, so the default stream stays
+	// quiet (FUNC-054, #147).
+	if typeFilter != nil {
+		allTypes = append(allTypes, events.Tick5, events.Tick60, events.Tick3600)
+	}
 
 	// Use a channel to serialize writes to the response writer.
 	type sseEvent struct {
