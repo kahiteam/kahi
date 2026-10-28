@@ -16,6 +16,9 @@ type LogConfig struct {
 	Level  string    // "debug", "info", "warn", "error"
 	Format string    // "json" (default), "text"
 	Output io.Writer // defaults to os.Stdout
+	// LevelVar, if set, is set to Level and used by the handler, so the
+	// level can change later (FUNC-017).
+	LevelVar *slog.LevelVar
 }
 
 // New creates a configured *slog.Logger.
@@ -27,6 +30,10 @@ func New(cfg LogConfig) *slog.Logger {
 
 	opts := &slog.HandlerOptions{
 		Level: parseLevel(cfg.Level),
+	}
+	if cfg.LevelVar != nil {
+		cfg.LevelVar.Set(parseLevel(cfg.Level))
+		opts.Level = cfg.LevelVar
 	}
 
 	var handler slog.Handler
@@ -67,11 +74,31 @@ func ValidateLevel(s string) error {
 	}
 }
 
+// ValidateFormat returns an error if the log format is not json or text.
+func ValidateFormat(s string) error {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "json", "text":
+		return nil
+	default:
+		return fmt.Errorf("invalid log format: %q (must be json or text)", s)
+	}
+}
+
 // DaemonLog is the daemon's logger and, when it writes to a file, that file,
 // which SIGUSR2 reopens after logrotate renames it.
 type DaemonLog struct {
 	Logger *slog.Logger
 	file   *ReopenableFile
+	level  slog.LevelVar
+}
+
+// SetLevel changes the daemon log's level, for a config reload (FUNC-017).
+func (d *DaemonLog) SetLevel(level string) error {
+	if err := ValidateLevel(level); err != nil {
+		return err
+	}
+	d.level.Set(parseLevel(level))
+	return nil
 }
 
 // OpenDaemonLog creates the daemon logger, writing to logfile or, when it is
@@ -87,7 +114,7 @@ func OpenDaemonLog(level, format, logfile string) (*DaemonLog, error) {
 		dl.file = f
 		out = f
 	}
-	dl.Logger = New(LogConfig{Level: level, Format: format, Output: out})
+	dl.Logger = New(LogConfig{Level: level, Format: format, Output: out, LevelVar: &dl.level})
 	return dl, nil
 }
 

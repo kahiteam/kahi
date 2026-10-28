@@ -97,6 +97,7 @@ type ProcessInfo struct {
 	Uptime      int64  `json:"uptime"`
 	Description string `json:"description"`
 	ExitStatus  int    `json:"exitstatus"`
+	ExitSignal  string `json:"exitsignal,omitempty"`
 }
 
 // --- Process control operations ---
@@ -233,6 +234,9 @@ func formatStatusTable(procs []ProcessInfo, w io.Writer, color bool) error {
 		desc := p.Description
 		if p.State == "EXITED" {
 			desc = fmt.Sprintf("exit %d", p.ExitStatus)
+			if p.ExitSignal != "" {
+				desc = "killed by SIG" + p.ExitSignal
+			}
 		}
 
 		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", p.Name, state, pid, uptime, desc)

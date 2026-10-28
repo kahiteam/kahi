@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/kahiteam/kahi/internal/events"
 	"github.com/kahiteam/kahi/internal/process"
 	"github.com/kahiteam/kahi/internal/version"
+	"golang.org/x/sys/unix"
 )
 
 // Supervisor is the main daemon run loop.
@@ -39,6 +41,7 @@ type Supervisor struct {
 	// reopenDaemonLog reopens the daemon's own log file; nil when logging
 	// to stdout.
 	reopenDaemonLog func() error
+	setLogLevel     func(level string) error
 
 	// reloadMu serializes reloads. A reload waits for changed programs to
 	// stop, so it never holds mu, which /healthz and shutdown need.
@@ -58,6 +61,8 @@ type SupervisorConfig struct {
 	// ReopenDaemonLog reopens the daemon's own log file on SIGUSR2; nil when
 	// the daemon logs to stdout.
 	ReopenDaemonLog func() error
+	// SetLogLevel changes the daemon log's level on reload; nil leaves it.
+	SetLogLevel func(level string) error
 	// Stdout and Stderr receive, as JSON lines, the output of process
 	// streams that have no log file (FUNC-018); nil drops it.
 	Stdout io.Writer
@@ -88,6 +93,7 @@ func New(cfg SupervisorConfig) *Supervisor {
 		pidFile:    cfg.PIDFile,
 
 		reopenDaemonLog: cfg.ReopenDaemonLog,
+		setLogLevel:     cfg.SetLogLevel,
 	}
 }
 
@@ -245,6 +251,7 @@ func (s *Supervisor) applyReload() (config.ReloadResult, error) {
 	added, changed, removed := process.ConfigDiff(oldCfg, newCfg)
 	s.logger.Info("config diff", "added", added, "changed", changed, "removed", removed)
 	s.warnWebChange(newCfg)
+	s.applyLogChange(oldCfg, newCfg)
 
 	// Programs that did not stop keep their old processes; record their old
 	// config so the next reload sees them as changed or removed again.
@@ -288,9 +295,14 @@ func (s *Supervisor) handleLogReopen() {
 func (s *Supervisor) handleSigchld() {
 	// Reap all exited children in a loop to handle coalesced SIGCHLD.
 	for {
-		pid, status, err := reapChild()
+		pid, ws, err := reapChild()
 		if err != nil || pid <= 0 {
 			break
+		}
+		status := ws.ExitStatus()
+		var sig string
+		if ws.Signaled() {
+			sig = strings.TrimPrefix(unix.SignalName(ws.Signal()), "SIG")
 		}
 
 		p := s.manager.ProcessByPid(pid)
@@ -298,27 +310,28 @@ func (s *Supervisor) handleSigchld() {
 			// As PID 1 every orphan in the container ends up here; that is
 			// expected. Otherwise only Kahi's own children can be reaped.
 			if s.pid1 {
-				s.logger.Debug("reaped orphan", "pid", pid, "status", status)
+				s.logger.Debug("reaped orphan", "pid", pid, "status", status, "signal", sig)
 			} else {
-				s.logger.Warn("reaped unknown child", "pid", pid, "status", status)
+				s.logger.Warn("reaped unknown child", "pid", pid, "status", status, "signal", sig)
 			}
 			continue
 		}
 
-		s.logger.Debug("reaped child", "pid", pid, "process", p.Name(), "status", status)
-		p.HandleExit(status)
+		s.logger.Debug("reaped child", "pid", pid, "process", p.Name(), "status", status, "signal", sig)
+		p.HandleExitStatus(status, sig)
 	}
 }
 
 // reapChild wraps waitpid with WNOHANG. Returns 0 when no more children.
-// It is a var so tests can override the reaping behavior.
-var reapChild = func() (int, int, error) {
+// The wait status keeps the signal of a process killed by one (#201). It is
+// a var so tests can override the reaping behavior.
+var reapChild = func() (int, syscall.WaitStatus, error) {
 	var ws syscall.WaitStatus
 	pid, err := syscall.Wait4(-1, &ws, syscall.WNOHANG, nil)
 	if err != nil {
 		return 0, 0, err
 	}
-	return pid, ws.ExitStatus(), nil
+	return pid, ws, nil
 }
 
 func (s *Supervisor) waitForShutdown() {
@@ -484,6 +497,22 @@ func (s *Supervisor) Reload() (config.ReloadResult, error) {
 
 // warnWebChange logs when a reloaded [server.web] differs from the one the
 // daemon started with: the UI is not rebuilt on reload.
+// applyLogChange applies a changed log_level at once and warns that a changed
+// log_format or logfile needs a restart (FUNC-017).
+func (s *Supervisor) applyLogChange(oldCfg, newCfg *config.Config) {
+	o, n := oldCfg.Supervisor, newCfg.Supervisor
+	if o.LogLevel != n.LogLevel && s.setLogLevel != nil {
+		if err := s.setLogLevel(n.LogLevel); err != nil {
+			s.logger.Error("cannot change log level", "error", err)
+		} else {
+			s.logger.Info("log level changed", "from", o.LogLevel, "to", n.LogLevel)
+		}
+	}
+	if o.LogFormat != n.LogFormat || o.Logfile != n.Logfile {
+		s.logger.Warn("supervisor.log_format and supervisor.logfile changes take effect after restart")
+	}
+}
+
 func (s *Supervisor) warnWebChange(newCfg *config.Config) {
 	if newCfg.Server.Web != s.startupWeb {
 		s.logger.Warn("server.web changes take effect after restart")

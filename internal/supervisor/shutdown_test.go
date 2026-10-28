@@ -52,7 +52,7 @@ func (c *fakeChild) gotKill() bool {
 }
 
 // reap mimics a WNOHANG waitpid for this one child.
-func (c *fakeChild) reap() (int, int, error) {
+func (c *fakeChild) reap() (int, syscall.WaitStatus, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.exited && !c.reaped {

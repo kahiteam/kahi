@@ -28,7 +28,7 @@ autostart = true
 startsecs = 0
 `)
 	waitForState(t, client, "envcheck", "RUNNING", 5*time.Second)
-	time.Sleep(1 * time.Second)
+	waitForOutput(t, client, "envcheck", "KAHI_TEST_VAR=")
 
 	var buf bytes.Buffer
 	if err := client.Tail("envcheck", "stdout", 4096, &buf); err != nil {
@@ -57,7 +57,7 @@ clean_environment = true
 MY_VAR = "configured-value"
 `)
 	waitForState(t, client, "clean", "RUNNING", 5*time.Second)
-	time.Sleep(1 * time.Second)
+	waitForOutput(t, client, "clean", "CONFIGURED=")
 
 	var buf bytes.Buffer
 	if err := client.Tail("clean", "stdout", 4096, &buf); err != nil {
@@ -89,7 +89,7 @@ startsecs = 0
 SHARED_VAR = "program-value"
 `)
 	waitForState(t, client, "override", "RUNNING", 5*time.Second)
-	time.Sleep(1 * time.Second)
+	waitForOutput(t, client, "override", "SHARED=")
 
 	var buf bytes.Buffer
 	if err := client.Tail("override", "stdout", 4096, &buf); err != nil {
@@ -117,7 +117,7 @@ PROC_NAME = "%(program_name)s"
 PROC_NUM = "%(process_num)d"
 `)
 	waitForState(t, client, "expander_0", "RUNNING", 10*time.Second)
-	time.Sleep(1 * time.Second)
+	waitForOutput(t, client, "expander_0", "NUM=")
 
 	var buf bytes.Buffer
 	if err := client.Tail("expander_0", "stdout", 4096, &buf); err != nil {
@@ -146,7 +146,7 @@ startsecs = 0
 HERE_DIR = "%(here)s"
 `)
 	waitForState(t, client, "here", "RUNNING", 5*time.Second)
-	time.Sleep(1 * time.Second)
+	waitForOutput(t, client, "here", "HERE=")
 
 	var buf bytes.Buffer
 	if err := client.Tail("here", "stdout", 4096, &buf); err != nil {
