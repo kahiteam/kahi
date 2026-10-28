@@ -922,10 +922,11 @@
         "Run 'kahi ctl pid' and verify the daemon PID is printed",
         "Run 'kahi ctl pid web' with web running and verify the web process PID is printed",
         "Run 'kahi ctl pid all' and verify PIDs for all running processes are printed",
-        "Run 'kahi ctl shutdown' when daemon is not running and verify exit code 1 with connection error"
+        "Run 'kahi ctl shutdown' when daemon is not running and verify exit code 1 with a 'connection failed' error"
       ],
-      "passes": false,
-      "dependencies": ["cli-process-control"]
+      "passes": true,
+      "dependencies": ["cli-process-control"],
+      "verified_by": ["TestCtl_ShutdownWaits", "TestCtl_ReloadVersionPID"]
     },
     {
       "id": "cli-tab-completion",
