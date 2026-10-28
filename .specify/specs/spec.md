@@ -1378,10 +1378,11 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition                          | Expected Behavior | User-Facing Message                     |
-| ---------------------------------------- | ----------------- | --------------------------------------- |
-| Cannot create socket (permission denied) | Exit with error   | "cannot create socket: {path}: {error}" |
-| Socket path too long (>108 chars)        | Exit with error   | "socket path too long: {path}"          |
+| Error Condition                                                      | Expected Behavior       | User-Facing Message                                                                                 |
+| -------------------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------- |
+| Socket directory not writable                                        | Exit with error         | "permission denied: cannot create socket in {dir}: {error}"                                         |
+| Socket cannot be bound                                               | Exit with error         | "cannot create socket: {path}: {error}"                                                             |
+| Socket path longer than sun_path allows (103 bytes macOS, 107 Linux) | Config validation error | "socket path too long: {path} ({n} bytes, at most {max} on {os}); set a shorter [server.unix] file" |
 
 **Edge Cases:**
 
