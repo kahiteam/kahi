@@ -41,6 +41,7 @@ type Supervisor struct {
 	// reopenDaemonLog reopens the daemon's own log file; nil when logging
 	// to stdout.
 	reopenDaemonLog func() error
+	setLogLevel     func(level string) error
 
 	// reloadMu serializes reloads. A reload waits for changed programs to
 	// stop, so it never holds mu, which /healthz and shutdown need.
@@ -60,6 +61,8 @@ type SupervisorConfig struct {
 	// ReopenDaemonLog reopens the daemon's own log file on SIGUSR2; nil when
 	// the daemon logs to stdout.
 	ReopenDaemonLog func() error
+	// SetLogLevel changes the daemon log's level on reload; nil leaves it.
+	SetLogLevel func(level string) error
 	// Stdout and Stderr receive, as JSON lines, the output of process
 	// streams that have no log file (FUNC-018); nil drops it.
 	Stdout io.Writer
@@ -90,6 +93,7 @@ func New(cfg SupervisorConfig) *Supervisor {
 		pidFile:    cfg.PIDFile,
 
 		reopenDaemonLog: cfg.ReopenDaemonLog,
+		setLogLevel:     cfg.SetLogLevel,
 	}
 }
 
@@ -247,6 +251,7 @@ func (s *Supervisor) applyReload() (config.ReloadResult, error) {
 	added, changed, removed := process.ConfigDiff(oldCfg, newCfg)
 	s.logger.Info("config diff", "added", added, "changed", changed, "removed", removed)
 	s.warnWebChange(newCfg)
+	s.applyLogChange(oldCfg, newCfg)
 
 	// Programs that did not stop keep their old processes; record their old
 	// config so the next reload sees them as changed or removed again.
@@ -492,6 +497,22 @@ func (s *Supervisor) Reload() (config.ReloadResult, error) {
 
 // warnWebChange logs when a reloaded [server.web] differs from the one the
 // daemon started with: the UI is not rebuilt on reload.
+// applyLogChange applies a changed log_level at once and warns that a changed
+// log_format or logfile needs a restart (FUNC-017).
+func (s *Supervisor) applyLogChange(oldCfg, newCfg *config.Config) {
+	o, n := oldCfg.Supervisor, newCfg.Supervisor
+	if o.LogLevel != n.LogLevel && s.setLogLevel != nil {
+		if err := s.setLogLevel(n.LogLevel); err != nil {
+			s.logger.Error("cannot change log level", "error", err)
+		} else {
+			s.logger.Info("log level changed", "from", o.LogLevel, "to", n.LogLevel)
+		}
+	}
+	if o.LogFormat != n.LogFormat || o.Logfile != n.Logfile {
+		s.logger.Warn("supervisor.log_format and supervisor.logfile changes take effect after restart")
+	}
+}
+
 func (s *Supervisor) warnWebChange(newCfg *config.Config) {
 	if newCfg.Server.Web != s.startupWeb {
 		s.logger.Warn("server.web changes take effect after restart")
