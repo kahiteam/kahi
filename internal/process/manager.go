@@ -770,6 +770,7 @@ func (m *Manager) processInfo(p *Process) api.ProcessInfo {
 		Uptime:      p.Uptime(),
 		Description: desc,
 		ExitStatus:  p.ExitCode(),
+		ExitSignal:  p.ExitSignal(),
 	}
 }
 

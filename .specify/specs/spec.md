@@ -1144,19 +1144,21 @@ This feature adds two complementary mechanisms:
 
 - **Given** `logfile = "/var/log/kahi.log"` in config
   **When** Kahi starts
-  **Then** daemon logs are written to the specified file (in addition to stdout if in foreground mode)
+  **Then** daemon logs are written to the specified file instead of stdout (decided 2026-10-28: a container leaves logfile unset and reads stdout; journald would otherwise get every line twice)
 
 **Error Handling:**
 
-| Error Condition            | Expected Behavior       | User-Facing Message                     |
-| -------------------------- | ----------------------- | --------------------------------------- |
-| Log file path not writable | Exit with error         | "cannot open log file: {path}: {error}" |
-| Invalid log level          | Config validation error | "invalid log level: {level}"            |
+| Error Condition            | Expected Behavior       | User-Facing Message                                                                          |
+| -------------------------- | ----------------------- | -------------------------------------------------------------------------------------------- |
+| Log file path not writable | Exit with error         | "cannot open log file: {path}: {error}"                                                      |
+| Invalid log level          | Config validation error | "supervisor.log_level: invalid log level: \"{level}\" (must be debug, info, warn, or error)" |
+| Invalid log format         | Config validation error | "supervisor.log_format: invalid log format: \"{format}\" (must be json or text)"             |
 
 **Edge Cases:**
 
 - Log file is opened with append mode
-- Log level change on config reload takes effect immediately
+- Log level change on config reload takes effect immediately, logged as "log level changed" with from and to
+- A log_format or logfile change on reload is logged as needing a restart ("supervisor.log_format and supervisor.logfile changes take effect after restart")
 
 **Dependencies:** INFRA-006
 
@@ -1440,7 +1442,7 @@ This feature adds two complementary mechanisms:
 
 - **Given** the API server is running
   **When** `GET /api/v1/processes` is requested
-  **Then** a JSON array of all process info objects is returned (name, group, state, statecode, pid, uptime, description, exitstatus)
+  **Then** a JSON array of all process info objects is returned (name, group, state, statecode, pid, uptime, description, exitstatus, and exitsignal when a signal killed the process, for example `"KILL"` with exitstatus -1)
 
 - **Given** a process named "web"
   **When** `POST /api/v1/processes/web/start` is requested
@@ -1712,7 +1714,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - State is color-coded in terminal output (green=RUNNING, red=FATAL, yellow=STARTING)
 - Uptime is formatted as human-readable duration (1d 2h 30m)
-- Exit status shown for EXITED processes (e.g., "exit code 1")
+- Exit status shown for EXITED processes: "exit 1", or "killed by SIGKILL" for a process a signal killed (#201)
 
 **Dependencies:** FUNC-031
 

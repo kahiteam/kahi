@@ -136,6 +136,19 @@ func Validate(cfg *Config) []error {
 		}
 	}
 
+	// The daemon log's level and format (FUNC-017, #142).
+	// Empty means the default, which ApplyDefaults fills in.
+	if v := cfg.Supervisor.LogLevel; v != "" {
+		if err := logging.ValidateLevel(v); err != nil {
+			errs = append(errs, fmt.Errorf("supervisor.log_level: %w", err))
+		}
+	}
+	if v := cfg.Supervisor.LogFormat; v != "" {
+		if err := logging.ValidateFormat(v); err != nil {
+			errs = append(errs, fmt.Errorf("supervisor.log_format: %w", err))
+		}
+	}
+
 	errs = append(errs, validateUnixServer(&cfg.Server.Unix)...)
 
 	// Browsers cannot reach the Unix socket, so a Web UI without the TCP

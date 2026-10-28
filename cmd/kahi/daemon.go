@@ -102,6 +102,7 @@ func daemonRun(cmd *cobra.Command, args []string) error {
 		Logger:     logger,
 
 		ReopenDaemonLog: daemonLog.Reopen,
+		SetLogLevel:     daemonLog.SetLevel,
 		// Output of streams without a log file goes to the daemon's own
 		// stdout and stderr, where a container runtime collects it.
 		Stdout: os.Stdout,

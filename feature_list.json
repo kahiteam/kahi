@@ -272,14 +272,15 @@
         "Write a unit test that simulates multiple children exiting simultaneously and verifies all are reaped in a single SIGCHLD handler loop",
         "Write a unit test that verifies an unknown PID from waitpid is logged as a warning and ignored",
         "Write a unit test that verifies the reaping loop stops when waitpid returns ECHILD",
-        "Write a unit test that verifies exit status includes both normal exit codes and signal-killed status"
+        "Verify the exit status keeps both a normal exit code and the signal that killed a process (exitsignal, \"killed by SIGKILL\" in status), and that a signal death counts as unexpected for autorestart"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
         "TestLifecycle_SimultaneousExits",
         "TestPID1_ReapsOrphans",
         "TestPID1_NotPID1ReapsOwnChildrenOnly",
-        "TestDaemon_SIGTERMShutdownIsPrompt"
+        "TestDaemon_SIGTERMShutdownIsPrompt",
+        "TestExitSignal_Reported"
       ],
       "dependencies": ["process-start"]
     },
@@ -515,14 +516,22 @@
         "Start Kahi with default config and verify daemon logs are JSON format on stdout",
         "Configure log_format='text' and verify daemon logs use human-readable text format",
         "Configure log_level='debug' and verify debug-level messages appear in output",
-        "Configure logfile='/tmp/kahi-test.log' and verify daemon logs are written to the specified file",
+        "Configure logfile and verify daemon logs are written to that file instead of stdout",
         "Configure an invalid log level and verify a config validation error is returned",
         "Configure a non-writable logfile path and verify Kahi exits with error message 'cannot open log file: {path}: {error}'",
         "Verify log file is opened in append mode",
         "Change log level on config reload and verify the new level takes effect immediately"
       ],
-      "passes": false,
-      "dependencies": ["structured-logging"]
+      "passes": true,
+      "dependencies": ["structured-logging"],
+      "verified_by": [
+        "TestDaemonLog_DefaultJSONInfo",
+        "TestDaemonLog_TextDebug",
+        "TestDaemonLog_FileAppends",
+        "TestDaemonLog_ConfigErrors",
+        "TestDaemonLog_ReloadChangesLevel",
+        "TestLog_SIGUSR2ReopensDaemonLog"
+      ]
     },
     {
       "id": "process-output-capture",
