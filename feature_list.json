@@ -276,8 +276,10 @@
       ],
       "passes": false,
       "verified_by": [
-        "TestDaemon_SIGTERMShutdownIsPrompt",
-        "TestState_AutorestartFalse"
+        "TestLifecycle_SimultaneousExits",
+        "TestPID1_ReapsOrphans",
+        "TestPID1_NotPID1ReapsOwnChildrenOnly",
+        "TestDaemon_SIGTERMShutdownIsPrompt"
       ],
       "dependencies": ["process-start"]
     },
@@ -968,8 +970,12 @@
         "Verify SIGCHLD is handled via signal.Notify channel in the main goroutine",
         "Verify multiple exits between polls are all collected in a single reaping loop"
       ],
-      "passes": false,
-      "verified_by": ["TestDaemon_SIGTERMShutdownIsPrompt"],
+      "passes": true,
+      "verified_by": [
+        "TestPID1_ReapsOrphans",
+        "TestLifecycle_SimultaneousExits",
+        "TestDaemon_SIGTERMShutdownIsPrompt"
+      ],
       "dependencies": ["process-reaping"]
     },
     {
@@ -1332,8 +1338,13 @@
         "Press Ctrl+C in foreground mode and verify graceful shutdown is triggered",
         "Verify foreground mode is the default with no flag needed to enable it"
       ],
-      "passes": false,
-      "dependencies": ["cli-framework"]
+      "passes": true,
+      "dependencies": ["cli-framework"],
+      "verified_by": [
+        "TestPID1_ReapsOrphans",
+        "TestForeground_SIGINTShutsDown",
+        "TestDaemon_SIGTERMShutdownIsPrompt"
+      ]
     },
     {
       "id": "optional-daemonization",
@@ -1360,10 +1371,14 @@
         "Write a test that simulates PID 1 mode and creates orphaned child processes and verifies they are reaped",
         "Write a test that verifies Kahi only reaps its own children when not running as PID 1",
         "Verify PID 1 detection occurs at startup using os.Getpid() == 1",
-        "Verify the reaping loop runs as part of the main supervision tick, not as a separate goroutine"
+        "Verify reaping runs in the main loop on SIGCHLD (and on every tick during shutdown), not in a separate goroutine"
       ],
-      "passes": false,
-      "dependencies": ["process-reaping"]
+      "passes": true,
+      "dependencies": ["process-reaping"],
+      "verified_by": [
+        "TestPID1_ReapsOrphans",
+        "TestPID1_NotPID1ReapsOwnChildrenOnly"
+      ]
     },
     {
       "id": "graceful-shutdown",
