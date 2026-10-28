@@ -3,6 +3,7 @@ package events
 import (
 	"io"
 	"log/slog"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -299,5 +300,46 @@ func TestEventTimestampPreserved(t *testing.T) {
 
 	if !received.Timestamp.Equal(ts) {
 		t.Fatalf("expected preserved timestamp, got %v", received.Timestamp)
+	}
+}
+
+// The three tick types fire at their own periods, carry "when", and stop on
+// Stop, which may be called twice (FUNC-054, #147).
+func TestTickerPeriods(t *testing.T) {
+	bus := NewBus(nil)
+	var mu sync.Mutex
+	counts := map[EventType]int{}
+	var when string
+	for _, typ := range []EventType{Tick5, Tick60, Tick3600} {
+		bus.Subscribe(typ, func(e Event) {
+			mu.Lock()
+			defer mu.Unlock()
+			counts[e.Type]++
+			when = e.Data["when"]
+		})
+	}
+	tk := newTicker(bus, 10*time.Millisecond, 40*time.Millisecond, 160*time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
+	tk.Stop()
+	tk.Stop()
+
+	mu.Lock()
+	c5, c60, c3600, w := counts[Tick5], counts[Tick60], counts[Tick3600], when
+	mu.Unlock()
+	if c3600 < 1 || c60 <= c3600 || c5 <= c60 {
+		t.Errorf("counts TICK_5 %d, TICK_60 %d, TICK_3600 %d; want each period's ticks, shortest most", c5, c60, c3600)
+	}
+	if n, err := strconv.ParseInt(w, 10, 64); err != nil || time.Since(time.Unix(n, 0)) > time.Minute {
+		t.Errorf("when = %q, want the tick's Unix time", w)
+	}
+
+	mu.Lock()
+	after := counts[Tick5]
+	mu.Unlock()
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if counts[Tick5] != after {
+		t.Error("ticks after Stop")
 	}
 }
