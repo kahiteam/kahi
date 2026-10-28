@@ -29,6 +29,9 @@ type Supervisor struct {
 	signals    *SignalQueue
 	logger     *slog.Logger
 	shutting   bool
+	// pid1 is set when Kahi runs as PID 1 (a container's init): orphaned
+	// processes are then reparented to it and reaped like its own (FUNC-065).
+	pid1       bool
 	shutdownCh chan struct{}
 	doneCh     chan struct{}
 	pidFile    string
@@ -122,6 +125,9 @@ func (s *Supervisor) Run() error {
 	// Autostart processes.
 	s.manager.AutostartAll()
 
+	if s.pid1 = os.Getpid() == 1; s.pid1 {
+		s.logger.Info("running as PID 1; orphaned processes are reaped")
+	}
 	s.logger.Info("supervisor running", "pid", os.Getpid())
 
 	// Main event loop.
@@ -289,7 +295,13 @@ func (s *Supervisor) handleSigchld() {
 
 		p := s.manager.ProcessByPid(pid)
 		if p == nil {
-			s.logger.Warn("reaped unknown child", "pid", pid, "status", status)
+			// As PID 1 every orphan in the container ends up here; that is
+			// expected. Otherwise only Kahi's own children can be reaped.
+			if s.pid1 {
+				s.logger.Debug("reaped orphan", "pid", pid, "status", status)
+			} else {
+				s.logger.Warn("reaped unknown child", "pid", pid, "status", status)
+			}
 			continue
 		}
 
@@ -307,17 +319,6 @@ var reapChild = func() (int, int, error) {
 		return 0, 0, err
 	}
 	return pid, ws.ExitStatus(), nil
-}
-
-// ReapAllZombies reaps all zombie children when running as PID 1.
-func ReapAllZombies(logger *slog.Logger) {
-	for {
-		pid, _, err := reapChild()
-		if err != nil || pid <= 0 {
-			break
-		}
-		logger.Debug("reaped zombie", "pid", pid)
-	}
 }
 
 func (s *Supervisor) waitForShutdown() {

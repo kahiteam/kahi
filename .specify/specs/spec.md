@@ -2754,8 +2754,9 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Edge Cases:**
 
-- PID 1 detection at startup: `os.Getpid() == 1`
-- Reaping loop runs as part of the main supervision tick, not as a separate goroutine
+- PID 1 detection at startup: `os.Getpid() == 1`, logged as "running as PID 1; orphaned processes are reaped"
+- Reaping runs in the main loop on SIGCHLD (and on every tick during shutdown), not in a separate goroutine
+- As PID 1 a reaped process Kahi does not manage is an expected orphan, logged at debug ("reaped orphan"); otherwise it is logged as a warning ("reaped unknown child")
 
 **Dependencies:** FUNC-006
 
