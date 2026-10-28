@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/kahiteam/kahi/internal/events"
 	"github.com/kahiteam/kahi/internal/process"
 	"github.com/kahiteam/kahi/internal/version"
+	"golang.org/x/sys/unix"
 )
 
 // Supervisor is the main daemon run loop.
@@ -293,9 +295,14 @@ func (s *Supervisor) handleLogReopen() {
 func (s *Supervisor) handleSigchld() {
 	// Reap all exited children in a loop to handle coalesced SIGCHLD.
 	for {
-		pid, status, err := reapChild()
+		pid, ws, err := reapChild()
 		if err != nil || pid <= 0 {
 			break
+		}
+		status := ws.ExitStatus()
+		var sig string
+		if ws.Signaled() {
+			sig = strings.TrimPrefix(unix.SignalName(ws.Signal()), "SIG")
 		}
 
 		p := s.manager.ProcessByPid(pid)
@@ -303,27 +310,28 @@ func (s *Supervisor) handleSigchld() {
 			// As PID 1 every orphan in the container ends up here; that is
 			// expected. Otherwise only Kahi's own children can be reaped.
 			if s.pid1 {
-				s.logger.Debug("reaped orphan", "pid", pid, "status", status)
+				s.logger.Debug("reaped orphan", "pid", pid, "status", status, "signal", sig)
 			} else {
-				s.logger.Warn("reaped unknown child", "pid", pid, "status", status)
+				s.logger.Warn("reaped unknown child", "pid", pid, "status", status, "signal", sig)
 			}
 			continue
 		}
 
-		s.logger.Debug("reaped child", "pid", pid, "process", p.Name(), "status", status)
-		p.HandleExit(status)
+		s.logger.Debug("reaped child", "pid", pid, "process", p.Name(), "status", status, "signal", sig)
+		p.HandleExitStatus(status, sig)
 	}
 }
 
 // reapChild wraps waitpid with WNOHANG. Returns 0 when no more children.
-// It is a var so tests can override the reaping behavior.
-var reapChild = func() (int, int, error) {
+// The wait status keeps the signal of a process killed by one (#201). It is
+// a var so tests can override the reaping behavior.
+var reapChild = func() (int, syscall.WaitStatus, error) {
 	var ws syscall.WaitStatus
 	pid, err := syscall.Wait4(-1, &ws, syscall.WNOHANG, nil)
 	if err != nil {
 		return 0, 0, err
 	}
-	return pid, ws.ExitStatus(), nil
+	return pid, ws, nil
 }
 
 func (s *Supervisor) waitForShutdown() {
