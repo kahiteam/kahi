@@ -1,8 +1,11 @@
 package supervisor
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -196,10 +199,6 @@ exitcodes = [0]
 	if len(res.Added) != 0 || len(res.Changed) != 0 || len(res.Removed) != 0 {
 		t.Fatalf("expected no diff, got %+v", res)
 	}
-}
-
-func TestReapAllZombies(t *testing.T) {
-	ReapAllZombies(discardLogger())
 }
 
 func TestRunPIDFileError(t *testing.T) {
@@ -517,25 +516,6 @@ func TestHandleSigchldKnownChild(t *testing.T) {
 	}
 }
 
-func TestReapAllZombiesMultiple(t *testing.T) {
-	original := reapChild
-	callCount := 0
-	reapChild = func() (int, int, error) {
-		callCount++
-		if callCount <= 3 {
-			return 100 + callCount, 0, nil
-		}
-		return 0, 0, nil
-	}
-	defer func() { reapChild = original }()
-
-	ReapAllZombies(discardLogger())
-
-	if callCount != 4 {
-		t.Fatalf("expected 4 reapChild calls, got %d", callCount)
-	}
-}
-
 func TestHandleReloadWithWarnings(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgPath := filepath.Join(tmpDir, "kahi.toml")
@@ -632,5 +612,36 @@ shutdown_timeout = 5
 	// After reload, the config should have been updated (empty programs).
 	if _, ok := s.config.Programs["web"]; ok {
 		t.Fatal("'web' should have been removed from config")
+	}
+}
+
+// A reaped process Kahi does not manage is a warning normally, and an
+// expected orphan when Kahi is PID 1 (FUNC-065, #145).
+func TestHandleSigchldOrphanLogging(t *testing.T) {
+	original := reapChild
+	defer func() { reapChild = original }()
+	for _, pid1 := range []bool{false, true} {
+		calls := 0
+		reapChild = func() (int, int, error) {
+			calls++
+			if calls == 1 {
+				return 99999, 0, nil
+			}
+			return 0, 0, nil
+		}
+		var buf bytes.Buffer
+		s := testSupervisor()
+		s.logger = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		s.pid1 = pid1
+		s.manager.LoadConfig(s.config)
+		s.handleSigchld()
+
+		want, notWant := `level=WARN msg="reaped unknown child"`, "reaped orphan"
+		if pid1 {
+			want, notWant = `level=DEBUG msg="reaped orphan"`, "reaped unknown child"
+		}
+		if out := buf.String(); !strings.Contains(out, want) || strings.Contains(out, notWant) {
+			t.Errorf("pid1=%v: log %q, want %q", pid1, out, want)
+		}
 	}
 }
