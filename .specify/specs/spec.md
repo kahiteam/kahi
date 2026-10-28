@@ -1833,11 +1833,11 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - **Given** `kahi ctl shutdown` is issued
   **When** daemon is running
-  **Then** graceful shutdown is initiated and CLI waits for completion
+  **Then** graceful shutdown is initiated and the CLI waits until the daemon has exited (`--timeout`, default 60s, 0 does not wait), printing "shutdown initiated" and then "shut down"; if the daemon is still running at the timeout it exits 1 with "daemon still running after {timeout}"
 
 - **Given** `kahi ctl reload` is issued
   **When** daemon is running
-  **Then** SIGHUP is sent (equivalent to config reload)
+  **Then** the config is reloaded through the API (the same reload as SIGHUP) and the CLI prints "config reloaded: added=[...] changed=[...] removed=[...]"
 
 - **Given** `kahi ctl version` is issued
   **When** daemon is running
@@ -1853,13 +1853,13 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Error Handling:**
 
-| Error Condition    | Expected Behavior | User-Facing Message             |
-| ------------------ | ----------------- | ------------------------------- |
-| Daemon not running | Exit code 1       | "cannot connect to kahi daemon" |
+| Error Condition    | Expected Behavior | User-Facing Message          |
+| ------------------ | ----------------- | ---------------------------- |
+| Daemon not running | Exit code 1       | "connection failed: {error}" |
 
 **Edge Cases:**
 
-- `kahi ctl pid all` prints PIDs for all running processes
+- `kahi ctl pid all` prints `{name} {pid}` for every running process, one per line, sorted by name; `all` is a keyword, as in supervisorctl
 
 **Dependencies:** FUNC-031
 

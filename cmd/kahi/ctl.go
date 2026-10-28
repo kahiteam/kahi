@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"time"
 
 	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/ctl"
@@ -13,13 +14,14 @@ import (
 )
 
 var (
-	ctlSocket  string
-	ctlConfig  string
-	ctlAddr    string
-	ctlUser    string
-	ctlPass    string
-	ctlNoColor bool
-	ctlJSON    bool
+	ctlSocket          string
+	ctlConfig          string
+	ctlAddr            string
+	ctlUser            string
+	ctlPass            string
+	ctlNoColor         bool
+	ctlJSON            bool
+	ctlShutdownTimeout time.Duration
 )
 
 var ctlCmd = &cobra.Command{
@@ -206,13 +208,20 @@ var ctlTailCmd = &cobra.Command{
 
 var ctlShutdownCmd = &cobra.Command{
 	Use:   "shutdown",
-	Short: "Initiate daemon shutdown",
+	Short: "Shut the daemon down and wait until it has exited",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := newCtlClient()
 		if err := c.Shutdown(); err != nil {
 			return err
 		}
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "shutdown initiated")
+		if ctlShutdownTimeout <= 0 {
+			return nil
+		}
+		if !c.WaitGone(ctlShutdownTimeout) {
+			return fmt.Errorf("daemon still running after %s", ctlShutdownTimeout)
+		}
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "shut down")
 		return nil
 	},
 }
@@ -235,11 +244,22 @@ var ctlReloadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "config reloaded: added=%v changed=%v removed=%v\n",
-			result["added"], result["changed"], result["removed"])
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "config reloaded: added=%s changed=%s removed=%s\n",
+			nameList(result["added"]), nameList(result["changed"]), nameList(result["removed"]))
 		printConfigWarnings(cmd, result)
 		return nil
 	},
+}
+
+// nameList formats a JSON list of names as [a b]; an empty or null list is
+// [], not <nil>.
+func nameList(v any) string {
+	items, _ := v.([]any)
+	names := make([]string, len(items))
+	for i, item := range items {
+		names[i] = fmt.Sprint(item)
+	}
+	return "[" + strings.Join(names, " ") + "]"
 }
 
 var ctlVersionCmd = &cobra.Command{
@@ -259,14 +279,25 @@ var ctlVersionCmd = &cobra.Command{
 }
 
 var ctlPIDCmd = &cobra.Command{
-	Use:   "pid [process]",
-	Short: "Show daemon or process PID",
+	Use:   "pid [process|all]",
+	Short: "Show the daemon's PID, a process's PID, or all running processes' PIDs",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := newCtlClient()
 		name := ""
 		if len(args) > 0 {
 			name = args[0]
+		}
+		// "all" lists every running process, as in supervisorctl.
+		if name == "all" {
+			procs, err := c.ProcessPIDs()
+			if err != nil {
+				return err
+			}
+			for _, p := range procs {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s %d\n", p.Name, p.PID)
+			}
+			return nil
 		}
 		pid, err := c.PID(name)
 		if err != nil {
@@ -336,8 +367,8 @@ var ctlRereadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "would apply: added=%v changed=%v removed=%v\n",
-			result["added"], result["changed"], result["removed"])
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "would apply: added=%s changed=%s removed=%s\n",
+			nameList(result["added"]), nameList(result["changed"]), nameList(result["removed"]))
 		printConfigWarnings(cmd, result)
 		return nil
 	},
@@ -352,8 +383,8 @@ var ctlUpdateCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "updated: added=%v changed=%v removed=%v\n",
-			result["added"], result["changed"], result["removed"])
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "updated: added=%s changed=%s removed=%s\n",
+			nameList(result["added"]), nameList(result["changed"]), nameList(result["removed"]))
 		printConfigWarnings(cmd, result)
 		return nil
 	},
@@ -415,6 +446,7 @@ func init() {
 	ctlCmd.PersistentFlags().StringVarP(&ctlPass, "password", "p", "", "HTTP Basic Auth password")
 
 	ctlStatusCmd.Flags().BoolVar(&ctlNoColor, "no-color", false, "Disable color output")
+	ctlShutdownCmd.Flags().DurationVar(&ctlShutdownTimeout, "timeout", 60*time.Second, "how long to wait for the daemon to exit (0: do not wait)")
 	ctlStatusCmd.Flags().BoolVar(&ctlJSON, "json", false, "Output JSON")
 
 	ctlTailCmd.Flags().BoolVarP(&tailFollow, "follow", "f", false, "Follow log output")
