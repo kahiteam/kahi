@@ -653,14 +653,21 @@
         "Configure [server.unix] chmod='0600' and verify the socket file has permissions 0600; configure chmod='0770' and verify startup fails with an owner-only error (SEC-022)",
         "Create a stale socket file from a simulated previous crashed run, start Kahi, and verify it is replaced",
         "Write a test that verifies the socket is cleaned up on graceful shutdown",
-        "Write a test with a non-writable socket path and verify Kahi exits with error message 'cannot create socket: {path}: {error}'",
-        "Write a test with a socket path longer than 108 characters and verify exit with 'socket path too long' error",
+        "Write a test with a socket directory the user cannot write and verify Kahi exits with 'permission denied: cannot create socket in {dir}'",
+        "Write a test with a socket path one byte over the platform limit (103 bytes on macOS, 107 on Linux) and verify exit with 'socket path too long'; a path of exactly the limit works",
         "Configure [server.unix] chown and verify startup fails with 'server.unix.chown is not supported' (SEC-022)",
         "Write a test that connects to the Unix socket and makes an API request and verifies a valid JSON response",
         "Write a test that verifies the socket is not cleaned up on SIGKILL and stale detection handles it on next start"
       ],
-      "passes": false,
-      "dependencies": ["cli-framework"]
+      "passes": true,
+      "dependencies": ["cli-framework"],
+      "verified_by": [
+        "TestUnixSocket_PathLimit",
+        "TestUnixSocket_ModeAndOwnership",
+        "TestUnixSocket_StaleAndCleanup",
+        "TestUnprivileged_UnwritableSocketPathRefused",
+        "TestREST_ProcessEndpoints"
+      ]
     },
     {
       "id": "tcp-http-server",

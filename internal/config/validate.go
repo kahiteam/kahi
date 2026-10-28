@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -180,7 +181,22 @@ func validateUnixServer(unix *UnixServerConfig) []error {
 		}
 	}
 
+	// bind(2) would fail with a bare "invalid argument" (#144).
+	if limit := maxSocketPath(); len(unix.File) > limit {
+		errs = append(errs, fmt.Errorf("socket path too long: %s (%d bytes, at most %d on %s); set a shorter [server.unix] file",
+			unix.File, len(unix.File), limit, runtime.GOOS))
+	}
+
 	return errs
+}
+
+// maxSocketPath is the longest Unix socket path bind(2) accepts: sun_path
+// less its terminating NUL, 104 bytes on macOS and the BSDs, 108 on Linux.
+func maxSocketPath() int {
+	if runtime.GOOS == "linux" {
+		return 107
+	}
+	return 103
 }
 
 // validateRLimits rejects malformed resource-limit entries so a bad value fails

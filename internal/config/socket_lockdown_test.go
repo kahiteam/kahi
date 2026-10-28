@@ -99,3 +99,18 @@ func TestValidateUnixServerReportsAllErrors(t *testing.T) {
 		t.Errorf("missing chmod error: %v", errs)
 	}
 }
+
+// A socket path longer than sun_path allows is a config error, not a bare
+// bind failure (#144).
+func TestSocketPathTooLong(t *testing.T) {
+	limit := maxSocketPath()
+	ok := "/" + strings.Repeat("a", limit-1)
+	if errs := validateUnixServer(&UnixServerConfig{File: ok}); len(errs) != 0 {
+		t.Fatalf("%d-byte path refused: %v", len(ok), errs)
+	}
+	long := ok + "b"
+	errs := validateUnixServer(&UnixServerConfig{File: long})
+	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "socket path too long: "+long) {
+		t.Fatalf("%d-byte path: %v", len(long), errs)
+	}
+}
