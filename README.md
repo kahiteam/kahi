@@ -260,7 +260,8 @@ kahi init --stdout            # print to stdout
 # shutdown_timeout = 30         # seconds to wait for graceful shutdown, then SIGKILL (keep >= every stopwaitsecs)
 
 [server.unix]
-# file = "/var/run/kahi.sock"   # Unix socket path
+# file = "/var/run/kahi.sock"   # Unix socket path. Default: this as root; else
+#                               # $XDG_RUNTIME_DIR/kahi.sock or <tmp>/kahi-<uid>/kahi.sock
 # chmod = "0700"                # socket permissions; must be owner-only -- group/other access is rejected
 
 [server.http]

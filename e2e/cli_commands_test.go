@@ -112,29 +112,24 @@ func TestCLI_InitDocumentsEveryKey(t *testing.T) {
 	}
 }
 
-// The generated file starts a daemon with no programs. Only the socket path
-// is changed, so the test does not need /var/run (#146).
+// The generated file starts a daemon with no programs as an ordinary user,
+// unedited: the socket defaults to $XDG_RUNTIME_DIR/kahi.sock, and kahi ctl
+// finds it the same way (#146).
 func TestCLI_InitConfigStartsDaemon(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root defaults to /var/run/kahi.sock")
+	}
 	dir := shortTempDir(t)
+	t.Setenv("XDG_RUNTIME_DIR", dir)
 	if _, _, code := runKahi(t, dir, "init"); code != 0 {
 		t.Fatal("init failed")
 	}
-	path := filepath.Join(dir, "kahi.toml")
-	b, _ := os.ReadFile(path)
-	socket := filepath.Join(dir, "kahi.sock")
-	cfg := strings.Replace(string(b), `# file = "/var/run/kahi.sock"`, `file = "`+socket+`"`, 1)
-	if cfg == string(b) {
-		t.Fatal("template has no commented socket line to set")
-	}
-	if err := os.WriteFile(path, []byte(cfg), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cmd := startDaemonCmd(t, kahiBinary, path, dir)
+	cmd := startDaemonCmd(t, kahiBinary, filepath.Join(dir, "kahi.toml"), dir)
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
-	waitForSocket(t, socket, 5*time.Second)
-	out, _, code := runKahi(t, dir, "ctl", "-s", socket, "status", "--json")
+	waitForSocket(t, filepath.Join(dir, "kahi.sock"), 5*time.Second)
+	out, stderr, code := runKahi(t, dir, "ctl", "-c", "kahi.toml", "status", "--json")
 	if code != 0 || strings.TrimSpace(out) != "[]" {
-		t.Fatalf("status of the init config: exit %d, %q; want no programs", code, out)
+		t.Fatalf("ctl status without -s: exit %d, %q, stderr %q; want no programs", code, out, stderr)
 	}
 }
 
