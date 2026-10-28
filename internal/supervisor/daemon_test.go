@@ -233,3 +233,33 @@ func TestEnsurePrivateDir(t *testing.T) {
 		}
 	}
 }
+
+// A PID file naming a live process refuses the start; a missing, stale or
+// unparseable one does not (FUNC-064, #143).
+func TestCheckPIDFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "kahi.pid")
+	if err := CheckPIDFile(path, discardLogger()); err != nil {
+		t.Fatalf("missing file: %v", err)
+	}
+	if err := CheckPIDFile("", discardLogger()); err != nil {
+		t.Fatalf("no PID file: %v", err)
+	}
+
+	parent := os.Getppid()
+	if err := os.WriteFile(path, []byte(strconv.Itoa(parent)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckPIDFile(path, discardLogger()); err == nil || !strings.Contains(err.Error(), "another instance running (pid "+strconv.Itoa(parent)+")") {
+		t.Fatalf("live pid: %v", err)
+	}
+
+	for _, content := range []string{"999999999\n", "garbage\n", strconv.Itoa(os.Getpid()) + "\n"} {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := CheckPIDFile(path, discardLogger()); err != nil {
+			t.Errorf("PID file %q: %v, want it treated as stale", content, err)
+		}
+	}
+}

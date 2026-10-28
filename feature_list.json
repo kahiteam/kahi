@@ -1375,15 +1375,21 @@
       "title": "Optional Double-Fork Daemonization",
       "description": "Optionally daemonize via double-fork for bare-metal deployments, with PID file management and stale PID detection.",
       "testing_steps": [
-        "Run 'kahi daemon --daemonize' and verify it double-forks, redirects stdio to /dev/null, and writes PID file",
+        "Run 'kahi daemon --daemonize' and verify it returns once the daemon runs in the background in its own session, with stdio on /dev/null, and writes the PID file; a startup error of the background daemon is reported with exit 1",
         "Verify the PID file contains the correct daemon PID",
         "Stop the daemon and verify the PID file is removed",
         "Configure a non-writable PID file path and verify exit with error message 'cannot write PID file: {path}: {error}'",
         "Start a second daemon instance with the same PID file and verify it detects the running instance and exits with error",
         "Create a stale PID file (process not running) and start the daemon and verify it is overwritten with a warning"
       ],
-      "passes": false,
-      "dependencies": ["foreground-mode"]
+      "passes": true,
+      "dependencies": ["foreground-mode"],
+      "verified_by": [
+        "TestDaemonize_StartsInBackground",
+        "TestDaemonize_ReportsStartupError",
+        "TestDaemonize_PIDFileChecks",
+        "TestDaemon_PIDFile"
+      ]
     },
     {
       "id": "pid1-zombie-reaping",

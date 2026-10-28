@@ -2704,13 +2704,13 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 ### FUNC-064: Optional Daemonization
 
-**Description:** Optionally daemonize via double-fork for bare-metal deployments.
+**Description:** Optionally daemonize for bare-metal deployments. Go cannot fork a running program safely, so `-d` re-executes the binary in the background (decided 2026-10-28, #143).
 
 **Acceptance Criteria:**
 
 - **Given** `kahi daemon --daemonize`
   **When** started
-  **Then** Kahi double-forks, redirects stdio to /dev/null, creates a new session, and writes PID file
+  **Then** Kahi starts itself again in a new session with stdio on /dev/null, waits until that daemon runs (PID file written, sockets bound, processes started), prints "kahi daemon started (pid {pid})" and exits 0; if the daemon fails to start, its error is printed and the command exits 1
 
 - **Given** daemonize mode
   **When** PID file path is configured
@@ -2722,14 +2722,16 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Error Handling:**
 
-| Error Condition                                                    | Expected Behavior | User-Facing Message                      |
-| ------------------------------------------------------------------ | ----------------- | ---------------------------------------- |
-| PID file path not writable                                         | Exit with error   | "cannot write PID file: {path}: {error}" |
-| Another daemon already running (PID file exists with live process) | Exit with error   | "another instance running (pid {pid})"   |
+| Error Condition                                                    | Expected Behavior | User-Facing Message                                     |
+| ------------------------------------------------------------------ | ----------------- | ------------------------------------------------------- |
+| PID file path not writable                                         | Exit with error   | "cannot write PID file: {path}: {error}"                |
+| Another daemon already running (PID file exists with live process) | Exit with error   | "another instance running (pid {pid}); PID file {path}" |
 
 **Edge Cases:**
 
-- Stale PID file (process not running) is detected and overwritten with a warning
+- Stale PID file (process not running, or not a PID) is detected and overwritten with a warning ("replacing stale PID file")
+- The PID file is checked before the socket is bound, so a second daemon names the running one
+- With -d and no `[supervisor] logfile` the daemon log goes to /dev/null; Kahi warns about it
 - PID file is not removed on SIGKILL (handled by stale detection)
 
 **Dependencies:** FUNC-063

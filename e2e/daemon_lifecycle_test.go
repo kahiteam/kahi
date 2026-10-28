@@ -316,55 +316,6 @@ autostart = false
 	}
 }
 
-func TestDaemon_Daemonize(t *testing.T) {
-	t.Skip("Go runtime does not reliably support fork (multi-threaded); daemonize needs re-exec implementation")
-	dir := t.TempDir()
-	socketPath := filepath.Join(dir, "kahi.sock")
-	configPath := filepath.Join(dir, "kahi.toml")
-	pidFile := filepath.Join(dir, "kahi.pid")
-
-	config := fmt.Sprintf("[supervisor]\nlog_level = \"debug\"\nshutdown_timeout = 10\n\n[server.unix]\nfile = %q\n\n[programs.sleeper]\ncommand = \"/bin/sleep 300\"\nautostart = true\nstartsecs = 0\n", socketPath)
-	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	// Start with -d (daemonize) and -p (pid file).
-	cmd := startDaemonCmd(t, kahiBinary, configPath, dir, "-d", "-p", pidFile)
-
-	// Parent should exit quickly.
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("parent process exited with error: %v", err)
-		}
-	case <-time.After(10 * time.Second):
-		_ = cmd.Process.Kill()
-		t.Fatal("parent did not exit within 10 seconds after daemonize")
-	}
-
-	// Daemon should be running in background.
-	waitForSocket(t, socketPath, 5*time.Second)
-	client := ctl.NewUnixClient(socketPath)
-	waitForHealth(t, client, 3*time.Second)
-
-	h, err := client.Health()
-	if err != nil {
-		t.Fatalf("health after daemonize: %v", err)
-	}
-	if h != "ok" {
-		t.Fatalf("health = %q, want ok", h)
-	}
-
-	// Clean up: shutdown the daemonized process.
-	t.Cleanup(func() {
-		_ = client.Shutdown()
-		// Give it time to shut down.
-		time.Sleep(2 * time.Second)
-	})
-}
-
 func TestDaemon_PIDFile(t *testing.T) {
 	dir := t.TempDir()
 	socketPath := filepath.Join(dir, "kahi.sock")

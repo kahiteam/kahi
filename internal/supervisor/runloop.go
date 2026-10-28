@@ -42,6 +42,7 @@ type Supervisor struct {
 	// to stdout.
 	reopenDaemonLog func() error
 	setLogLevel     func(level string) error
+	onRunning       func()
 
 	// reloadMu serializes reloads. A reload waits for changed programs to
 	// stop, so it never holds mu, which /healthz and shutdown need.
@@ -63,6 +64,10 @@ type SupervisorConfig struct {
 	ReopenDaemonLog func() error
 	// SetLogLevel changes the daemon log's level on reload; nil leaves it.
 	SetLogLevel func(level string) error
+	// OnRunning, if set, is called once the main loop is about to run: the
+	// PID file is written and processes are started. kahi daemon -d uses it
+	// to report a successful start to the parent (FUNC-064).
+	OnRunning func()
 	// Stdout and Stderr receive, as JSON lines, the output of process
 	// streams that have no log file (FUNC-018); nil drops it.
 	Stdout io.Writer
@@ -94,6 +99,7 @@ func New(cfg SupervisorConfig) *Supervisor {
 
 		reopenDaemonLog: cfg.ReopenDaemonLog,
 		setLogLevel:     cfg.SetLogLevel,
+		onRunning:       cfg.OnRunning,
 	}
 }
 
@@ -135,6 +141,9 @@ func (s *Supervisor) Run() error {
 		s.logger.Info("running as PID 1; orphaned processes are reaped")
 	}
 	s.logger.Info("supervisor running", "pid", os.Getpid())
+	if s.onRunning != nil {
+		s.onRunning()
+	}
 
 	// Main event loop.
 	for {
