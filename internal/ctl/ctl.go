@@ -424,6 +424,46 @@ func (c *Client) Health() (string, error) {
 	return body["status"], nil
 }
 
+// WaitGone polls the daemon until it no longer answers, for a shutdown that
+// should finish before the CLI returns (FUNC-036). It reports whether the
+// daemon was gone within timeout.
+func (c *Client) WaitGone(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		resp, err := c.do("GET", "/healthz", nil)
+		if err != nil {
+			return true
+		}
+		_ = resp.Body.Close()
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// ProcessPIDs returns the running processes and their pids, sorted by name,
+// for kahi ctl pid all (FUNC-036).
+func (c *Client) ProcessPIDs() ([]ProcessInfo, error) {
+	resp, err := c.do("GET", "/api/v1/processes", nil)
+	if err != nil {
+		return nil, fmt.Errorf("connection failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var procs []ProcessInfo
+	if err := json.NewDecoder(resp.Body).Decode(&procs); err != nil {
+		return nil, fmt.Errorf("invalid response: %w", err)
+	}
+	running := procs[:0]
+	for _, p := range procs {
+		if p.PID > 0 {
+			running = append(running, p)
+		}
+	}
+	sort.Slice(running, func(i, j int) bool { return running[i].Name < running[j].Name })
+	return running, nil
+}
+
 // Ready checks daemon readiness, optionally filtering by process names.
 func (c *Client) Ready(processes []string) (string, error) {
 	path := "/readyz"
