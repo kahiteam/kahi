@@ -4,6 +4,7 @@ package events
 
 import (
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -159,28 +160,36 @@ func (b *Bus) SubscriberCount(eventType EventType) int {
 
 // Ticker emits periodic TICK events. Call Stop to shut it down.
 type Ticker struct {
-	bus    *Bus
-	stopCh chan struct{}
-	done   chan struct{}
+	bus      *Bus
+	stopCh   chan struct{}
+	done     chan struct{}
+	stopOnce sync.Once
 }
 
 // NewTicker starts emitting TICK_5, TICK_60, and TICK_3600 events.
 func NewTicker(bus *Bus) *Ticker {
+	return newTicker(bus, 5*time.Second, 60*time.Second, 3600*time.Second)
+}
+
+// newTicker takes the three periods, so tests can run them in milliseconds.
+// time.Ticker runs on the monotonic clock, so a wall-clock jump neither skips
+// nor doubles a tick (FUNC-054).
+func newTicker(bus *Bus, p5, p60, p3600 time.Duration) *Ticker {
 	t := &Ticker{
 		bus:    bus,
 		stopCh: make(chan struct{}),
 		done:   make(chan struct{}),
 	}
-	go t.run()
+	go t.run(p5, p60, p3600)
 	return t
 }
 
-func (t *Ticker) run() {
+func (t *Ticker) run(p5, p60, p3600 time.Duration) {
 	defer close(t.done)
 
-	tick5 := time.NewTicker(5 * time.Second)
-	tick60 := time.NewTicker(60 * time.Second)
-	tick3600 := time.NewTicker(3600 * time.Second)
+	tick5 := time.NewTicker(p5)
+	tick60 := time.NewTicker(p60)
+	tick3600 := time.NewTicker(p3600)
 	defer tick5.Stop()
 	defer tick60.Stop()
 	defer tick3600.Stop()
@@ -190,17 +199,25 @@ func (t *Ticker) run() {
 		case <-t.stopCh:
 			return
 		case now := <-tick5.C:
-			t.bus.Publish(Event{Type: Tick5, Timestamp: now})
+			t.publish(Tick5, now)
 		case now := <-tick60.C:
-			t.bus.Publish(Event{Type: Tick60, Timestamp: now})
+			t.publish(Tick60, now)
 		case now := <-tick3600.C:
-			t.bus.Publish(Event{Type: Tick3600, Timestamp: now})
+			t.publish(Tick3600, now)
 		}
 	}
 }
 
-// Stop terminates the ticker goroutine and waits for it to finish.
+// publish sends a tick with its time, as "when" in Unix seconds like
+// supervisord's TICK events.
+func (t *Ticker) publish(typ EventType, now time.Time) {
+	t.bus.Publish(Event{Type: typ, Timestamp: now, Data: map[string]string{"when": strconv.FormatInt(now.Unix(), 10)}})
+}
+
+// Stop terminates the ticker goroutine and waits for it to finish. It may be
+// called more than once: the supervisor stops ticks when shutdown begins and
+// again when Run returns.
 func (t *Ticker) Stop() {
-	close(t.stopCh)
+	t.stopOnce.Do(func() { close(t.stopCh) })
 	<-t.done
 }

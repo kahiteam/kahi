@@ -159,6 +159,8 @@ func (s *Supervisor) Run() error {
 
 shutdown:
 	s.logger.Info("shutting down")
+	// No ticks while processes are stopped (FUNC-054, #147).
+	s.ticker.Stop()
 
 	// A signal-driven shutdown arrives here without Shutdown(), which is
 	// what sets the flag for the API path. Without it /healthz keeps
