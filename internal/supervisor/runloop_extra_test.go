@@ -445,7 +445,7 @@ exitcodes = [0]
 func TestHandleSigchldUnknownChild(t *testing.T) {
 	original := reapChild
 	callCount := 0
-	reapChild = func() (int, int, error) {
+	reapChild = func() (int, syscall.WaitStatus, error) {
 		callCount++
 		if callCount == 1 {
 			return 99999, 0, nil // Unknown PID.
@@ -500,7 +500,7 @@ func TestHandleSigchldKnownChild(t *testing.T) {
 
 	original := reapChild
 	callCount := 0
-	reapChild = func() (int, int, error) {
+	reapChild = func() (int, syscall.WaitStatus, error) {
 		callCount++
 		if callCount == 1 {
 			return pid, 0, nil
@@ -622,7 +622,7 @@ func TestHandleSigchldOrphanLogging(t *testing.T) {
 	defer func() { reapChild = original }()
 	for _, pid1 := range []bool{false, true} {
 		calls := 0
-		reapChild = func() (int, int, error) {
+		reapChild = func() (int, syscall.WaitStatus, error) {
 			calls++
 			if calls == 1 {
 				return 99999, 0, nil

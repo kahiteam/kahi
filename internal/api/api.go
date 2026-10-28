@@ -35,6 +35,9 @@ type ProcessInfo struct {
 	Uptime      int64  `json:"uptime"`
 	Description string `json:"description"`
 	ExitStatus  int    `json:"exitstatus"`
+	// ExitSignal names the signal that killed the process ("KILL"); then
+	// ExitStatus is -1 (#201).
+	ExitSignal string `json:"exitsignal,omitempty"`
 }
 
 // ProcessManager provides process management operations to the API layer.
