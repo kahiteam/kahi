@@ -1566,8 +1566,13 @@
         "TestEventStreamSubscribesBeforeFlush (internal/api): on a fresh events.NewBus(), serve GET /api/v1/events/stream through srv.handler with a ResponseWriter whose Flush records the bus subscriber count for PROCESS_STATE_RUNNING, cancel the request context after the first Flush, and verify the recorded count is 1; mutation check: moving the subscribe loop after flusher.Flush() in handleEventStream makes it fail",
         "Run 'go test -count=1 -run TestStatusPage ./internal/web/...' (covers steps 1-9) and 'go test -count=1 -run TestEventStreamSubscribesBeforeFlush ./internal/api/...'"
       ],
-      "passes": false,
-      "verified_by": ["TestWebUIE2EServed", "TestWebUIE2EBulk"],
+      "passes": true,
+      "verified_by": [
+        "TestWebUI_StatusPage",
+        "TestWebUI_ScriptContents",
+        "TestWebUIE2EServed",
+        "TestWebUIE2EBulk"
+      ],
       "dependencies": [
         "rest-api-endpoints",
         "sse-streaming",
@@ -1594,8 +1599,12 @@
         "Mutation check: move bus.Subscribe after flusher.Flush() in handleStreamLog and verify TestStreamLogSubscribesBeforeFlush fails",
         "Run 'go test -count=1 -run TestLogViewer ./internal/web/...' and 'go test -count=1 -run TestStreamLogSubscribesBeforeFlush ./internal/api/...'"
       ],
-      "passes": false,
-      "verified_by": ["TestWebUIE2ELogViewer"],
+      "passes": true,
+      "verified_by": [
+        "TestWebUI_LogViewerPages",
+        "TestWebUI_ScriptContents",
+        "TestWebUIE2ELogViewer"
+      ],
       "dependencies": [
         "sse-streaming",
         "web-ui-status-page",
@@ -1625,8 +1634,13 @@
         "Mutation check: change the ETag to sha256(name+ModTime.String()) and verify TestStaticETagIsContentHash and TestStaticETagChangesWithContent fail",
         "Run 'go test -count=1 -run TestStatic ./internal/web/...'; the existing TestStaticDirFallback and TestStaticCustomDir also match the filter"
       ],
-      "passes": false,
-      "verified_by": ["TestWebUIE2EAssets"],
+      "passes": true,
+      "verified_by": [
+        "TestWebUI_Assets",
+        "TestWebUI_StaticOverlay",
+        "TestWebUI_StaticDirFallback",
+        "TestWebUIE2EAssets"
+      ],
       "dependencies": ["web-ui-status-page", "web-ui-log-viewer"]
     },
     {
@@ -2497,8 +2511,12 @@
         "Mutation check: register /ui/ without requireAuth and verify TestUIMountAuth fails",
         "Run 'go test -count=1 -run \"TestWebConfig|TestDefaultConfigTOMLHasWeb|TestUIMount|TestUIUnavailable|TestBuildUIHandlerDisabled|TestUIListerAdapter|TestReloadWarnsOnWebChange|TestREADMEDocumentsWebUI|TestStopClosesOpenStreams\" ./internal/config/... ./internal/api/... ./internal/supervisor/... ./cmd/kahi/...'"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
+        "TestWebUI_Disabled",
+        "TestWebUI_MountAuthAndRedirects",
+        "TestWebUI_ReloadWarnsOnWebChange",
+        "TestWebUI_ShutdownEndsStreams",
         "TestWebUIE2EServed",
         "TestWebUIE2EAuth",
         "TestWebUIE2EUnixSocket",
