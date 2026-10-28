@@ -1026,13 +1026,18 @@
       "description": "Run Kahi as non-root by default with user-accessible socket and log paths, no root-required functionality in default config.",
       "testing_steps": [
         "Start Kahi as non-root with default config and verify it starts and operates normally",
-        "Verify default socket path is /tmp/kahi-{uid}.sock when running as non-root",
+        "Verify the default socket path as non-root is $XDG_RUNTIME_DIR/kahi.sock, else kahi.sock in an owner-only kahi-{uid} directory under the temp dir, and that kahi ctl finds it without -s; a kahi-{uid} directory others can reach is refused",
         "Verify default socket path is /var/run/kahi.sock when running as root",
         "Start Kahi as non-root with config specifying user-accessible paths and verify all operations succeed",
         "Configure a path not writable by the current user and verify exit with permission denied error"
       ],
-      "passes": false,
-      "dependencies": ["unix-socket-server"]
+      "passes": true,
+      "dependencies": ["unix-socket-server"],
+      "verified_by": [
+        "TestCLI_InitConfigStartsDaemon",
+        "TestUnprivileged_DefaultSocketDir",
+        "TestUnprivileged_UnwritableSocketPathRefused"
+      ]
     },
     {
       "id": "privilege-dropping",
