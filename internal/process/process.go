@@ -28,6 +28,7 @@ type Process struct {
 	spawner    ProcessSpawner
 	spawned    SpawnedProcess
 	exitCode   int
+	exitSignal string // signal that killed the child, without SIG; "" if it exited
 	startedAt  time.Time
 	bus        *events.Bus
 	logger     *slog.Logger
@@ -164,6 +165,14 @@ func (p *Process) ExitCode() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.exitCode
+}
+
+// ExitSignal returns the signal that killed the last child, without the SIG
+// prefix, or "" if it exited by itself.
+func (p *Process) ExitSignal() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.exitSignal
 }
 
 // StartedAt returns when the process was last started.
@@ -513,11 +522,23 @@ func (p *Process) WriteStdin(data []byte) error {
 
 // HandleExit processes the exit of a child process with the given exit code.
 func (p *Process) HandleExit(exitCode int) {
+	p.HandleExitStatus(exitCode, "")
+}
+
+// HandleExitStatus is HandleExit with the signal that killed the child, if
+// any ("KILL"); exitCode is then -1 (#201). A signal death is never in
+// exitcodes, so autorestart = "unexpected" restarts it, as in supervisord.
+func (p *Process) HandleExitStatus(exitCode int, signal string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	p.exitCode = exitCode
-	p.logger.Info("exited", "exit_code", exitCode)
+	p.exitSignal = signal
+	if signal != "" {
+		p.logger.Info("exited", "exit_code", exitCode, "signal", signal)
+	} else {
+		p.logger.Info("exited", "exit_code", exitCode)
+	}
 
 	state := p.sm.State()
 	switch state {

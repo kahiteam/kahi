@@ -1439,7 +1439,7 @@ This feature adds two complementary mechanisms:
 
 - **Given** the API server is running
   **When** `GET /api/v1/processes` is requested
-  **Then** a JSON array of all process info objects is returned (name, group, state, statecode, pid, uptime, description, exitstatus)
+  **Then** a JSON array of all process info objects is returned (name, group, state, statecode, pid, uptime, description, exitstatus, and exitsignal when a signal killed the process, for example `"KILL"` with exitstatus -1)
 
 - **Given** a process named "web"
   **When** `POST /api/v1/processes/web/start` is requested
@@ -1711,7 +1711,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - State is color-coded in terminal output (green=RUNNING, red=FATAL, yellow=STARTING)
 - Uptime is formatted as human-readable duration (1d 2h 30m)
-- Exit status shown for EXITED processes (e.g., "exit code 1")
+- Exit status shown for EXITED processes: "exit 1", or "killed by SIGKILL" for a process a signal killed (#201)
 
 **Dependencies:** FUNC-031
 
