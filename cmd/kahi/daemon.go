@@ -34,12 +34,24 @@ var daemonCmd = &cobra.Command{
 func init() {
 	daemonCmd.Flags().StringVarP(&configFlag, "config", "c", "", "config file path (default: search paths)")
 	daemonCmd.Flags().StringVarP(&pidfileFlag, "pidfile", "p", "", "PID file path")
-	daemonCmd.Flags().BoolVarP(&daemonizeFlag, "daemonize", "d", false, "run in background (double-fork)")
+	daemonCmd.Flags().BoolVarP(&daemonizeFlag, "daemonize", "d", false, "run in the background; returns once the daemon runs")
 	daemonCmd.Flags().StringVarP(&userFlag, "user", "u", "", "drop privileges to user (uid or uid:gid)")
 	rootCmd.AddCommand(daemonCmd)
 }
 
-func daemonRun(cmd *cobra.Command, args []string) error {
+func daemonRun(cmd *cobra.Command, args []string) (err error) {
+	// A daemonized child reports its start, or the error that ended it, to
+	// the waiting parent; its stderr is /dev/null.
+	report := daemonChildReport()
+	if report != nil {
+		defer func() {
+			if err != nil {
+				_, _ = fmt.Fprintln(report, err)
+			}
+			_ = report.Close()
+		}()
+	}
+
 	// Resolve config path. The daemon excludes the current directory from its
 	// default search order so a root daemon cannot be tricked into loading a
 	// ./kahi.toml planted in an attacker-writable working directory (SEC-017).
@@ -83,15 +95,19 @@ func daemonRun(cmd *cobra.Command, args []string) error {
 	// Warn if running as root without privilege drop configured.
 	supervisor.RootWarning(logger, userFlag != "")
 
-	// Optional daemonize (before privilege drop, after socket validation).
-	if daemonizeFlag {
-		shouldExit, err := supervisor.Daemonize(logger)
-		if err != nil {
-			return fmt.Errorf("daemonize failed: %w", err)
+	// A running daemon named by the PID file is refused before the socket
+	// is touched; a stale file is replaced (FUNC-064).
+	if err := supervisor.CheckPIDFile(pidfileFlag, logger); err != nil {
+		return err
+	}
+
+	// -d: the foreground process starts the daemon in the background and
+	// returns once it runs, with its error if it fails (FUNC-064).
+	if daemonizeFlag && report == nil {
+		if cfg.Supervisor.Logfile == "" {
+			fmt.Fprintln(os.Stderr, "warning: with -d and no [supervisor] logfile the daemon log goes to /dev/null")
 		}
-		if shouldExit {
-			os.Exit(0)
-		}
+		return daemonize(cmd.OutOrStdout())
 	}
 
 	// Create supervisor.
@@ -102,6 +118,13 @@ func daemonRun(cmd *cobra.Command, args []string) error {
 		Logger:     logger,
 
 		ReopenDaemonLog: daemonLog.Reopen,
+		OnRunning: func() {
+			if report != nil {
+				_, _ = fmt.Fprintln(report, "ok")
+				_ = report.Close()
+				report = nil
+			}
+		},
 		// Output of streams without a log file goes to the daemon's own
 		// stdout and stderr, where a container runtime collects it.
 		Stdout: os.Stdout,

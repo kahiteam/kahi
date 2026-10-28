@@ -162,12 +162,12 @@ Tagged releases are published automatically via GitHub Actions.
 kahi daemon [flags]
 ```
 
-| Flag              | Description                                    |
-| ----------------- | ---------------------------------------------- |
-| `-c, --config`    | Config file path (default: search order below) |
-| `-p, --pidfile`   | PID file path                                  |
-| `-d, --daemonize` | Run in background (double-fork)                |
-| `-u, --user`      | Drop privileges to user (`uid` or `uid:gid`)   |
+| Flag              | Description                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `-c, --config`    | Config file path (default: search order below)                                                                                  |
+| `-p, --pidfile`   | PID file path; a start is refused while the PID in the file is alive, a stale file is replaced                                  |
+| `-d, --daemonize` | Run in the background; returns once the daemon runs, or with its startup error. Set `[supervisor] logfile`: stdout is /dev/null |
+| `-u, --user`      | Drop privileges to user (`uid` or `uid:gid`)                                                                                    |
 
 ### ctl
 

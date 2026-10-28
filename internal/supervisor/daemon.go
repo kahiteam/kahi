@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/kahiteam/kahi/internal/config"
@@ -97,46 +98,30 @@ func ValidateSocketPermissions(socketPath string) error {
 	return nil
 }
 
-// Daemonize performs a double-fork to become a background daemon.
-// Returns true in the parent (which should exit), false in the daemon child.
-func Daemonize(logger *slog.Logger) (bool, error) {
-	// First fork.
-	pid, errno := sysFork()
-	if errno != 0 {
-		return false, fmt.Errorf("first fork failed: %v", errno)
+// CheckPIDFile refuses to start when path names a PID that is still alive,
+// and warns about and leaves a stale file to be overwritten (FUNC-064, #143).
+// It runs before the socket is bound, so a second daemon reports the PID
+// file rather than a socket conflict.
+func CheckPIDFile(path string, logger *slog.Logger) error {
+	if path == "" {
+		return nil
 	}
-	if pid > 0 {
-		// Parent process -- exit.
-		return true, nil
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
 	}
-
-	// Create new session.
-	if _, err := syscall.Setsid(); err != nil {
-		return false, fmt.Errorf("setsid failed: %w", err)
-	}
-
-	// Second fork.
-	pid, errno = sysFork()
-	if errno != 0 {
-		return false, fmt.Errorf("second fork failed: %v", errno)
-	}
-	if pid > 0 {
-		// First child -- exit.
-		os.Exit(0)
-	}
-
-	// Redirect stdio to /dev/null.
-	devNull, err := os.Open(os.DevNull)
 	if err != nil {
-		return false, fmt.Errorf("cannot open /dev/null: %w", err)
+		return fmt.Errorf("cannot read PID file: %s: %w", path, err)
 	}
-	_ = sysDup2(int(devNull.Fd()), int(os.Stdin.Fd()))
-	_ = sysDup2(int(devNull.Fd()), int(os.Stdout.Fd()))
-	_ = sysDup2(int(devNull.Fd()), int(os.Stderr.Fd()))
-	_ = devNull.Close()
-
-	logger.Info("daemonized", "pid", os.Getpid())
-	return false, nil
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err == nil && pid > 0 && pid != os.Getpid() {
+		// EPERM means the process exists but belongs to another user.
+		if err := syscall.Kill(pid, 0); err == nil || err == syscall.EPERM {
+			return fmt.Errorf("another instance running (pid %d); PID file %s", pid, path)
+		}
+	}
+	logger.Warn("replacing stale PID file", "path", path, "content", strings.TrimSpace(string(b)))
+	return nil
 }
 
 // DropPrivileges switches the process to the given user/group.
