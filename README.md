@@ -29,7 +29,7 @@ Key differences from supervisord:
 
 ### Features
 
-- Process lifecycle management with 7-state machine, autorestart, backoff
+- Process lifecycle management with 7-state machine, autorestart, backoff ([how it works](docs/process-lifecycle.md))
 - TOML configuration with variable expansion, glob-based includes, hot reload
 - REST/JSON API with HTTP Basic Auth, SSE streaming for logs and events
 - CLI control client (`kahi ctl`) with all standard operations
