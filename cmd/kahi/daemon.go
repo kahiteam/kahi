@@ -118,6 +118,7 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 		Logger:     logger,
 
 		ReopenDaemonLog: daemonLog.Reopen,
+		SetLogLevel:     daemonLog.SetLevel,
 		OnRunning: func() {
 			if report != nil {
 				_, _ = fmt.Fprintln(report, "ok")
