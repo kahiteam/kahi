@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"syscall"
+
+	"github.com/kahiteam/kahi/internal/config"
 )
 
 // Syscall seams for the privilege drop, overridable in tests so the call
@@ -60,6 +62,13 @@ func socketDir(socketPath string) string {
 // ValidateSocketPermissions checks that the socket directory is writable.
 func ValidateSocketPermissions(socketPath string) error {
 	dir := socketDir(socketPath)
+
+	// The per-user default directory is created here, owner-only (FUNC-044).
+	if dir == config.PrivateSocketDir() {
+		if err := ensurePrivateDir(dir); err != nil {
+			return err
+		}
+	}
 
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -187,4 +196,23 @@ func splitUserGroup(s string) []string {
 		}
 	}
 	return []string{s}
+}
+
+// ensurePrivateDir creates dir with mode 0700 if it is missing and refuses it
+// unless it is a real directory owned by this user that group and others
+// cannot reach: another user who created it first could otherwise replace or
+// impersonate the socket in it.
+func ensurePrivateDir(dir string) error {
+	if err := os.Mkdir(dir, 0o700); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("cannot create socket directory %s: %w", dir, err)
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return fmt.Errorf("socket directory %s: %w", dir, err)
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !info.IsDir() || !ok || int(st.Uid) != os.Geteuid() || info.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("socket directory %s must be a directory owned by uid %d with mode 0700; remove it or set [server.unix] file", dir, os.Geteuid())
+	}
+	return nil
 }
