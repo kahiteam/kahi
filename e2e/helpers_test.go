@@ -72,13 +72,15 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	// Suite-wide 10-minute timeout fallback.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	// Suite-wide timeout fallback. It stays just under the -timeout=15m of
+	// task test-e2e, which gives a stack dump of a hung test instead; the
+	// serial suite takes about 10 minutes on CI.
+	ctx, cancel := context.WithTimeout(context.Background(), 14*time.Minute)
 	defer cancel()
 	go func() {
 		<-ctx.Done()
 		if ctx.Err() == context.DeadlineExceeded {
-			fmt.Fprintln(os.Stderr, "E2E suite timeout exceeded (10 minutes)")
+			fmt.Fprintln(os.Stderr, "E2E suite timeout exceeded (14 minutes)")
 			os.Exit(2)
 		}
 	}()
