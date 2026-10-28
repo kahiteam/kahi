@@ -325,10 +325,12 @@
         "Write a unit test with processes at the same priority that verifies lexicographic name ordering",
         "Parse a config with priority outside 0-999 and verify a config validation error is returned",
         "Write a unit test that verifies priority ordering applies to group-level operations",
-        "Write a unit test that verifies shutdown uses the same reverse-priority ordering"
+        "Write a unit test that verifies shutdown uses the same reverse-priority ordering",
+        "Put two programs in a [groups] table with priority 1 and verify, through POST /api/v1/all/start and /stop, that they start before and stop after a program with priority 5, ordered among themselves by their own priority (#196)"
       ],
       "passes": false,
-      "dependencies": ["process-start"]
+      "dependencies": ["process-start"],
+      "verified_by": ["TestGroups_PriorityOrdersMembers"]
     },
     {
       "id": "homogeneous-groups",

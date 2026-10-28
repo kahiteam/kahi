@@ -27,6 +27,10 @@ type Manager struct {
 	spawner    ProcessSpawner
 	shutdownCh chan struct{}
 
+	// groupPriority maps a program to the priority of the [groups] table it
+	// belongs to; ordering puts it first (#196). Rebuilt by LoadConfig.
+	groupPriority map[string]int
+
 	// The daemon's own stdout and stderr, which receive the output of
 	// streams that have no log file, as JSON lines (FUNC-018). passMu keeps
 	// lines from different processes whole.
@@ -218,7 +222,11 @@ func (m *Manager) LoadConfig(cfg *config.Config) {
 	}
 
 	// Create explicit heterogeneous groups.
+	m.groupPriority = make(map[string]int)
 	for groupName, groupCfg := range cfg.Groups {
+		for _, prog := range groupCfg.Programs {
+			m.groupPriority[prog] = groupCfg.Priority
+		}
 		var allProcs []string
 		for _, progName := range groupCfg.Programs {
 			if g, ok := m.groups[progName]; ok {
@@ -337,30 +345,46 @@ func (m *Manager) StopAll() {
 	}
 }
 
-// sortedProcesses returns processes sorted by priority.
-// ascending=true for start order, false for stop order.
+// sortedProcesses returns processes in priority order (sortByPriority).
+// ascending=true for start order, false for stop order. Callers hold m.mu.
 func (m *Manager) sortedProcesses(ascending bool) []*Process {
 	procs := make([]*Process, 0, len(m.processes))
 	for _, p := range m.processes {
 		procs = append(procs, p)
 	}
-
-	sort.Slice(procs, func(i, j int) bool {
-		pi := procs[i].Config().Priority
-		pj := procs[j].Config().Priority
-		if pi != pj {
-			if ascending {
-				return pi < pj
-			}
-			return pi > pj
-		}
-		if ascending {
-			return procs[i].Name() < procs[j].Name()
-		}
-		return procs[i].Name() > procs[j].Name()
-	})
-
+	m.sortByPriority(procs, ascending)
 	return procs
+}
+
+// sortByPriority orders processes for every ordered action: by the priority
+// of their [groups] table if they are in one, else their own priority; then
+// by their own priority; then by name. Descending reverses all three.
+// Callers hold m.mu.
+func (m *Manager) sortByPriority(procs []*Process, ascending bool) {
+	key := func(p *Process) (int, int, string) {
+		own := p.Config().Priority
+		if gp, ok := m.groupPriority[p.Group()]; ok {
+			return gp, own, p.Name()
+		}
+		return own, own, p.Name()
+	}
+	sort.Slice(procs, func(i, j int) bool {
+		g1, o1, n1 := key(procs[i])
+		g2, o2, n2 := key(procs[j])
+		var less bool
+		switch {
+		case g1 != g2:
+			less = g1 < g2
+		case o1 != o2:
+			less = o1 < o2
+		default:
+			less = n1 < n2
+		}
+		if !ascending {
+			return !less && (g1 != g2 || o1 != o2 || n1 != n2)
+		}
+		return less
+	})
 }
 
 // GetProcess returns a process by name.
@@ -726,22 +750,7 @@ func (m *Manager) groupProcessesSorted(g *Group, ascending bool) []*Process {
 			procs = append(procs, p)
 		}
 	}
-
-	sort.Slice(procs, func(i, j int) bool {
-		pi := procs[i].Config().Priority
-		pj := procs[j].Config().Priority
-		if pi != pj {
-			if ascending {
-				return pi < pj
-			}
-			return pi > pj
-		}
-		if ascending {
-			return procs[i].Name() < procs[j].Name()
-		}
-		return procs[i].Name() > procs[j].Name()
-	})
-
+	m.sortByPriority(procs, ascending)
 	return procs
 }
 
