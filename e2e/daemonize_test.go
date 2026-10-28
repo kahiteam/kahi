@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/kahiteam/kahi/internal/ctl"
 	"github.com/kahiteam/kahi/internal/testutil"
 )
@@ -67,7 +69,7 @@ func TestDaemonize_StartsInBackground(t *testing.T) {
 	}
 
 	// Its own session, detached from the test's.
-	sid, err := syscall.Getsid(pid)
+	sid, err := unix.Getsid(pid)
 	if err != nil || sid != pid {
 		t.Errorf("daemon session %d (%v), want its own (%d)", sid, err, pid)
 	}
