@@ -82,8 +82,26 @@ func TestEmptyConfigGetsDefaults(t *testing.T) {
 	if cfg.Supervisor.ShutdownTimeout != 30 {
 		t.Errorf("default shutdown_timeout = %d, want 30", cfg.Supervisor.ShutdownTimeout)
 	}
-	if cfg.Server.Unix.File != "/var/run/kahi.sock" {
-		t.Errorf("default unix file = %q", cfg.Server.Unix.File)
+	if cfg.Server.Unix.File != DefaultSocketPath() {
+		t.Errorf("default unix file = %q, want %q", cfg.Server.Unix.File, DefaultSocketPath())
+	}
+}
+
+// Root gets /var/run/kahi.sock; other users $XDG_RUNTIME_DIR/kahi.sock, or a
+// private kahi-<uid> directory under the temp dir (FUNC-044).
+func TestDefaultSocketPath(t *testing.T) {
+	for _, tc := range []struct {
+		euid      int
+		xdg, want string
+	}{
+		{0, "/run/user/0", "/var/run/kahi.sock"},
+		{1234, "/run/user/1234", "/run/user/1234/kahi.sock"},
+		{1234, "", "/tmp/x/kahi-1234/kahi.sock"},
+		{1234, "relative/dir", "/tmp/x/kahi-1234/kahi.sock"},
+	} {
+		if got := defaultSocketPath(tc.euid, tc.xdg, "/tmp/x"); got != tc.want {
+			t.Errorf("euid %d, XDG_RUNTIME_DIR %q: %q, want %q", tc.euid, tc.xdg, got, tc.want)
+		}
 	}
 }
 

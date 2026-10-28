@@ -33,7 +33,7 @@ func ApplyDefaults(cfg *Config, md toml.MetaData) {
 
 	// Server defaults.
 	if cfg.Server.Unix.File == "" {
-		cfg.Server.Unix.File = "/var/run/kahi.sock"
+		cfg.Server.Unix.File = DefaultSocketPath()
 	}
 	if cfg.Server.Unix.Chmod == "" {
 		cfg.Server.Unix.Chmod = "0700"

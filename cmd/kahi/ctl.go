@@ -42,7 +42,7 @@ func newCtlClient() *ctl.Client {
 // resolveSocketFromConfig attempts to find the socket path from the config
 // file. Falls back to the default socket path if config cannot be loaded.
 func resolveSocketFromConfig() string {
-	const defaultSocket = "/var/run/kahi.sock"
+	defaultSocket := config.DefaultSocketPath()
 
 	if env := os.Getenv("KAHI_SOCKET"); env != "" {
 		return env

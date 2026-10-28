@@ -198,3 +198,38 @@ func TestSplitUserGroupVariants(t *testing.T) {
 		}
 	}
 }
+
+// The per-user socket directory is created owner-only, and an existing one
+// is accepted only if it is a real directory of this user with mode 0700
+// (FUNC-044).
+func TestEnsurePrivateDir(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "kahi-x")
+	if err := ensurePrivateDir(dir); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
+		t.Fatalf("created with %v, want 0700", fi.Mode().Perm())
+	}
+	if err := ensurePrivateDir(dir); err != nil {
+		t.Fatalf("existing 0700 dir: %v", err)
+	}
+
+	open := filepath.Join(base, "open")
+	if err := os.Mkdir(open, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(base, "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{open, link, file} {
+		if err := ensurePrivateDir(bad); err == nil || !strings.Contains(err.Error(), "must be a directory owned by uid") {
+			t.Errorf("%s: err %v, want it refused", filepath.Base(bad), err)
+		}
+	}
+}

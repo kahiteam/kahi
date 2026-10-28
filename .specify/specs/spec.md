@@ -1360,7 +1360,7 @@ This feature adds two complementary mechanisms:
 
 - **Given** default config
   **When** Kahi starts
-  **Then** a Unix socket is created at the configured path (default: /var/run/kahi.sock or /tmp/kahi.sock)
+  **Then** a Unix socket is created at the configured path (default: see FUNC-044)
 
 - **Given** `[server.unix] chmod = "0600"` in config
   **When** the socket is created
@@ -2089,14 +2089,16 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Error Handling:**
 
-| Error Condition                   | Expected Behavior | User-Facing Message                         |
-| --------------------------------- | ----------------- | ------------------------------------------- |
-| Path not writable by current user | Exit with error   | "cannot write to {path}: permission denied" |
+| Error Condition                   | Expected Behavior | User-Facing Message                                     |
+| --------------------------------- | ----------------- | ------------------------------------------------------- |
+| Path not writable by current user | Exit with error   | "permission denied: cannot create socket in {dir}: ..." |
 
 **Edge Cases:**
 
-- Default socket path is /tmp/kahi-{uid}.sock when running as non-root
 - Default socket path is /var/run/kahi.sock when running as root
+- As another user it is $XDG_RUNTIME_DIR/kahi.sock when XDG_RUNTIME_DIR is set to an absolute path, else kahi.sock in a kahi-{uid} directory under the temp dir ($TMPDIR, else /tmp). A fixed name directly in a shared /tmp is avoided: another user could create it first, so the daemon could not start or kahi ctl would talk to that user's socket (#146)
+- The daemon creates the kahi-{uid} directory with mode 0700 and refuses to start if it exists but is not a directory, is owned by another user or is reachable by group or others: "socket directory {dir} must be a directory owned by uid {uid} with mode 0700"
+- kahi ctl uses the same default when no socket is given and the config sets none
 
 **Dependencies:** FUNC-024
 
