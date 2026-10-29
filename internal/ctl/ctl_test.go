@@ -986,3 +986,19 @@ func TestClientStatusWithOptionsJSON(t *testing.T) {
 		t.Fatalf("expected 3 processes, got %d", len(procs))
 	}
 }
+
+// Each SSE event's data is written exactly as sent: chunks that end mid-line
+// continue the line, and nothing is added (#190).
+func TestCopySSEData(t *testing.T) {
+	stream := "data: split \n\n" +
+		"data: green\ndata: \n\n" +
+		"data: a\ndata: b\ndata: \n\n" +
+		": comment\n\n"
+	var out bytes.Buffer
+	if err := copySSEData(context.Background(), strings.NewReader(stream), &out); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), "split green\na\nb\n"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

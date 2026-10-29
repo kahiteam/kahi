@@ -1740,14 +1740,14 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Error Handling:**
 
-| Error Condition        | Expected Behavior | User-Facing Message                 |
-| ---------------------- | ----------------- | ----------------------------------- |
-| No log file configured | Error message     | "no log file configured for {name}" |
-| Process does not exist | Error message     | "no such process: {name}"           |
+| Error Condition        | Expected Behavior | User-Facing Message       |
+| ---------------------- | ----------------- | ------------------------- |
+| Process does not exist | Exit code 1       | "no such process: {name}" |
 
 **Edge Cases:**
 
-- `tail -f` uses SSE streaming from the API
+- `tail -f` uses SSE streaming from the API and prints the output exactly as written: a line written in several chunks stays one line, and nothing is added (#190)
+- Without a log file, tail reads the in-memory buffer (64 KB per stream)
 - Ctrl+C cleanly terminates the tail stream
 - Default byte count (1600) is configurable via `--bytes` flag
 - When no log file is configured, tail reads from the ring buffer (FUNC-082)
