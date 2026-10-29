@@ -207,7 +207,7 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 **Acceptance Criteria:**
 
-- [ ] GoReleaser config sets `make_latest` to prevent pre-releases from being marked latest
+- [ ] GoReleaser config sets `make_latest: false`: the release is created as a draft, and the release workflow's promote step decides "Latest" when it publishes it, true only for a non-prerelease tag that is the highest released version, so neither a pre-release nor a patch on an older line (a 0.1.x after 0.2.x) takes "Latest" (#150)
 - [ ] Tag `v0.1.0-alpha.1` produces a GitHub pre-release (not marked "Latest")
 - [ ] Tag `v0.1.0` produces a stable GitHub release (marked "Latest")
 - [ ] Release archives include `README.md`, `LICENSE`, and `cmd/kahi/kahi.toml` as example config
