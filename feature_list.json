@@ -327,7 +327,7 @@
         "Write a unit test with processes at priorities 100, 200, 300 that verifies stop order is 300, 200, 100",
         "Write a unit test with processes at the same priority that verifies lexicographic name ordering",
         "Parse a config with priority outside 0-999 and verify a config validation error is returned",
-        "Write a unit test that verifies priority ordering applies to group-level operations",
+        "Run 'kahi ctl start grp:*' on a [groups] table grp with members at priorities 300 and 100 and verify the priority-100 member starts first",
         "Run daemon shutdown with programs at three priority levels whose processes take 1s to exit and verify each level is signalled only after the previous one has exited (FUNC-066, #151)",
         "Put two programs in a [groups] table with priority 1 and verify, through POST /api/v1/all/start and /stop, that they start before and stop after a program with priority 5, ordered among themselves by their own priority (#196)"
       ],
@@ -345,7 +345,8 @@
         "Write a unit test that issues 'start web:*' and verifies all processes in the web group are started",
         "Run 'kahi ctl start nope:*' and verify 'no such group: nope' and exit code 1",
         "Verify a program with numprocs=1 creates a group with a single process",
-        "Configure [groups.web] next to [programs.web] and verify the daemon refuses the config with 'groups.web: name collides with program web' (#214)"
+        "Configure [groups.web] next to [programs.web] and verify the daemon refuses the config with 'groups.web: name collides with program web' (#214)",
+        "Define [programs.web] in the main config and again in an included file and verify the daemon refuses with 'duplicate program name \"web\": defined in both main config and {include path}'"
       ],
       "passes": false,
       "dependencies": ["numprocs-instances"]
@@ -378,13 +379,20 @@
       "title": "Runtime Group Add and Remove",
       "description": "Add and remove process groups at runtime via API/CLI, including adding new groups from reloaded config and removing inactive groups.",
       "testing_steps": [
-        "Add a new program to config, reload, and verify its group is added with its autostart processes running and PROCESS_GROUP_ADDED published",
-        "Stop every process of a group, run 'kahi ctl remove {group}', and verify '{group}: removed', that status no longer lists its processes, and PROCESS_GROUP_REMOVED published",
-        "Run 'kahi ctl remove {group}' with a running process and verify 'group {group} has running processes, stop first', exit code 1, and the group unchanged",
+        "Add a new program to the config file, run 'kahi ctl update', and verify its group is added and its autostart processes are RUNNING",
+        "Remove a group, then run 'kahi ctl add {group}': verify '{group}: added' and its autostart processes RUNNING",
+        "Stop every process of a group, run 'kahi ctl remove {group}', and verify '{group}: removed' and that status no longer lists its processes",
+        "Run 'kahi ctl remove {group}' with a RUNNING process and verify 'group {group} has running processes, stop first', exit code 1, and the group unchanged",
+        "Verify EXITED and FATAL processes count as stopped for remove, and a BACKOFF or STOPPING process counts as running",
         "Run 'kahi ctl add {group}' on an active group and verify 'group already active: {group}' and exit code 1",
         "Run 'kahi ctl remove nosuch' and 'kahi ctl add nosuch' and verify 'no such group: nosuch' and exit code 1",
         "Remove a group, change its program in the config file, run 'kahi ctl update', and verify the group is active again with the changed config and reported under added",
-        "Verify POST /api/v1/groups/{name}/remove and /add return 409 CONFLICT for running processes and already-active groups and 404 NOT_FOUND for unknown groups"
+        "Remove a group, edit its command in the config file, run 'kahi ctl add' without reread, and verify the group comes back with the old command (add uses the loaded config)",
+        "Remove a group, then delete its program from the config file and reload: verify it is not reported under added or removed and 'kahi ctl add' then says 'no such group'",
+        "Define [groups.services] with web and api: verify 'kahi ctl remove services' (all stopped) removes both members, 'kahi ctl add services' adds both, and 'kahi ctl remove web' says 'no such group: web'",
+        "Remove a [groups] table from the config file and reload: verify its member processes leave status",
+        "Verify POST /api/v1/groups/{name}/remove returns 409 CONFLICT with running processes and 404 NOT_FOUND for an unknown group",
+        "Verify POST /api/v1/groups/{name}/add returns 409 CONFLICT for an active group and 404 NOT_FOUND for an unknown group"
       ],
       "passes": false,
       "dependencies": ["homogeneous-groups", "heterogeneous-groups"]
@@ -480,7 +488,10 @@
         "Write a test that starts Kahi with -c /path/to/config.toml and verifies only the specified path is used",
         "Run 'kahi daemon' with no config found and verify exit code 1 and 'no config file found; searched [/etc/kahi/kahi.toml /etc/kahi.toml]'",
         "Write a test with KAHI_CONFIG env var set and verify it takes precedence over search paths",
-        "Write a test with a non-readable config file and verify exit with error message 'cannot read config: {path}: {error}'"
+        "Write a test with a non-readable config file and verify exit with error message 'cannot read config: {path}: {error}'",
+        "Set KAHI_CONFIG to a path that does not exist and verify 'cannot read config: {path}: {error}' and exit 1, with no fall-back to the search paths",
+        "Set KAHI_CONFIG and pass -c with a different file and verify -c wins",
+        "Point -c at a symlink to a config file and verify the daemon loads the target"
       ],
       "passes": false,
       "dependencies": ["toml-config-parser"]
@@ -734,21 +745,30 @@
       "title": "Server-Sent Events for Log and Event Streaming",
       "description": "Stream real-time log output and events via SSE, with support for event type filtering, client disconnection cleanup, and nginx compatibility headers.",
       "testing_steps": [
-        "Make a GET request to /api/v1/processes/web/log/stdout/stream with Accept: text/event-stream and verify new lines are streamed as SSE events",
-        "Request /api/v1/events/stream?types=PROCESS_STATE_RUNNING,PROCESS_STATE_EXITED and verify only events of those exact types arrive; an unknown type name matches nothing",
-        "Disconnect an SSE client and verify the daemon keeps serving and shuts down promptly (the unsubscription itself is unit-tested)",
-        "Write a test that requests SSE for a nonexistent process and verifies 404 before stream starts",
-        "Verify SSE responses include X-Accel-Buffering: no header for nginx compatibility",
-        "Verify every log event carries 'id: {offset}' (bytes of the stream captured so far) and that reconnecting with Last-Event-ID replays only the bytes after that offset",
+        "Make a GET request to /api/v1/processes/web/log/stdout/stream with Accept: text/event-stream and verify new output arrives as unnamed SSE events: an 'id:' line, 'data:' lines, a blank line",
+        "Request /api/v1/events/stream?types=PROCESS_STATE_RUNNING,PROCESS_STATE_EXITED and verify only events of those exact types arrive, each framed as 'event: {TYPE}' and 'data: {JSON}'; an unknown type name matches nothing",
+        "Unit (api): after an SSE client disconnects, the bus subscriber count returns to its value before the request",
+        "Request the stream of a nonexistent process and verify 404 with {\"error\": \"no such process: nosuch\", \"code\": \"NOT_FOUND\"} before the stream starts",
+        "Request /log/stdin/stream and verify 400 with 'stream must be stdout or stderr'",
+        "Verify SSE responses include X-Accel-Buffering: no",
+        "Verify every log event carries 'id: {offset}' equal to the bytes of the stream captured so far, and that reconnecting with Last-Event-ID replays only the bytes after that offset, as one event whose id is its end",
+        "Reconnect with Last-Event-ID equal to the current offset and verify nothing is replayed",
+        "Write more than 64 KB, reconnect with Last-Event-ID: 0, and verify 'event: gap' with data {\"bytes\": n}, n = total written - 65536, precedes the replay of the held bytes",
+        "Verify a request without Last-Event-ID, or with an empty one, streams live output only",
+        "Reload a config that recreates the program and reconnect with the old, larger offset: verify 'event: reset' and the replay of everything held, with ids restarting from 0",
+        "Unit (api): a subscriber that falls 64 events behind has its stream closed; resuming with its last id returns the missed bytes",
         "Verify multiple clients can stream the same log simultaneously",
-        "Reconnect with a Last-Event-ID older than the 64 KB in-memory buffer and verify ': gap of {n} bytes' precedes the replay of what is still held; a request without Last-Event-ID streams live output only",
-        "Make a GET request to /api/v1/processes/web/log/stderr/stream and verify stderr output is streamed as SSE events",
-        "Write a test that opens an SSE stream, sends data to the process, and verifies the data appears within 100ms latency",
+        "Configure a program without a log file and verify the stream still delivers its output from the in-memory buffer",
+        "Make a GET request to /api/v1/processes/web/log/stderr/stream and verify stderr output is streamed; with redirect_stderr = true verify stderr output arrives on the stdout stream and the stderr stream stays empty",
         "Regression (SEC-013): stream process output containing a newline and an 'event:' prefix and assert each line is emitted as its own data field (no injected SSE frame)",
-        "Send Last-Event-ID: abc and verify 400 with 'invalid resume position: abc' before the stream starts"
+        "Send Last-Event-ID: abc and Last-Event-ID: -1 and verify 400 with 'invalid resume position: {value}' before the stream starts"
       ],
       "passes": false,
-      "dependencies": ["rest-api-endpoints"]
+      "dependencies": [
+        "rest-api-endpoints",
+        "process-output-ring-buffer",
+        "event-bus"
+      ]
     },
     {
       "id": "http-basic-auth",
@@ -825,19 +845,45 @@
       "title": "CLI Process Control Commands",
       "description": "CLI subcommands for starting, stopping, restarting, and signaling processes via kahi ctl, supporting individual processes, groups, and the all keyword.",
       "testing_steps": [
-        "Run 'kahi ctl start web' with web stopped and verify the process is started and status is printed",
-        "Run 'kahi ctl stop web' with web running and verify the process is stopped and status is printed",
+        "Run 'kahi ctl start web' with web stopped and verify 'web: started' and the process RUNNING",
+        "Run 'kahi ctl stop web' with web running and verify 'web: stopped' and the process STOPPED",
         "Run 'kahi ctl restart all' and verify every process is restarted through the bulk API with one '{name}: ok' line each",
-        "Run 'kahi ctl signal HUP web' with web running and verify SIGHUP is sent",
+        "Run 'kahi ctl signal HUP web' and 'kahi ctl signal SIGHUP web' against a script that writes a marker file when it traps HUP and verify the marker appears and 'web: signaled SIGHUP' is printed both times",
         "Run 'kahi ctl start web:*' and verify all processes in the web group are started",
-        "Run 'kahi ctl start web api worker' and verify multiple processes are started",
+        "Run 'kahi ctl start web api worker' and verify all three are started",
         "Run 'kahi ctl status' when the daemon is not running and verify exit code 1 with 'connection failed'",
-        "Run 'kahi ctl start nonexistent web' and verify web is started, 'nonexistent: no such process: nonexistent' is printed, and the exit code is 1",
-        "Run 'kahi ctl signal INVALID web' and verify exit code 1 with 'invalid signal'",
-        "Run 'kahi ctl stop web:*' and verify all processes in the web group are stopped"
+        "Run 'kahi ctl start nonexistent web' and verify web is started, 'nonexistent: no such process: nonexistent' is printed, '1 of 2 failed' on stderr, and exit code 1",
+        "Run 'kahi ctl signal INVALID web' and verify exit code 1 with 'process web: invalid signal \"INVALID\"'",
+        "Run 'kahi ctl stop web:*' and verify all processes in the web group are stopped",
+        "Run 'kahi ctl restart all' with one process that fails to start and one stopped autostart=false process and verify the '{name}: error: {message}' and '{name}: skipped' lines and exit code 1",
+        "Define a program named all and verify 'kahi ctl start all:*' starts it",
+        "Run 'kahi ctl stop all web' and verify 'all cannot be combined with other names', exit code 2, and nothing stopped",
+        "Run 'kahi ctl signal HUP web' with web stopped and verify 'process not running: web' and exit code 1",
+        "Run 'kahi ctl' without a subcommand and verify the help text and exit code 0"
       ],
       "passes": false,
-      "dependencies": ["rest-api-endpoints", "cli-framework"]
+      "dependencies": [
+        "rest-api-endpoints",
+        "cli-framework",
+        "process-bulk-actions"
+      ]
+    },
+    {
+      "id": "signal-name-convention",
+      "category": "functional",
+      "title": "Signal Names Follow signal.h",
+      "description": "Every output names signals in the <signal.h> form (SIGTERM); stopsignal, kahi ctl signal and the signal API accept the name with or without the SIG prefix (ADR-038).",
+      "testing_steps": [
+        "Configure stopsignal = \"TERM\" and another program with stopsignal = \"SIGTERM\" and verify both load and stop with SIGTERM",
+        "Configure stopsignal = \"BOGUS\" and verify the config is refused with 'invalid signal'",
+        "POST /api/v1/processes/web/signal with {\"signal\": \"HUP\"} and verify the response carries \"signal\": \"SIGHUP\"",
+        "SIGKILL a RUNNING process from outside and verify exitsignal 'SIGKILL' in GET /api/v1/processes/web and 'killed by SIGKILL' in kahi ctl status",
+        "Verify 'kahi init' and the default config use stopsignal = \"SIGTERM\"",
+        "Migrate a supervisord config with stopsignal=TERM and another with stopsignal=SIGINT and verify the output has \"SIGTERM\" and \"SIGINT\"",
+        "Run the daemon as PID 1 (container) with an orphan killed by a signal and verify the reaped-orphan log names the signal in the SIG form"
+      ],
+      "passes": false,
+      "dependencies": ["process-stop", "rest-api-endpoints"]
     },
     {
       "id": "cli-status-display",
@@ -907,13 +953,13 @@
       "title": "CLI Config Reread, Update, Add, and Remove",
       "description": "CLI subcommands for config management: reread (preview changes), update (apply changes), add/remove groups.",
       "testing_steps": [
-        "Run 'kahi ctl reread' after config change and verify it prints added/changed/removed programs without applying",
-        "Run 'kahi ctl update' after config change and verify changes are applied: removed stopped, changed restarted, new added",
-        "Run 'kahi ctl update web' and verify only the web group is updated",
-        "Run 'kahi ctl add web' for an inactive but configured program and verify it is added to active management",
-        "Run 'kahi ctl remove web' for a stopped group and verify it is removed from active management",
-        "Run 'kahi ctl reread' with an invalid config file and verify an error message is displayed",
-        "Run 'kahi ctl avail' and verify all configured programs are shown with active/available status"
+        "Change the config file and run 'kahi ctl reread': verify 'would apply: added=[...] changed=[...] removed=[...]' and that nothing is applied",
+        "Run 'kahi ctl update' after adding, changing and removing programs: verify 'updated: added=[...] changed=[...] removed=[...]', the new program running, the changed one restarted, and the removed one stopped first and gone from status",
+        "Run 'kahi ctl add web' for an inactive but configured group and verify 'web: added' (FUNC-011)",
+        "Run 'kahi ctl remove web' for a stopped group and verify 'web: removed'; with a running process verify 'group web has running processes, stop first' and exit 1",
+        "Run 'kahi ctl reread' and 'kahi ctl update' with an invalid config file and verify 'config error: {details}', exit 1, and nothing applied",
+        "Add an unknown key to the config and verify reread, update, reload and add print 'warning: ...' lines on stderr",
+        "Verify POST /api/v1/config/reload returns the 'warnings' array both with ?dry_run=true and for an applied reload"
       ],
       "passes": false,
       "dependencies": ["cli-process-control", "config-hot-reload"]
@@ -1028,10 +1074,10 @@
       "title": "Signal Queuing for Deferred Processing",
       "description": "Queue signals via Go signal.Notify channel for deferred processing in the main loop, ensuring all signals are handled in order.",
       "testing_steps": [
-        "Write a test that sends a signal while the main loop is busy and verify it is queued and processed on the next iteration",
-        "Send SIGUSR2 and then SIGTERM to the daemon and verify the log shows them handled in that order (log reopen, then shutdown)",
-        "Verify the signal channel buffer size is at least 16 to handle burst scenarios",
-        "Verify signal processing always occurs in the main goroutine with no concurrent handlers"
+        "Unit (supervisor): block the main loop through a test hook, send SIGUSR2, release the hook, and verify the signal is handled on the next iteration",
+        "Send SIGUSR2, wait for the log reopen line, then send SIGTERM, and verify the log shows 'received signal' for both and the reopen before the shutdown",
+        "Unit (supervisor): the signal channel buffer size is exactly 16",
+        "Send SIGHUP twice while a slow reload runs and verify 'reload already in progress; ignoring SIGHUP' is logged for the second"
       ],
       "passes": false,
       "dependencies": ["go-module-structure"]
@@ -1042,10 +1088,10 @@
       "title": "Child Process Group Isolation",
       "description": "Give each child process its own process group via setpgid so that signals sent to the supervisor are not received by children.",
       "testing_steps": [
-        "Write a unit test that starts a child process and verifies setpgid is called to create a new process group",
+        "Start a child and verify Getpgid(pid) == pid and differs from the daemon's process group",
         "Send SIGTERM to the daemon's process group (kill -TERM -pgid) and verify a child that traps TERM (stopsignal INT) does not receive it",
-        "Verify a spawn that cannot be set up fails the start with the spawn error in status (setpgid is part of fork/exec, so it cannot fail separately)",
-        "Verify process group isolation enables stop-as-group behavior for signaling entire child trees"
+        "Configure a program with a nonexistent directory and verify it goes through BACKOFF to FATAL with 'spawn error:' in its status description",
+        "With stopasgroup = true, stop a process that has a grandchild and verify the grandchild receives the stop signal"
       ],
       "passes": false,
       "dependencies": ["process-start"]
@@ -1124,13 +1170,14 @@
       "title": "Root Detection Warning on Startup",
       "description": "Log a warning when Kahi starts as root without explicit user configuration for privilege dropping.",
       "testing_steps": [
-        "Start Kahi as root (container) without -u and verify the warning 'running as root without user config' is logged once",
+        "Start Kahi as root (container) without -u and verify the warning 'running as root without user config; consider kahi daemon -u {user} for privilege dropping' is logged once",
         "Start Kahi as non-root and verify no warning about root is logged",
         "Start Kahi as root (container) with -u 65534 and verify no root warning is logged",
-        "Verify the warning is logged once at startup and not repeated"
+        "Start Kahi as root (container) without -u, send SIGHUP, and verify the warning still appears exactly once",
+        "Start Kahi as root (container) with -d and verify only the daemonized child logs the warning"
       ],
       "passes": false,
-      "dependencies": ["structured-logging"]
+      "dependencies": ["structured-logging", "privilege-dropping"]
     },
     {
       "id": "event-bus",
@@ -1141,13 +1188,14 @@
         "Write a unit test that registers a subscriber for PROCESS_STATE_RUNNING and verifies the callback is called when the event fires",
         "Write a unit test with multiple subscribers for the same event type and verify all are notified",
         "Write a unit test that unsubscribes and verifies the callback is not called on subsequent events",
-        "Write a unit test where a subscriber callback panics and verify the panic is recovered, error is logged, and other subscribers are still notified",
-        "Verify event notification is synchronous in the main loop",
-        "Verify subscriber registration/unregistration is safe from any goroutine",
-        "Write a unit test with no subscribers and verify zero allocation overhead per published event",
+        "Write a unit test where a subscriber callback panics and verify the panic is recovered, 'event handler panicked' is logged with the event type and panic value, and other subscribers are still notified",
+        "Unit: every subscriber callback has run when Publish returns",
+        "Verify subscriber registration/unregistration is safe from any goroutine (race detector)",
+        "Unit: Publish with no subscribers has testing.AllocsPerRun == 0",
         "Write a unit test that subscribes to multiple different event types and verifies each type triggers the correct callback",
-        "Write a unit test that publishes 1000 events rapidly and verifies all subscribers receive all events in order",
-        "Write a unit test that registers and unregisters subscribers concurrently from multiple goroutines and verifies no race conditions"
+        "Write a unit test that publishes 1000 events from one goroutine and verifies every subscriber receives all of them in publish order",
+        "Write a unit test that registers and unregisters subscribers concurrently from multiple goroutines and verifies no race conditions",
+        "Open /api/v1/events/stream against the daemon, start a process, and verify its state events arrive on the stream"
       ],
       "passes": false,
       "dependencies": ["go-module-structure"]
@@ -1158,11 +1206,12 @@
       "title": "Process State Transition Events",
       "description": "Emit PROCESS_STATE_{STATE} events on every process state transition, including process name, group, from_state, pid, and expected flag.",
       "testing_steps": [
-        "Start a process and verify PROCESS_STATE_STARTING and PROCESS_STATE_RUNNING arrive on /api/v1/events/stream with name, group, state, from_state (STOPPED, then STARTING) and pid",
-        "Let a RUNNING process exit 3 with exitcodes = [0] and verify PROCESS_STATE_EXITED carries expected 'false' and exitstatus '3'; exit 0 gives expected 'true'; a process killed by SIGKILL carries exitsignal 'KILL'",
-        "Verify the RUNNING event's pid equals the process pid and STARTING's is '0'",
-        "Write a test that verifies events are emitted after the state transition is committed",
-        "Verify all 7 states have corresponding event types and each is delivered on the stream in a start, stop, exit, backoff and fatal sequence"
+        "Start a process and verify PROCESS_STATE_STARTING and PROCESS_STATE_RUNNING arrive on /api/v1/events/stream with name, group, state, from_state (STOPPED, then STARTING) and pid, every value a JSON string",
+        "Let a RUNNING process exit 3 with exitcodes = [0] and verify PROCESS_STATE_EXITED carries expected 'false' and exitstatus '3'; exit 0 gives expected 'true'; a process killed by SIGKILL carries exitsignal 'SIGKILL'",
+        "Verify the RUNNING event's pid equals the process pid and STARTING's is '0' (published before the spawn)",
+        "Unit (process): a subscriber that queries the process state from its callback sees the state of the event",
+        "Verify all 7 states have corresponding event types and each is delivered on the stream in a start, stop, exit, backoff and fatal sequence, with each event's from_state equal to the previous event's state",
+        "Set startretries = 0 on a command that exits at once and verify PROCESS_STATE_FATAL arrives with from_state STARTING"
       ],
       "passes": false,
       "dependencies": ["event-bus", "process-state-machine"]
@@ -1202,11 +1251,12 @@
       "title": "Process Group Add/Remove Events",
       "description": "Emit PROCESS_GROUP_ADDED and PROCESS_GROUP_REMOVED events when groups are added to or removed from active management.",
       "testing_steps": [
-        "Add a group (reload adding a program, and 'kahi ctl add') and verify PROCESS_GROUP_ADDED is published with the group name",
-        "Remove a group ('kahi ctl remove') and verify PROCESS_GROUP_REMOVED is published with the group name",
-        "Verify group events fire after the operation completes, not before",
-        "Verify GROUP_ADDED and GROUP_REMOVED carry 'processes' with the group's process names, comma-separated",
-        "Verify GROUP_REMOVED event is emitted when a group is removed during config reload",
+        "Add a program through a reload and verify PROCESS_GROUP_ADDED with group = the program name",
+        "Add a [groups] table through a reload and verify one PROCESS_GROUP_ADDED for the table listing all member processes",
+        "Remove a group with 'kahi ctl remove' and add it with 'kahi ctl add' and verify PROCESS_GROUP_REMOVED and PROCESS_GROUP_ADDED",
+        "Verify that when PROCESS_GROUP_ADDED arrives its processes are already in status, and when PROCESS_GROUP_REMOVED arrives they are already gone",
+        "Verify a group of a numprocs=2 program carries processes 'web_0,web_1' (sorted, comma-separated)",
+        "Remove a program and a [groups] table through reloads and verify PROCESS_GROUP_REMOVED for each, the table's listing all its processes",
         "Verify the daemon's startup publishes no PROCESS_GROUP_ADDED, and a reload that restarts a changed program publishes neither group event"
       ],
       "passes": false,
@@ -1424,12 +1474,20 @@
       "title": "Graceful Shutdown Orchestration",
       "description": "Stop all process groups in reverse priority order during shutdown, with configurable timeout and SIGKILL escalation.",
       "testing_steps": [
-        "Initiate shutdown with groups at priorities 100, 200, 300 and verify stop order is 300, 200, 100",
-        "Write a test that verifies processes not stopping within stopwaitsecs receive SIGKILL",
-        "Write a test that verifies Kahi exits with code 0 after all processes have stopped",
-        "Write a test that simulates a stuck process and verifies exit occurs after the configurable shutdown timeout",
-        "Verify the default shutdown timeout is 30 seconds",
-        "Verify if total shutdown exceeds timeout, remaining processes are killed and daemon exits"
+        "Run daemon shutdown with app (priority 300), cache (200) and db (100), each exiting 1s after SIGTERM, and verify cache is signalled only after app exited and db only after cache exited; the daemon exits 0 between 3 and 5 seconds after the signal",
+        "Give two programs priority 300 and verify both receive SIGTERM together and level 200 is signalled only after both have exited",
+        "Let a level-300 process ignore SIGTERM with stopwaitsecs = 2 and verify it is SIGKILLed after 2s and level 200 is signalled once it has been reaped",
+        "Set shutdown_timeout below the time the levels need and verify that at the deadline every remaining process, including levels not yet signalled, is SIGKILLed and the daemon exits",
+        "Send a second SIGTERM during shutdown and verify every remaining process is SIGKILLed at once and the daemon exits",
+        "Unit (supervisor): a process not reaped within 1s after the timeout SIGKILL is logged as 'process {name} stuck, giving up' and the daemon exits anyway",
+        "Configure levels whose largest stopwaitsecs sum to more than shutdown_timeout and verify the warning 'ordered shutdown can take up to {n}s (largest stopwaitsecs per priority level, summed), more than supervisor.shutdown_timeout ({t}s); processes still running then are SIGKILLed' at load and again after a reload",
+        "Verify each level is logged at INFO as 'stopping priority level {p}' with its process names, and '{table}/{own}' for members of a [groups] table",
+        "Verify a STARTING process is stopped with its stop signal and a BACKOFF process moves to STOPPED without a signal during shutdown",
+        "Verify nothing is started, restarted or retried after shutdown has begun (an autorestart=true process that exits during shutdown stays down)",
+        "Put two programs in a [groups] table with priority 400 and verify they stop in the first level, before a program with priority 300",
+        "Verify the old per-program warning 'stopwaitsecs exceeds shutdown_timeout' no longer appears",
+        "Verify 'kahi init' output, cmd/kahi/kahi.toml and the README carry the tuning comments for shutdown_timeout, priority and stopwaitsecs",
+        "Verify the default shutdown timeout is 30 seconds"
       ],
       "passes": false,
       "dependencies": ["process-stop", "priority-ordering"]
@@ -1650,7 +1708,8 @@
         "TestLogViewerAssetEncoding: verify every line of log.js containing '/api/v1/processes/' also contains 'encodeURIComponent('",
         "TestStreamLogSubscribesBeforeFlush (internal/api): on a fresh events.NewBus(), serve GET /api/v1/processes/web/log/stdout/stream through srv.handler with a ResponseWriter whose Flush records the bus subscriber count for the stream's event type, cancel the request context after the first Flush, and verify the recorded count is 1",
         "Mutation check: move bus.Subscribe after flusher.Flush() in handleStreamLog and verify TestStreamLogSubscribesBeforeFlush fails",
-        "Run 'go test -count=1 -run TestLogViewer ./internal/web/...' and 'go test -count=1 -run TestStreamLogSubscribesBeforeFlush ./internal/api/...'"
+        "Run 'go test -count=1 -run TestLogViewer ./internal/web/...' and 'go test -count=1 -run TestStreamLogSubscribesBeforeFlush ./internal/api/...'",
+        "Drive log.js with a stream that sends 'event: gap' mid-line and 'event: reset' and verify the pending partial line is ended, then '[{n} bytes not shown]' and '[log restarted]' lines appear"
       ],
       "passes": true,
       "verified_by": [

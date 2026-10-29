@@ -20,6 +20,10 @@ Kahi is a modern process supervisor for POSIX systems, written in Go. It manages
 - CLI control, health probes, structured logging
 - supervisord.conf migration tool
 
+### Conventions
+
+- **Signal names follow `<signal.h>`** (decided 2026-10-29): `SIGTERM`, `SIGKILL`, `SIGHUP`. Every output uses this form: `exitsignal` in the API, status and EXITED events, the `signal` field of the signal API response, `kahi ctl` output, log lines and error texts. Inputs (`stopsignal`, `kahi ctl signal`, the signal API body) accept the name with or without the `SIG` prefix (`TERM` or `SIGTERM`) and normalize it to the `SIG` form, so supervisord configs and existing kahi.toml files keep working. The default `stopsignal`, `kahi init` and the docs show the `SIG` form; `kahi migrate` writes it. Release-note item for v0.2.3.
+
 ---
 
 ## Infrastructure Features
@@ -629,7 +633,7 @@ This feature adds two complementary mechanisms:
 
 **Acceptance Criteria:**
 
-- **Given** a process in RUNNING state with stopsignal=TERM and stopwaitsecs=10
+- **Given** a process in RUNNING state with stopsignal=SIGTERM and stopwaitsecs=10
   **When** a stop command is issued
   **Then** SIGTERM is sent, process transitions to STOPPING, and after 10 seconds without exit, SIGKILL is sent
 
@@ -657,7 +661,7 @@ This feature adds two complementary mechanisms:
 
 - Process that exits during the stop signal send (race condition) must not cause errors
 - Multiple stop commands on the same process are idempotent (second is ignored)
-- stopwaitsecs must be >= 1: 0 is a config error, because it would SIGKILL right after the stop signal (#138). For an immediate kill, set `stopsignal = "KILL"`. `kahi migrate` writes a supervisord `stopwaitsecs = 0` as 1, with a warning.
+- stopwaitsecs must be >= 1: 0 is a config error, because it would SIGKILL right after the stop signal (#138). For an immediate kill, set `stopsignal = "SIGKILL"`. `kahi migrate` writes a supervisord `stopwaitsecs = 0` as 1, with a warning.
 
 **Dependencies:** FUNC-001, FUNC-002
 
@@ -872,7 +876,7 @@ This feature adds two complementary mechanisms:
 **Edge Cases:**
 
 - A program with numprocs=1 creates a group with a single process
-- A `[groups.x]` table whose name equals a program's name is a config error, "groups.{x}: name collides with program {x}" (#214); two programs cannot share a name (TOML keys; an include that redefines one is refused)
+- A `[groups.x]` table whose name equals a program's name is a config error, "groups.{x}: name collides with program {x}" (#214); two programs cannot share a name (TOML keys); an include that redefines a program is refused with `duplicate program name "{name}": defined in both main config and {include path}`
 - Through the CLI, `kahi ctl start nope:*` reports "no such group: nope" and exits 1 (FUNC-031)
 
 **Dependencies:** FUNC-007
@@ -902,7 +906,7 @@ This feature adds two complementary mechanisms:
 
 **Edge Cases:**
 
-- When a heterogeneous group exists, the implicit homogeneous groups for its member programs are suppressed
+- When a heterogeneous group exists, the implicit homogeneous groups for its member programs are suppressed: the table owns its members (decided 2026-10-29, #212). `web:*` and `kahi ctl add|remove web` for a member `web` report "no such group: web"; the members are addressed through the table (`services:*`, `services:web_0`)
 - Empty groups (no programs) are rejected at config validation
 
 **Dependencies:** FUNC-009
@@ -915,7 +919,7 @@ This feature adds two complementary mechanisms:
 
 **Acceptance Criteria:**
 
-- **Given** a new program added to config and config reloaded
+- **Given** a new program added to the config file
   **When** "kahi ctl update" is issued
   **Then** the new group is added and its autostart processes begin
 
@@ -942,10 +946,12 @@ This feature adds two complementary mechanisms:
 **Edge Cases:**
 
 - Removing a group does not delete its config; it just deactivates it
-- Adding a group that was previously removed re-reads config for that group
+- `kahi ctl add` uses the config the daemon last loaded (at startup or by the last reload); it does not read the config file. Edits not yet reloaded take effect with the next reload or `kahi ctl update` (ADR-034)
 - "Stopped" means every process of the group is STOPPED, EXITED or FATAL; STARTING, RUNNING, BACKOFF and STOPPING count as running
 - A removed group's processes leave status and the API until the group is added again. A reload, `kahi ctl update` or `kahi ctl add` brings it back; a reload reports it under "added"
-- Removing a `[groups]` table removes its member processes from management
+- A `[groups]` table owns its members (FUNC-010): `kahi ctl add|remove {table}` adds or removes all member processes; a member program name is "no such group: {name}"
+- Removing a `[groups]` table from the config file removes its member processes from management at the next reload; adding one adds them. Each publishes one group event listing the table's processes (FUNC-053)
+- A reload drops an inactive group that the config no longer defines; it is no longer reported anywhere
 - API: `POST /api/v1/groups/{name}/add` and `POST /api/v1/groups/{name}/remove`; errors are 409 CONFLICT (already active, has running processes) and 404 NOT_FOUND (no such group). `kahi ctl add` and `kahi ctl remove` use them and print "{group}: added" / "{group}: removed"
 - Adding a group that the config does not define is "no such group: {name}"
 
@@ -1072,8 +1078,12 @@ This feature adds two complementary mechanisms:
 
 **Acceptance Criteria:**
 
-- **Given** no `-c` flag
-  **When** Kahi starts
+- **Given** no `-c` flag and no KAHI_CONFIG
+  **When** the daemon starts
+  **Then** it searches in order: `/etc/kahi/kahi.toml`, `/etc/kahi.toml` (no `./kahi.toml`, SEC-017)
+
+- **Given** no `-c` flag and no KAHI_CONFIG
+  **When** `kahi ctl` starts
   **Then** it searches in order: `./kahi.toml`, `/etc/kahi/kahi.toml`, `/etc/kahi.toml`
 
 - **Given** a `-c /path/to/config.toml` flag
@@ -1094,7 +1104,7 @@ This feature adds two complementary mechanisms:
 **Edge Cases:**
 
 - Symlinks to config files are followed
-- Config file specified via KAHI_CONFIG environment variable takes precedence over search paths; `-c` takes precedence over KAHI_CONFIG. A KAHI_CONFIG that names no file is an error, not a fall-back to the search paths
+- Config file specified via KAHI_CONFIG environment variable takes precedence over search paths; `-c` takes precedence over KAHI_CONFIG. A KAHI_CONFIG that names no file is an error, not a fall-back to the search paths: "cannot read config: {path}: {error}", exit 1 (the same message as a `-c` path that does not exist)
 - The daemon's search order leaves out `./kahi.toml` (SEC-017); `kahi ctl` keeps it, to find the socket
 
 **Dependencies:** INFRA-005
@@ -1452,7 +1462,7 @@ This feature adds two complementary mechanisms:
 
 - **Given** the API server is running
   **When** `GET /api/v1/processes` is requested
-  **Then** a JSON array of all process info objects is returned (name, group, state, statecode, pid, uptime, description, exitstatus, and exitsignal when a signal killed the process, for example `"KILL"` with exitstatus -1)
+  **Then** a JSON array of all process info objects is returned (name, group, state, statecode, pid, uptime, description, exitstatus, and exitsignal when a signal killed the process, for example `"SIGKILL"` with exitstatus -1)
 
 - **Given** a process named "web"
   **When** `POST /api/v1/processes/web/start` is requested
@@ -1467,8 +1477,8 @@ This feature adds two complementary mechanisms:
   **Then** the process is stopped then started, and 200 is returned with `{"status": "restarted", "name": "web"}`
 
 - **Given** a process named "web"
-  **When** `POST /api/v1/processes/web/signal` with body `{"signal": "HUP"}` is requested
-  **Then** SIGHUP is sent to the process, and 200 is returned with `{"status": "signaled", "name": "web", "signal": "HUP"}`
+  **When** `POST /api/v1/processes/web/signal` with body `{"signal": "HUP"}` (or `"SIGHUP"`) is requested
+  **Then** SIGHUP is sent to the process, and 200 is returned with `{"status": "signaled", "name": "web", "signal": "SIGHUP"}`
 
 - **Given** the API server
   **When** `GET /api/v1/processes/web/log/stdout?length=1000` is requested
@@ -1528,23 +1538,26 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Error Handling:**
 
-| Error Condition                    | Expected Behavior        | User-Facing Message                                                    |
-| ---------------------------------- | ------------------------ | ---------------------------------------------------------------------- |
-| Process not found                  | 404 before stream starts | `{"error": "no such process: web", "code": "NOT_FOUND"}`               |
-| Stream other than stdout or stderr | 400                      | `{"error": "stream must be stdout or stderr", "code": "BAD_REQUEST"}`  |
-| Non-numeric `Last-Event-ID`        | 400 before stream starts | `{"error": "invalid resume position: {value}", "code": "BAD_REQUEST"}` |
+| Error Condition                         | Expected Behavior        | User-Facing Message                                                    |
+| --------------------------------------- | ------------------------ | ---------------------------------------------------------------------- |
+| Process not found                       | 404 before stream starts | `{"error": "no such process: web", "code": "NOT_FOUND"}`               |
+| Stream other than stdout or stderr      | 400                      | `{"error": "stream must be stdout or stderr", "code": "BAD_REQUEST"}`  |
+| Non-numeric or negative `Last-Event-ID` | 400 before stream starts | `{"error": "invalid resume position: {value}", "code": "BAD_REQUEST"}` |
 
 **Edge Cases:**
 
 - SSE includes `X-Accel-Buffering: no` header for nginx reverse proxy compatibility
-- Each log event carries `id: {offset}`: the number of bytes of that stream captured since the process was loaded, up to the end of the event's data (decided 2026-10-29, #155)
-- A request without `Last-Event-ID` streams live output only; clients read the backlog with `GET .../log/{stream}` (the Web UI does), so nothing is sent twice
-- A request with `Last-Event-ID: {offset}` first replays the bytes after that offset that the in-memory buffer (FUNC-082) still holds, then streams live output. If part of that range is no longer held, the replay starts at the oldest held byte after a comment line `: gap of {n} bytes`; an offset at or beyond the current one replays nothing
-- Every event, also a replayed one, carries the `id` of its end, so a client that reconnects again resumes where it stopped
+- Each log event is an unnamed SSE event (`id:` line, then `data:` lines, then a blank line) and carries `id: {offset}`: the number of bytes of that stream captured since the process was loaded, up to the end of the event's data (decided 2026-10-29, #155)
+- A request without `Last-Event-ID`, or with an empty one, streams live output only; clients read the backlog with `GET .../log/{stream}` (the Web UI does), so nothing is sent twice
+- A request with `Last-Event-ID: {offset}` first replays the bytes after that offset that the in-memory buffer (FUNC-082) still holds, then streams live output. An offset equal to the current one replays nothing
+- If part of the requested range is no longer held, the server first sends `event: gap` with `data: {"bytes": {n}}` ({n} = oldest held offset - requested offset), then replays from the oldest held byte. A named event, not a comment, so a browser EventSource sees it
+- An offset beyond the current one means the counter restarted (a reload or remove+add recreated the process, which resets offsets to 0): the server sends `event: reset` with `data: {}` and replays every held byte
+- Every event, also a replayed one, carries the `id` of its end (start offset + length of its data), so a client that reconnects again resumes where it stopped
 - Multiple clients can stream the same log simultaneously
 - The log stream reads the in-memory buffer and live output whether or not a log file is configured
 - Event data is the captured output, one `data:` line per line (SEC-013); a chunk that ends mid-line is continued by the next event
-- Events a slow client cannot take (64 queued) are dropped; a client that resumes with `Last-Event-ID` gets them back from the buffer while it still holds them
+- A slow client that cannot take an event (64 queued) has its stream closed by the server. A browser EventSource reconnects with its last `id` and the replay delivers the missed bytes while the buffer still holds them; otherwise it gets a `gap` event. No event is silently dropped from an open stream
+- With `redirect_stderr = true` stderr goes to stdout; the stderr stream stays empty
 
 **Dependencies:** FUNC-026
 
@@ -1673,9 +1686,13 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
   **When** processes are running
   **Then** all processes are restarted through the ordered bulk API (FUNC-083), one line per process: "{name}: ok", "{name}: skipped" or "{name}: error: {message}"
 
-- **Given** `kahi ctl signal HUP web` is issued
+- **Given** `kahi ctl signal HUP web` or `kahi ctl signal SIGHUP web` is issued
   **When** web is running
-  **Then** SIGHUP is sent to the web process
+  **Then** SIGHUP is sent to the web process and "web: signaled SIGHUP" is printed
+
+- **Given** `kahi ctl start web nope` is issued
+  **When** web is stopped and nope does not exist
+  **Then** web is started ("web: started"), "nope: no such process: nope" is printed, then "1 of 2 failed" on stderr, and the command exits 1 (#213)
 
 - **Given** `kahi ctl start web:*` is issued
   **When** web is a group
@@ -1683,15 +1700,19 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Error Handling:**
 
-| Error Condition        | Expected Behavior | User-Facing Message                           |
-| ---------------------- | ----------------- | --------------------------------------------- |
-| Daemon not running     | Exit code 1       | "connection failed: {error}"                  |
-| Process name not found | Exit code 1       | "{name}: no such process: {name}"             |
-| Invalid signal         | Exit code 1       | "process {name}: invalid signal \"{signal}\"" |
+| Error Condition        | Expected Behavior | User-Facing Message                                      |
+| ---------------------- | ----------------- | -------------------------------------------------------- |
+| Daemon not running     | Exit code 1       | "connection failed: {error}"                             |
+| Process name not found | Exit code 1       | "{name}: no such process: {name}"                        |
+| Invalid signal         | Exit code 1       | "process {name}: invalid signal \"{signal}\""            |
+| Any target failed      | Exit code 1       | "{n} of {m} failed" (stderr, after the per-target lines) |
+| `all` with other names | Exit code 2       | "all cannot be combined with other names"                |
 
 **Edge Cases:**
 
-- `all` keyword applies to all processes, through `/api/v1/all/{start,stop,restart}`; a program named "all" is reachable as `all:*` or through the API (#213)
+- `all` keyword applies to all processes, through `/api/v1/all/{start,stop,restart}`; a program named "all" is reachable as `all:*` or through the API (#213). `all` must be the only target: `kahi ctl stop all web` is a usage error, exit 2, nothing is sent (decided 2026-10-29)
+- `all` prints one line per process; any "{name}: error: {message}" line makes the command exit 1 after "{n} of {m} failed"
+- Signal names follow `<signal.h>`: `kahi ctl signal` accepts `HUP` and `SIGHUP`, and output always uses the `SIG` form (decided 2026-10-29)
 - `group:*` syntax targets all processes in a group
 - Multiple process names can be specified: `kahi ctl start web api worker`; every target is attempted, and the command exits 1 if any of them failed (#213)
 - `kahi ctl signal` takes one process; on a stopped process it reports "process not running: {name}"
@@ -1810,15 +1831,11 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - **Given** `kahi ctl reread` is issued
   **When** config has changed
-  **Then** prints added/changed/removed programs (does not apply changes)
+  **Then** prints "would apply: added=[...] changed=[...] removed=[...]" (does not apply changes)
 
 - **Given** `kahi ctl update` is issued
   **When** config has changed
-  **Then** applies changes: stops removed, restarts changed, adds new
-
-- **Given** `kahi ctl update web` is issued
-  **When** web config has changed
-  **Then** only web group is updated
+  **Then** applies changes: stops removed, restarts changed, adds new, and prints "updated: added=[...] changed=[...] removed=[...]"; a removed program that is running is stopped first
 
 - **Given** `kahi ctl add web` is issued
   **When** web exists in config but is not active
@@ -1830,13 +1847,13 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Error Handling:**
 
-| Error Condition        | Expected Behavior | User-Facing Message       |
-| ---------------------- | ----------------- | ------------------------- |
-| Config file has errors | Error message     | "config error: {details}" |
+| Error Condition        | Expected Behavior            | User-Facing Message       |
+| ---------------------- | ---------------------------- | ------------------------- |
+| Config file has errors | Exit code 1, nothing applied | "config error: {details}" |
 
 **Edge Cases:**
 
-- `kahi ctl avail` shows all configured programs with active/available status
+- `kahi ctl avail` and `kahi ctl update <group>` are not in v0.2.3 (#161, v0.3.0)
 - `reread`, `update`, `reload` and `add` print the new config's warnings (unknown keys, settings that are accepted but ignored) to stderr as `warning: ...`. The reload API returns them in a `warnings` array, for a preview (`?dry_run=true`) as well as an applied reload.
 
 **Dependencies:** FUNC-031, FUNC-014
@@ -2220,7 +2237,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - **Given** Kahi starts as root
   **When** no user to drop to is given (`kahi daemon -u`; a `[supervisor] user` key is #159)
-  **Then** a warning is logged once at startup: "running as root without user config; consider setting [supervisor] user for privilege dropping"
+  **Then** a warning is logged once at startup: "running as root without user config; consider kahi daemon -u {user} for privilege dropping" (the `[supervisor] user` key does not exist until #159)
 
 - **Given** Kahi starts as non-root
   **When** any config
@@ -2234,7 +2251,8 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Edge Cases:**
 
-- Warning is logged once at startup, not repeated
+- Warning is logged once at startup, not repeated, and not again on a SIGHUP reload
+- With `-d` only the daemonized child logs it, not the parent that re-execs (#209)
 
 **Dependencies:** INFRA-006
 
@@ -2266,7 +2284,8 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Edge Cases:**
 
-- Event notification is synchronous in the main loop (not concurrent)
+- Event notification is synchronous in the publisher's goroutine: every callback has run when Publish returns
+- Subscribers receive events from one publisher in the order they were published
 - Subscriber registration/unregistration is safe from any goroutine
 
 **Dependencies:** INFRA-001
@@ -2283,9 +2302,13 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
   **When** a process transitions to any state
   **Then** a PROCESS*STATE*{STATE} event is emitted with data `name`, `group`, `state`, `from_state` and `pid` ("0" when no child exists), all strings
 
+- **Given** a stopped process is started
+  **When** PROCESS_STATE_STARTING is emitted
+  **Then** it is published before the spawn, with pid "0"
+
 - **Given** a RUNNING process exits by itself
   **When** PROCESS_STATE_EXITED is emitted
-  **Then** its data also carries `expected` ("true" when the exit code is in exitcodes), `exitstatus`, and `exitsignal` when a signal killed it (#154, #201)
+  **Then** its data also carries `expected` ("true" when the exit code is in exitcodes), `exitstatus`, and `exitsignal` when a signal killed it, named as in `<signal.h>` (`"SIGKILL"`) (#154, #201)
 
 **Error Handling:**
 
@@ -2295,7 +2318,8 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Edge Cases:**
 
-- Events are emitted after the state transition is committed
+- Events are emitted after the state transition is committed; a subscriber that queries the process state from its callback sees the state of the event
+- Transitions of one process are published one at a time, so `from_state` always equals the `state` of that process's previous event
 - All 7 states (STOPPED, STARTING, RUNNING, BACKOFF, STOPPING, EXITED, FATAL) have corresponding event types
 - A transition that passes through BACKOFF to FATAL in one step (no retries left) emits PROCESS_STATE_FATAL with from_state STARTING
 
@@ -2368,7 +2392,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - **Given** event system is enabled
   **When** a group is added to active management
-  **Then** PROCESS_GROUP_ADDED event is emitted with data `group` and `processes` (the process names, comma-separated)
+  **Then** PROCESS_GROUP_ADDED event is emitted with data `group` and `processes` (the process names, sorted, comma-separated, for example "web_0,web_1")
 
 - **Given** event system is enabled
   **When** a group is removed from active management
@@ -2382,8 +2406,8 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Edge Cases:**
 
-- Group events fire after the operation completes, not before
-- A group is added when a reload adds a program or a `[groups]` table, and on `kahi ctl add` (FUNC-011); loading the config at startup is not an add (#154)
+- Group events fire after the operation completes, not before: `processes` of an ADDED event are already in status, those of a REMOVED event already gone
+- A group is added when a reload adds a program or a `[groups]` table (one event for the table, listing all its processes), and on `kahi ctl add` (FUNC-011); loading the config at startup is not an add (#154)
 - A group is removed when a reload removes a program or a `[groups]` table, and on `kahi ctl remove`; a reload that restarts a changed program publishes neither event
 
 **Dependencies:** FUNC-049, FUNC-011
@@ -2800,7 +2824,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - **Given** programs `app` (priority 300), `cache` (priority 200) and `db` (priority 100), each exiting 1 second after SIGTERM
   **When** shutdown is initiated
-  **Then** `cache` receives its stop signal only after `app` has exited, and `db` only after `cache` has exited; the daemon exits with code 0 after about 3 seconds
+  **Then** `cache` receives its stop signal only after `app` has exited, and `db` only after `cache` has exited; the daemon exits with code 0 between 3 and 5 seconds after shutdown began
 
 - **Given** two programs share priority 300
   **When** shutdown reaches level 300
@@ -2824,10 +2848,10 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Error Handling:**
 
-| Error Condition                                            | Expected Behavior                                          | User-Facing Message                                                                                                                                                                |
-| ---------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Process not reaped within 1s of its final SIGKILL          | Log error per process, exit anyway                         | "process {name} stuck, giving up"                                                                                                                                                  |
-| Sum of per-level max stopwaitsecs exceeds shutdown_timeout | Config warning at load and reload (does not block startup) | "ordered shutdown can take up to {n}s (largest stopwaitsecs per priority level, summed), more than supervisor.shutdown_timeout ({t}s); processes still running then are SIGKILLed" |
+| Error Condition                                                                        | Expected Behavior                                          | User-Facing Message                                                                                                                                                                |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Process not reaped within 1s of a SIGKILL from the shutdown timeout or a second signal | Log error per process, exit anyway                         | "process {name} stuck, giving up"                                                                                                                                                  |
+| Sum of per-level max stopwaitsecs exceeds shutdown_timeout                             | Config warning at load and reload (does not block startup) | "ordered shutdown can take up to {n}s (largest stopwaitsecs per priority level, summed), more than supervisor.shutdown_timeout ({t}s); processes still running then are SIGKILLed" |
 
 **Edge Cases:**
 
@@ -2838,7 +2862,8 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 - No process is started, restarted or retried once shutdown has begun (#92)
 - Children are reaped throughout shutdown (#90)
 - After a SIGKILL from the shutdown timeout or a second signal, the daemon waits up to 1 second to reap; processes not reaped by then are logged as stuck and the daemon exits
-- Each level is logged at INFO: "stopping priority level {p}" with the process names
+- Each level is logged at INFO: "stopping priority level {p}" with the process names. {p} is the program's priority, or "{table priority}/{own priority}" for members of a `[groups]` table
+- A process stuck after its own stopwaitsecs SIGKILL holds its level until the shutdown timeout; only the timeout or a second signal leads to "stuck, giving up"
 - The per-program warning "stopwaitsecs exceeds shutdown_timeout" is replaced by the per-level sum warning above, which covers it
 - Ordered shutdown is the default and can make a full shutdown take much longer than signalling every process at once. The sample configs (README, `cmd/kahi/kahi.toml`, and the `kahi init` template in `internal/config/generate.go`) document how to tune it in the comments next to the keys involved:
   - `shutdown_timeout`: total budget for all levels; set it at least to the sum, over priority levels, of the largest `stopwaitsecs` in each level, and below the service manager's own stop timeout (systemd `TimeoutStopSec`, `docker stop -t`)
@@ -2943,7 +2968,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - Handles [include] sections by expanding and inlining
 - Maps environment variables from supervisord format to Kahi format
-- Maps signal names (e.g., TERM -> SIGTERM)
+- Writes signal names in the `<signal.h>` form (TERM -> SIGTERM; a value that already has the prefix is kept)
 - Preserves comments as TOML comments where possible
 
 **Dependencies:** INFRA-005
@@ -3312,8 +3337,10 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - The backlog is up to the last 64 KB of the in-memory ring buffer (the read endpoint returns bytes, not lines). If the response is exactly 65536 bytes, the buffer was full and its first line is likely partial, so everything up to and including the first `\n` is dropped (a full response with no `\n` at all is dropped entirely); a trailing line without `\n` goes into the pending buffer. Then the last 100 complete lines are shown, or fewer when fewer exist
 - `EventSource` exposes no HTTP status, so "no such process" is detected from the backlog read only
-- After a reconnect, output written while disconnected is not shown (no backlog re-read, which would duplicate lines); reloading the page re-reads the backlog
-- The SSE log stream drops events when its 64-slot buffer is full (`internal/api/api.go`) and sends no signal to the client, so a very fast writer can leave gaps. Accepted for 0.2.0
+- The first stream request carries no `Last-Event-ID`, so it streams live output only and the backlog read does not duplicate it (FUNC-027)
+- After a reconnect, `EventSource` sends `Last-Event-ID` and the server replays the output written while disconnected (FUNC-027, #155); no backlog re-read
+- A `gap` event first ends the pending partial line as a line, then shows a line "[{n} bytes not shown]"; a `reset` event does the same with "[log restarted]" and then renders the replay
+- The server closes a stream whose client falls 64 events behind; `EventSource` reconnects and resumes, so a fast writer no longer leaves silent gaps (v0.2.3)
 - With `strip_ansi = true` the capture (and so the backlog) is stripped, but the stream publishes raw output, so streamed lines may show colors the backlog does not. Accepted, and documented in the README's Web UI section (FUNC-084)
 - The ring buffer is a fixed 64 KB regardless of `stdout_capture_maxbytes` (a FUNC-082 discrepancy tracked separately)
 - The read endpoint ignores its `offset` parameter; the viewer does not use it
