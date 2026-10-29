@@ -95,5 +95,8 @@ release:
     name: kahi
   draft: true
   prerelease: auto
+  # The draft is published by release.yml after the signatures are verified,
+  # and that step decides Latest (#150).
+  make_latest: false
   name_template: '{{.ProjectName}} v{{.Version}}'
   footer: '{{ .Env.KAHI_RELEASE_FOOTER }}'

@@ -165,4 +165,17 @@ jobs:
             --certificate-oidc-issuer "$ISSUER" \
             "$IMAGE"
       - name: Promote draft release
-        run: gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false
+        # Latest only for a full release that is the highest version: never
+        # for a prerelease, nor for a patch on an older line such as 0.1.x
+        # published after 0.2.x (#150).
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          latest=false
+          if [[ "$TAG" != *-* ]]; then
+            top="$( { gh release list --repo "$REPO" --exclude-drafts --exclude-pre-releases --limit 200 --json tagName --jq '.[].tagName'; echo "$TAG"; } | sort -V | tail -n 1)"
+            [[ "$top" == "$TAG" ]] && latest=true
+          fi
+          echo "Publishing $TAG with latest=$latest"
+          gh release edit "$TAG" --repo "$REPO" --draft=false --latest="$latest"
