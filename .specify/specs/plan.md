@@ -1009,3 +1009,141 @@ Ordered by dependency. Each step lands with its tests red first; the important g
 6. **End to end:** TEST-006 in `e2e/` (`//go:build e2e`, run by `integration.yml` via `task test-e2e`), using `FreeTCPPort`, not a fixed `listen` address. Then a fresh XSS review of `internal/web` now that it is reachable (SEC-026).
 
 Only after step 6 passes are the Web UI feature_list entries marked `passes: true`. Where a feature_list entry spans several steps (`web-ui-config-mounting` covers steps 1, 3 and 5), this order wins over the entry order in `feature_list.json`.
+
+---
+
+### ADR-031: Ordered Shutdown by Priority Level in the Supervisor
+
+**Date:** 2026-10-29
+**Status:** Accepted
+
+**Context:** FUNC-066, #151, pulled into v0.2.3 on 2026-10-29. `Manager.StopAll` closes `shutdownCh` and signals every stoppable process back to back; `Supervisor.waitForShutdown` then waits for the whole set up to `shutdown_timeout`, reaping on SIGCHLD and on a 100 ms tick, and SIGKILLs everything on timeout or a second signal (#91). Reaping happens only in the supervisor's goroutine, so waiting for a level must happen there too.
+
+**Decision:**
+
+1. `Manager.ShutdownLevels() [][]string` returns process names grouped by the FUNC-008 ordering key without the name (`[groups]` priority or own priority, then own priority), levels in descending order, names within a level descending. It closes `shutdownCh` first, exactly as `StopAll` does, so nothing starts, restarts or retries afterwards (#92).
+2. `Supervisor.shutdownProcesses()` replaces the `StopAll` + `waitForShutdown` pair: for each level it logs "stopping priority level {key}" with the names, calls `Stop` on each stoppable process (BACKOFF goes to STOPPED without a signal), then runs the existing wait loop until every process of the level is stopped or the global deadline passes. One deadline, `shutdown_timeout` from the start of shutdown, covers all levels. Timeout or a second TERM/INT/QUIT SIGKILLs every remaining process in every level (the existing kill path) and waits up to 1 s to reap, logging "process {name} stuck, giving up" for any left.
+3. A level's own SIGKILL escalation is each process's `stopwaitsecs` (FUNC-003), unchanged.
+4. Config: the per-program "stopwaitsecs exceeds shutdown_timeout" warning is replaced by one warning when the sum over levels of the largest `stopwaitsecs` in each level exceeds `shutdown_timeout` (computed in `internal/config` with the same key, so `[groups]` membership counts). The sample configs carry the tuning comments of FUNC-066.
+
+**Alternatives Considered:**
+
+1. **Wait inside the Manager:** Rejected -- the Manager does not reap; waiting there would need a second reaper or a callback into the supervisor.
+2. **A per-level timeout:** Rejected -- the spec bounds the whole shutdown, and per-level budgets would let a slow level starve later ones in hard-to-predict ways.
+
+**Consequences:**
+
+- A full shutdown can take up to the per-level sum; the warning says so at load.
+- `StopAll` remains for callers that must stop everything at once (it is no longer used by the daemon's shutdown).
+
+### ADR-032: State and Group Event Payloads
+
+**Date:** 2026-10-29
+**Status:** Accepted
+
+**Context:** FUNC-050, FUNC-053, #154. `Process.doPublishState` sends `{name, group, state, pid}`. `PROCESS_GROUP_ADDED` is never sent by the binary (`Manager.AddGroup` has no caller); `PROCESS_GROUP_REMOVED` is sent by `removeProgram` on reload with `{group}` only. Event data is `map[string]string`.
+
+**Decision:**
+
+1. `Process` keeps `lastPublished State`; every publish adds `from_state` (the last published state, so a STARTING -> BACKOFF -> FATAL step in one transition reports from STARTING) and updates it.
+2. PROCESS_STATE_EXITED adds `expected` ("true"/"false", the `exitcodes` match used by autorestart), `exitstatus`, and `exitsignal` when set (#201).
+3. Group events carry `group` and `processes` (names, sorted, comma-separated). The Manager publishes ADDED from one place, `activateGroup`, used by reload for added programs and `[groups]` tables and by `kahi ctl add` (ADR-034); REMOVED from `deactivateGroup`, used by reload removals and `kahi ctl remove`. `LoadConfig` at startup calls neither publish path. A changed program restarted by reload publishes neither.
+
+**Alternatives Considered:**
+
+1. **Typed event structs instead of string maps:** Rejected for v0.2.3 -- every subscriber and the SSE encoder use the map; a typed payload is a 0.3.0 change with listeners and webhooks (#106).
+
+**Consequences:** SSE clients gain fields; existing fields are unchanged.
+
+### ADR-033: Log Stream Offsets and Resume
+
+**Date:** 2026-10-29
+**Status:** Accepted
+
+**Context:** FUNC-027, #155. `CaptureWriter` keeps a 64 KB ring buffer and publishes each captured chunk on the bus; `handleStreamLog` forwards bus chunks live, without ids, and drops when 64 are queued.
+
+**Decision:**
+
+1. `CaptureWriter` counts the bytes it has captured (after ANSI stripping) in `total int64`; each published chunk carries `end` = `total` after it, as a decimal string in the event data.
+2. `CaptureWriter.ReadFrom(offset int64) (data []byte, start int64)` returns what the ring buffer still holds after `offset` and the offset it starts at (> `offset` when bytes were overwritten). `api.ProcessManager` gains `ReadLogFrom(name, stream, offset)`.
+3. `handleStreamLog` parses `Last-Event-ID` (absent: live only; non-numeric or negative: 400 "invalid resume position: {value}"). It subscribes first, then reads the replay, writes `: gap of {n} bytes` when `start > offset`, sends the replay as one event with `id: {end}`, and then forwards live chunks, skipping any whose `end` is not past the replayed end. Every event gets `id: {end}`.
+4. The counter and buffer belong to the capture writer, so they restart when a program is recreated by reload (its offsets start at 0 again); a resume offset beyond the current total replays nothing.
+
+**Alternatives Considered:**
+
+1. **Offsets into the log file:** Rejected -- programs without a log file stream too, and rotation would invalidate offsets.
+2. **Replay on every connect:** Rejected -- the Web UI reads the backlog itself and would show it twice.
+
+**Consequences:** A client that reconnects within the 64 KB window loses nothing; beyond it, the gap is announced.
+
+### ADR-034: Group Add and Remove
+
+**Date:** 2026-10-29
+**Status:** Accepted
+
+**Context:** FUNC-011, FUNC-035, #212. `kahi ctl add` is reload plus start; `kahi ctl remove` only stops. `Manager.AddGroup`/`RemoveGroup` exist without callers. The supervisor holds the loaded config; the Manager does not.
+
+**Decision:**
+
+1. The supervisor keeps `inactive map[string]bool`, the groups removed at runtime. `Supervisor.AddGroup(name)` fails with "no such group: {name}" if the loaded config defines no program or `[groups]` table of that name, with "group already active: {name}" if it is active; otherwise it loads that group's programs from the loaded config into the Manager (`activateGroup`), starts the autostart ones, publishes ADDED and clears the mark. `Supervisor.RemoveGroup(name)` fails with "no such group" or "group {name} has running processes, stop first" (any process not STOPPED, EXITED or FATAL); otherwise the Manager drops the group's processes, capture writers and group entry (`deactivateGroup`), publishes REMOVED and the supervisor marks it inactive.
+2. Reload treats an inactive group that the new config still defines as added (reported under "added", activated, mark cleared); one the new config drops is forgotten.
+3. API: `POST /api/v1/groups/{name}/add` and `/remove` behind `requireAuth`, 409 CONFLICT for the two state errors, 404 NOT_FOUND for unknown groups; `api.GroupManager` gains `AddGroup`/`RemoveGroup` implemented by the supervisor through an interface the API already receives (`ConfigManager`).
+4. `kahi ctl add|remove` call these routes, print "{group}: added" / "{group}: removed", exit 1 on error. The unused `Manager.AddGroup`/`RemoveGroup` are replaced.
+
+**Alternatives Considered:**
+
+1. **Remove by stopping only (today):** Rejected by the user decision (supervisorctl semantics).
+2. **Re-read the config file on add:** Rejected -- supervisorctl adds from the configuration the daemon has; `reread`/`update` exist to load a changed file.
+
+**Consequences:** `status` no longer lists a removed group; a reload brings it back.
+
+### ADR-035: kahi ctl Exit Codes and `all`
+
+**Date:** 2026-10-29
+**Status:** Accepted
+
+**Context:** FUNC-031, #213. `ctl start|stop|restart` print per-target errors and exit 0; `all` is sent as a process name.
+
+**Decision:** The three commands attempt every target, collect failures, and return an error after the loop ("{n} of {m} failed") so the binary exits 1; the per-target lines are unchanged. The single argument `all` calls `/api/v1/all/{action}` and prints one line per result ("{name}: ok|skipped|error: {message}"), failing when any result is an error. `name:*` keeps the group route.
+
+**Alternatives Considered:** A `--keep-going` flag -- rejected; every target is attempted already, only the exit code changes.
+
+**Consequences:** Scripts that ignored errors now see exit 1. Release-note item.
+
+### ADR-036: Group Name Collision Check
+
+**Date:** 2026-10-29
+**Status:** Accepted
+
+**Context:** FUNC-009, #214. `LoadConfig` builds the implicit group of each program, then `[groups]` tables, overwriting an implicit group of the same name. `internal/process/group.go` holds `ValidateGroupNameCollisions` and two builders that nothing calls.
+
+**Decision:** `config.validateGroupReferences` (which runs after includes) also refuses a `[groups]` key equal to a program key: "groups.{x}: name collides with program {x}". The dead functions in `group.go` and their tests are removed.
+
+**Consequences:** A config that relied on the overwrite now fails to load; the error names both.
+
+### ADR-037: Root-Only E2E Steps in a Container
+
+**Date:** 2026-10-29
+**Status:** Accepted
+
+**Context:** #162, decided 2026-10-29. Privilege drop, the clean environment for a different user, the root warning and process user switching need root, which the test user lacks. `e2e/pid1_test.go` already builds Linux binaries into a `FROM scratch` image and runs it with podman or docker as root.
+
+**Decision:** A shared helper in `e2e/` builds the image (kahi plus the static helper `e2e/testdata/orphaner`, extended with `env`, `id`, `limits` and `umask` subcommands that print to stdout), takes a config and optional extra files (an `/etc/passwd` for HOME lookups, a 1777 directory), runs the container as root and returns its logs. Root-only tests use it. As in TestPID1_ReapsOrphans, they skip without a running runtime and fail on a Linux CI runner without one.
+
+**Consequences:** These tests run on the Linux CI runner (and locally with a podman machine); they never need sudo.
+
+---
+
+### Implementation Sequencing (v0.2.3: #149 and #162 in full)
+
+Each step is one PR, tested red first, with e2e proof against the binary and the feature_list entries it completes; `GOOS=linux go vet -tags=e2e ./e2e/` before pushing.
+
+1. **Spec, plan, features** (this change): clarify, ADR-031..037, feature_list steps.
+2. **#214 collision check** (ADR-036) and the homogeneous-groups e2e.
+3. **#213 ctl exit codes and `all`** (ADR-035) and the cli-process-control e2e.
+4. **#154 event payloads** (ADR-032, the state part) and the event-bus / process-state-events e2e.
+5. **#212 group add/remove** (ADR-034, with the group events of ADR-032) and the group-lifecycle / process-group-events e2e.
+6. **#155 log stream resume** (ADR-033) and the sse-streaming e2e.
+7. **#151 ordered shutdown** (ADR-031) and the priority-ordering / signal-queuing e2e.
+8. **E2E only:** config-search-paths, daemon-config-search-excludes-cwd, migration-validation, process-output-capture, child-process-isolation, and the security entries (config-api-secret-redaction, log-open-symlink-hardening, control-socket-owner-only-lockdown, unix-socket-owner-only-at-bind, socket-dir-probe-no-follow, api-cross-origin-protection, web-ui-auth-output-encoding).
+9. **Root steps in a container** (ADR-037): root-detection-warning, spawn-rlimit-umask-application, clean-env-privilege-differentiated-children.
