@@ -899,14 +899,20 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition                           | Expected Behavior       | User-Facing Message                       |
-| ----------------------------------------- | ----------------------- | ----------------------------------------- |
-| Group references nonexistent program      | Config validation error | "group {name}: unknown program {prog}"    |
-| Program already in another explicit group | Config validation error | "program {prog} already in group {other}" |
+| Error Condition                           | Expected Behavior       | User-Facing Message                                                              |
+| ----------------------------------------- | ----------------------- | -------------------------------------------------------------------------------- |
+| Group references nonexistent program      | Config validation error | "groups.{name}: references nonexistent program \"{prog}\""                       |
+| Program already in another explicit group | Config validation error | "program \"{prog}\" is in multiple groups: {a} and {b}" ({a} before {b}, sorted) |
+| Group with no programs                    | Config validation error | "groups.{name}: empty group (no programs)"                                       |
 
 **Edge Cases:**
 
-- When a heterogeneous group exists, the implicit homogeneous groups for its member programs are suppressed: the table owns its members (decided 2026-10-29, #212). `web:*` and `kahi ctl add|remove web` for a member `web` report "no such group: web"; the members are addressed through the table (`services:*`, `services:web_0`)
+- When a heterogeneous group exists, the implicit homogeneous groups for its member programs are suppressed: the table owns its members (decided 2026-10-29, #212)
+- `{name}:*` resolves a group first and otherwise the program of that name, so `web:*` still targets the processes of a member program `web` and `services:*` targets the whole table (decided 2026-10-29, so existing scripts keep working). Single members are also reachable by process name (`web_0`)
+- `kahi ctl add|remove` act on groups only: for a member program they fail with "{prog} is in group {table}; use {table}" and exit 1 (404 NOT_FOUND from the API)
+- Status, the API and state events report a member's `group` as the table name ("services"); `%(group_name)s` in config expansion stays the program name (FUNC-012)
+- A reload that drops a table whose programs stay in `[programs]` stops and removes the table's group (PROCESS_GROUP_REMOVED) and adds each program as its own group (PROCESS_GROUP_ADDED; autostart applies), as supervisord does. A reload that adds a table over active programs removes their own groups and adds the table the same way. Changing a table's member list does both: a member that leaves gets its own group, one that joins leaves its own group
+- `reread`, `update` and `reload` list an added, changed or removed table by its name under added/changed/removed
 - Empty groups (no programs) are rejected at config validation
 
 **Dependencies:** FUNC-009
@@ -937,11 +943,13 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition                     | Expected Behavior | User-Facing Message                              |
-| ----------------------------------- | ----------------- | ------------------------------------------------ |
-| Add already-active group            | Return error      | "group already active: {name}"                   |
-| Remove group with running processes | Return error      | "group {name} has running processes, stop first" |
-| Remove nonexistent group            | Return error      | "no such group: {name}"                          |
+| Error Condition                              | Expected Behavior  | User-Facing Message                              |
+| -------------------------------------------- | ------------------ | ------------------------------------------------ |
+| Add already-active group                     | Return error       | "group already active: {name}"                   |
+| Remove group with running processes          | Return error       | "group {name} has running processes, stop first" |
+| Remove nonexistent group                     | Return error       | "no such group: {name}"                          |
+| Add or remove a member of a `[groups]` table | Return error (404) | "{prog} is in group {table}; use {table}"        |
+| Add or remove during shutdown                | 409 SHUTTING_DOWN  | "daemon is shutting down"                        |
 
 **Edge Cases:**
 
@@ -949,7 +957,7 @@ This feature adds two complementary mechanisms:
 - `kahi ctl add` uses the config the daemon last loaded (at startup or by the last reload); it does not read the config file. Edits not yet reloaded take effect with the next reload or `kahi ctl update` (ADR-034)
 - "Stopped" means every process of the group is STOPPED, EXITED or FATAL; STARTING, RUNNING, BACKOFF and STOPPING count as running
 - A removed group's processes leave status and the API until the group is added again. A reload, `kahi ctl update` or `kahi ctl add` brings it back; a reload reports it under "added"
-- A `[groups]` table owns its members (FUNC-010): `kahi ctl add|remove {table}` adds or removes all member processes; a member program name is "no such group: {name}"
+- A `[groups]` table owns its members (FUNC-010): `kahi ctl add|remove {table}` adds or removes all member processes; a member program name fails with "{prog} is in group {table}; use {table}"
 - Removing a `[groups]` table from the config file removes its member processes from management at the next reload; adding one adds them. Each publishes one group event listing the table's processes (FUNC-053)
 - A reload drops an inactive group that the config no longer defines; it is no longer reported anywhere
 - API: `POST /api/v1/groups/{name}/add` and `POST /api/v1/groups/{name}/remove`; errors are 409 CONFLICT (already active, has running processes) and 404 NOT_FOUND (no such group). `kahi ctl add` and `kahi ctl remove` use them and print "{group}: added" / "{group}: removed"
@@ -1538,21 +1546,22 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Error Handling:**
 
-| Error Condition                         | Expected Behavior        | User-Facing Message                                                    |
-| --------------------------------------- | ------------------------ | ---------------------------------------------------------------------- |
-| Process not found                       | 404 before stream starts | `{"error": "no such process: web", "code": "NOT_FOUND"}`               |
-| Stream other than stdout or stderr      | 400                      | `{"error": "stream must be stdout or stderr", "code": "BAD_REQUEST"}`  |
-| Non-numeric or negative `Last-Event-ID` | 400 before stream starts | `{"error": "invalid resume position: {value}", "code": "BAD_REQUEST"}` |
+| Error Condition                                                               | Expected Behavior        | User-Facing Message                                                    |
+| ----------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------- |
+| Process not found                                                             | 404 before stream starts | `{"error": "no such process: web", "code": "NOT_FOUND"}`               |
+| Stream other than stdout or stderr                                            | 400                      | `{"error": "stream must be stdout or stderr", "code": "BAD_REQUEST"}`  |
+| `Last-Event-ID` not of the form `{generation}-{offset}`, or a negative offset | 400 before stream starts | `{"error": "invalid resume position: {value}", "code": "BAD_REQUEST"}` |
 
 **Edge Cases:**
 
 - SSE includes `X-Accel-Buffering: no` header for nginx reverse proxy compatibility
-- Each log event is an unnamed SSE event (`id:` line, then `data:` lines, then a blank line) and carries `id: {offset}`: the number of bytes of that stream captured since the process was loaded, up to the end of the event's data (decided 2026-10-29, #155)
+- Each log event is an unnamed SSE event (`id:` line, then `data:` lines, then a blank line) and carries `id: {generation}-{offset}`. {offset} is the number of bytes of that stream captured since the process was created, up to the end of the event's data; {generation} identifies that creation and changes whenever a reload, remove+add or daemon restart creates the process again (decided 2026-10-29, #155)
 - A request without `Last-Event-ID`, or with an empty one, streams live output only; clients read the backlog with `GET .../log/{stream}` (the Web UI does), so nothing is sent twice
-- A request with `Last-Event-ID: {offset}` first replays the bytes after that offset that the in-memory buffer (FUNC-082) still holds, then streams live output. An offset equal to the current one replays nothing
+- A request with `Last-Event-ID: {generation}-{offset}` of the current generation first replays the bytes after that offset that the in-memory buffer (FUNC-082) still holds, then streams live output. An offset equal to the current one replays nothing
 - If part of the requested range is no longer held, the server first sends `event: gap` with `data: {"bytes": {n}}` ({n} = oldest held offset - requested offset), then replays from the oldest held byte. A named event, not a comment, so a browser EventSource sees it
-- An offset beyond the current one means the counter restarted (a reload or remove+add recreated the process, which resets offsets to 0): the server sends `event: reset` with `data: {}` and replays every held byte
-- Every event, also a replayed one, carries the `id` of its end (start offset + length of its data), so a client that reconnects again resumes where it stopped
+- A `Last-Event-ID` of another generation, or with an offset beyond the current one, means the process was created again (offsets restart at 0): the server sends `event: reset` with `data: {}` and replays every held byte
+- `gap` and `reset` events carry no `id`, so the client's last id stays that of the last log event it received
+- Every log event, also a replayed one, carries the `id` of its end (start offset + length of its data), so a client that reconnects again resumes where it stopped
 - Multiple clients can stream the same log simultaneously
 - The log stream reads the in-memory buffer and live output whether or not a log file is configured
 - Event data is the captured output, one `data:` line per line (SEC-013); a chunk that ends mid-line is continued by the next event
@@ -1700,13 +1709,14 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Error Handling:**
 
-| Error Condition        | Expected Behavior | User-Facing Message                                      |
-| ---------------------- | ----------------- | -------------------------------------------------------- |
-| Daemon not running     | Exit code 1       | "connection failed: {error}"                             |
-| Process name not found | Exit code 1       | "{name}: no such process: {name}"                        |
-| Invalid signal         | Exit code 1       | "process {name}: invalid signal \"{signal}\""            |
-| Any target failed      | Exit code 1       | "{n} of {m} failed" (stderr, after the per-target lines) |
-| `all` with other names | Exit code 2       | "all cannot be combined with other names"                |
+| Error Condition                                                          | Expected Behavior | User-Facing Message                                      |
+| ------------------------------------------------------------------------ | ----------------- | -------------------------------------------------------- |
+| Daemon not running                                                       | Exit code 1       | "connection failed: {error}"                             |
+| Process name not found                                                   | Exit code 1       | "{name}: no such process: {name}"                        |
+| Invalid signal                                                           | Exit code 1       | "process {name}: invalid signal \"{signal}\""            |
+| Any target failed                                                        | Exit code 1       | "{n} of {m} failed" (stderr, after the per-target lines) |
+| `all` with other names                                                   | Exit code 2       | "all cannot be combined with other names"                |
+| Any other usage error (wrong argument count, unknown flag or subcommand) | Exit code 2       | cobra's message                                          |
 
 **Edge Cases:**
 
@@ -1717,6 +1727,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 - Multiple process names can be specified: `kahi ctl start web api worker`; every target is attempted, and the command exits 1 if any of them failed (#213)
 - `kahi ctl signal` takes one process; on a stopped process it reports "process not running: {name}"
 - `kahi ctl` without a subcommand prints help and exits 0
+- Exit codes for every `kahi` command (decided 2026-10-29): 0 success, 1 runtime failure, 2 usage error. Release-note item
 
 **Dependencies:** FUNC-026, INFRA-004, FUNC-083
 
@@ -1854,7 +1865,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 **Edge Cases:**
 
 - `kahi ctl avail` and `kahi ctl update <group>` are not in v0.2.3 (#161, v0.3.0)
-- `reread`, `update`, `reload` and `add` print the new config's warnings (unknown keys, settings that are accepted but ignored) to stderr as `warning: ...`. The reload API returns them in a `warnings` array, for a preview (`?dry_run=true`) as well as an applied reload.
+- `reread`, `update` and `reload` print the new config's warnings (unknown keys, settings that are accepted but ignored) to stderr as `warning: ...`. The reload API returns them in a `warnings` array, for a preview (`?dry_run=true`) as well as an applied reload.
 
 **Dependencies:** FUNC-031, FUNC-014
 
@@ -1960,9 +1971,10 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Edge Cases:**
 
+- SIGQUIT behaves as SIGTERM; a second SIGTERM, SIGINT or SIGQUIT during shutdown kills (FUNC-066)
 - Autorestart is suppressed during shutdown
-- New process starts are rejected during shutdown
-- API continues to serve status requests during shutdown
+- New process starts are rejected during shutdown: the start, restart and bulk APIs return 409 `{"error": "daemon is shutting down", "code": "SHUTTING_DOWN"}`
+- API continues to serve status requests during shutdown (`GET /api/v1/processes` is 200), while `/healthz` returns 503 `{"status": "shutting_down"}` (FUNC-029)
 
 **Dependencies:** FUNC-003, FUNC-008
 
@@ -2836,11 +2848,11 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - **Given** `shutdown_timeout` expires before all levels have stopped
   **When** the timeout fires
-  **Then** every process still running in any level, including levels not yet signalled, receives SIGKILL immediately and the daemon exits
+  **Then** every process still running in any level, including levels not yet signalled, receives SIGKILL immediately and the daemon exits with code 0
 
 - **Given** a second SIGTERM, SIGINT or SIGQUIT arrives during shutdown
   **When** the signal is received
-  **Then** every remaining process receives SIGKILL immediately and the daemon exits (FUNC-038)
+  **Then** every remaining process receives SIGKILL immediately and the daemon exits with code 0 (FUNC-038)
 
 - **Given** all processes have stopped
   **When** shutdown completes
@@ -3306,7 +3318,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
   **When** a stream request arrives
   **Then** it calls `bus.Subscribe` before it writes and flushes the response headers, so any chunk published after the browser's `open` event is delivered on the stream. A chunk published between the subscription and the backlog read appears twice; this is accepted
 
-- **Given** streamed SSE events, which carry raw output chunks (one event can hold several lines, a partial line, or part of an escape sequence)
+- **Given** streamed SSE events, which carry captured output chunks (one event can hold several lines, a partial line, or part of an escape sequence)
   **When** they arrive
   **Then** `log.js` appends each chunk to a pending buffer, renders only complete lines (up to and including `\n`), and keeps the remainder until the next chunk
 
@@ -3341,7 +3353,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 - After a reconnect, `EventSource` sends `Last-Event-ID` and the server replays the output written while disconnected (FUNC-027, #155); no backlog re-read
 - A `gap` event first ends the pending partial line as a line, then shows a line "[{n} bytes not shown]"; a `reset` event does the same with "[log restarted]" and then renders the replay
 - The server closes a stream whose client falls 64 events behind; `EventSource` reconnects and resumes, so a fast writer no longer leaves silent gaps (v0.2.3)
-- With `strip_ansi = true` the capture (and so the backlog) is stripped, but the stream publishes raw output, so streamed lines may show colors the backlog does not. Accepted, and documented in the README's Web UI section (FUNC-084)
+- With `strip_ansi = true` the backlog and the stream are both stripped: the stream publishes the chunk the capture writer stored, which its offsets count (FUNC-027)
 - The ring buffer is a fixed 64 KB regardless of `stdout_capture_maxbytes` (a FUNC-082 discrepancy tracked separately)
 - The read endpoint ignores its `offset` parameter; the viewer does not use it
 - `stderr` with `redirect_stderr = true` has no capture and returns an empty body (the "no output" message)
@@ -3436,7 +3448,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 ### FUNC-082: Process Output Ring Buffer
 
-**Description:** Maintain a configurable in-memory ring buffer of each process's recent output for log tailing without file logging.
+**Description:** Keep an in-memory ring buffer of each process's recent output for log tailing and streaming without file logging. The size is fixed at 64 KB per process per stream; making it configurable (`stdout_capture_maxbytes`) is #113 (v0.3.0).
 
 **Acceptance Criteria:**
 
@@ -3444,9 +3456,9 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
   **When** `kahi ctl tail web` is issued
   **Then** the last data from the ring buffer is returned
 
-- **Given** `stdout_capture_maxbytes = "1MB"` (default)
-  **When** a process writes to stdout
-  **Then** the buffer holds the last 1MB of stdout per process
+- **Given** a process that has written 70000 bytes to stdout
+  **When** `GET /api/v1/processes/web/log/stdout?length=1000000` is requested
+  **Then** exactly the last 65536 bytes are returned
 
 - **Given** the ring buffer is full
   **When** new output arrives
@@ -3459,10 +3471,8 @@ None specific.
 **Edge Cases:**
 
 - Ring buffer is per-process per-stream (stdout and stderr separate)
-- When stdout_capture_maxbytes is set to 0, the ring buffer is disabled and log tailing returns empty results
-- Bounds: minimum 0 (disabled), maximum 100MB
-- Memory is freed when process config is removed
-- Ring buffer feeds SSE streaming when no log file exists
+- When the program is removed, its buffers go with it: the log read returns 404 "no such process: {name}"
+- Ring buffer feeds SSE streaming (FUNC-027) whether or not a log file exists
 
 **Dependencies:** FUNC-018
 
@@ -3612,7 +3622,7 @@ static_dir = ""      # optional per-file overlay for /ui/static/ (FUNC-080)
 
 - **Given** the release documentation
   **When** this feature ships
-  **Then** `README.md` documents the `[server.web]` table in its configuration reference, lists `/ui/` and `POST /api/v1/all/{action}` among the routes, replaces the "Web UI (planned; not yet served by the daemon)" line, states in its Security section that the Unix socket serves the API and UI without authentication, so a reverse proxy in front of the socket is unauthenticated, and has a Web UI section that notes the `strip_ansi` backlog/stream difference (FUNC-079); and `kahi init` (`config.DefaultConfigTOML`) writes a commented `[server.web]` block
+  **Then** `README.md` documents the `[server.web]` table in its configuration reference, lists `/ui/` and `POST /api/v1/all/{action}` among the routes, replaces the "Web UI (planned; not yet served by the daemon)" line, states in its Security section that the Unix socket serves the API and UI without authentication, so a reverse proxy in front of the socket is unauthenticated, and has a Web UI section; and `kahi init` (`config.DefaultConfigTOML`) writes a commented `[server.web]` block
 
 **Error Handling:**
 

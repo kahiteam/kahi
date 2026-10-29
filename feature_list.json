@@ -349,7 +349,7 @@
         "Define [programs.web] in the main config and again in an included file and verify the daemon refuses with 'duplicate program name \"web\": defined in both main config and {include path}'"
       ],
       "passes": false,
-      "dependencies": ["numprocs-instances"]
+      "dependencies": ["numprocs-instances", "cli-process-control"]
     },
     {
       "id": "heterogeneous-groups",
@@ -357,12 +357,15 @@
       "title": "Explicit Heterogeneous Process Groups",
       "description": "Define explicit groups in config that combine processes from multiple program definitions under one group name, with validation for program references.",
       "testing_steps": [
-        "Parse a [groups.services] section with programs=['web','api'] and verify the group contains processes from both",
-        "Write a unit test that issues a group start operation and verifies it applies to all member processes respecting priority ordering",
-        "Parse a config where a group references a nonexistent program and verify a validation error is returned",
-        "Parse a config where a program is in two explicit groups and verify a validation error is returned",
-        "Verify that when a heterogeneous group exists, implicit homogeneous groups for member programs are suppressed",
-        "Parse a config with an empty group (no programs) and verify it is rejected at config validation"
+        "Configure [groups.services] with programs = ['web', 'api'] and verify GET /api/v1/processes lists the processes of both with group 'services'",
+        "Run 'kahi ctl start services:*' and verify all member processes start in priority order",
+        "Configure a group that references program nope and verify the daemon refuses with 'groups.services: references nonexistent program \"nope\"'",
+        "Put web in [groups.a] and [groups.b] and verify the daemon refuses with 'program \"web\" is in multiple groups: a and b'",
+        "Verify 'kahi ctl start web:*' for member web starts web's processes (program fallback), and 'kahi ctl start services:*' starts all members",
+        "Configure [groups.services] with programs = [] and verify the daemon refuses with 'groups.services: empty group (no programs)'",
+        "Verify 'kahi ctl remove web' for member web fails with 'web is in group services; use services' and exit 1",
+        "Drop the [groups.services] table from the config and reload: verify PROCESS_GROUP_REMOVED for services, PROCESS_GROUP_ADDED for web and api, and their processes now report group 'web' and 'api'",
+        "Move api out of the services member list and reload: verify api gets its own group and web stays in services"
       ],
       "passes": false,
       "verified_by": [
@@ -392,7 +395,10 @@
         "Define [groups.services] with web and api: verify 'kahi ctl remove services' (all stopped) removes both members, 'kahi ctl add services' adds both, and 'kahi ctl remove web' says 'no such group: web'",
         "Remove a [groups] table from the config file and reload: verify its member processes leave status",
         "Verify POST /api/v1/groups/{name}/remove returns 409 CONFLICT with running processes and 404 NOT_FOUND for an unknown group",
-        "Verify POST /api/v1/groups/{name}/add returns 409 CONFLICT for an active group and 404 NOT_FOUND for an unknown group"
+        "Verify POST /api/v1/groups/{name}/add returns 409 CONFLICT for an active group and 404 NOT_FOUND for an unknown group",
+        "Start a crashing program (startretries = 3), stop it while in BACKOFF, remove its group, and verify no spawn occurs within 3s and status does not list it",
+        "After 'kahi ctl remove web', verify 'kahi ctl reread' prints 'would apply: added=[web] changed=[] removed=[]'",
+        "Unit (supervisor): AddGroup and RemoveGroup during shutdown return 'daemon is shutting down' (409 SHUTTING_DOWN)"
       ],
       "passes": false,
       "dependencies": ["homogeneous-groups", "heterogeneous-groups"]
@@ -554,10 +560,10 @@
         "Write a test that starts a process with default config and verifies stdout output is forwarded as JSON lines with time, process, stream, and log fields",
         "Write a test with stdout_logfile configured and verify output is written to the specified file",
         "Write a test with redirect_stderr=true and verify stderr output is merged into the stdout stream",
-        "Write a test that verifies a non-writable log file path causes the process to go to FATAL",
-        "Write a test that verifies output is line-buffered when forwarding to container stdout",
-        "Write a test that verifies pipe is closed on process exit and remaining buffered data is flushed",
-        "Write a test that verifies large output bursts do not block the child process",
+        "Point stdout_logfile at a directory that does not exist and verify the process goes to FATAL with 'cannot open log file' in its status description",
+        "Write two lines in one chunk and a third without a newline followed later by its newline, and verify the daemon's stdout carries three JSON lines, the third only after its newline",
+        "Write a final line without a newline and exit, and verify the daemon's stdout still carries that line",
+        "Run a child that writes 10 MB without newlines and verify it exits within 5s",
         "Regression (SEC-012): point a logfile at a symlink and assert the open fails (O_NOFOLLOW), so a planted symlink cannot redirect log writes"
       ],
       "passes": false,
@@ -751,17 +757,21 @@
         "Request the stream of a nonexistent process and verify 404 with {\"error\": \"no such process: nosuch\", \"code\": \"NOT_FOUND\"} before the stream starts",
         "Request /log/stdin/stream and verify 400 with 'stream must be stdout or stderr'",
         "Verify SSE responses include X-Accel-Buffering: no",
-        "Verify every log event carries 'id: {offset}' equal to the bytes of the stream captured so far, and that reconnecting with Last-Event-ID replays only the bytes after that offset, as one event whose id is its end",
+        "Verify every log event carries 'id: {generation}-{offset}' with offset = bytes of the stream captured so far, and that reconnecting with that Last-Event-ID replays only the bytes after that offset, as one event whose id is its end",
         "Reconnect with Last-Event-ID equal to the current offset and verify nothing is replayed",
         "Write more than 64 KB, reconnect with Last-Event-ID: 0, and verify 'event: gap' with data {\"bytes\": n}, n = total written - 65536, precedes the replay of the held bytes",
         "Verify a request without Last-Event-ID, or with an empty one, streams live output only",
-        "Reload a config that recreates the program and reconnect with the old, larger offset: verify 'event: reset' and the replay of everything held, with ids restarting from 0",
+        "Reload a config that recreates the program and reconnect with the old id: verify 'event: reset' (no id line) and the replay of everything held, with the new generation in the ids, also when the new process has already written more than the old offset",
         "Unit (api): a subscriber that falls 64 events behind has its stream closed; resuming with its last id returns the missed bytes",
         "Verify multiple clients can stream the same log simultaneously",
         "Configure a program without a log file and verify the stream still delivers its output from the in-memory buffer",
         "Make a GET request to /api/v1/processes/web/log/stderr/stream and verify stderr output is streamed; with redirect_stderr = true verify stderr output arrives on the stdout stream and the stderr stream stays empty",
         "Regression (SEC-013): stream process output containing a newline and an 'event:' prefix and assert each line is emitted as its own data field (no injected SSE frame)",
-        "Send Last-Event-ID: abc and Last-Event-ID: -1 and verify 400 with 'invalid resume position: {value}' before the stream starts"
+        "Send Last-Event-ID: abc, 1-x and 1--1 and verify 400 with 'invalid resume position: {value}' before the stream starts",
+        "Unit (api): a live chunk whose end is not past the replayed end is not sent",
+        "With strip_ansi = true, write colored output and verify the live event data and the replay are identical and contain no escape sequences",
+        "Unit (logging): two goroutines writing the same stream publish ids in increasing order",
+        "TestLogViewerGapReset (internal/web): static/log.js registers 'gap' and 'reset' listeners, ends the pending partial line, and renders '[{n} bytes not shown]' and '[log restarted]'"
       ],
       "passes": false,
       "dependencies": [
@@ -855,17 +865,19 @@
         "Run 'kahi ctl start nonexistent web' and verify web is started, 'nonexistent: no such process: nonexistent' is printed, '1 of 2 failed' on stderr, and exit code 1",
         "Run 'kahi ctl signal INVALID web' and verify exit code 1 with 'process web: invalid signal \"INVALID\"'",
         "Run 'kahi ctl stop web:*' and verify all processes in the web group are stopped",
-        "Run 'kahi ctl restart all' with one process that fails to start and one stopped autostart=false process and verify the '{name}: error: {message}' and '{name}: skipped' lines and exit code 1",
+        "Run 'kahi ctl restart all' with one process that fails to start and one stopped autostart=false process and verify the '{name}: error: {message}' and '{name}: skipped' lines, '1 of 2 failed' on stderr (one error among the results), and exit code 1",
         "Define a program named all and verify 'kahi ctl start all:*' starts it",
         "Run 'kahi ctl stop all web' and verify 'all cannot be combined with other names', exit code 2, and nothing stopped",
         "Run 'kahi ctl signal HUP web' with web stopped and verify 'process not running: web' and exit code 1",
-        "Run 'kahi ctl' without a subcommand and verify the help text and exit code 0"
+        "Run 'kahi ctl' without a subcommand and verify the help text and exit code 0",
+        "Run 'kahi ctl start' with no argument and 'kahi ctl status --bogus' and verify exit code 2 for both"
       ],
       "passes": false,
       "dependencies": [
         "rest-api-endpoints",
         "cli-framework",
-        "process-bulk-actions"
+        "process-bulk-actions",
+        "signal-name-convention"
       ]
     },
     {
@@ -874,13 +886,16 @@
       "title": "Signal Names Follow signal.h",
       "description": "Every output names signals in the <signal.h> form (SIGTERM); stopsignal, kahi ctl signal and the signal API accept the name with or without the SIG prefix (ADR-038).",
       "testing_steps": [
-        "Configure stopsignal = \"TERM\" and another program with stopsignal = \"SIGTERM\" and verify both load and stop with SIGTERM",
+        "Configure stopsignal = \"TERM\" on one program and \"SIGTERM\" on another, both running a script that writes a marker file when it traps TERM, stop both, and verify both markers",
         "Configure stopsignal = \"BOGUS\" and verify the config is refused with 'invalid signal'",
         "POST /api/v1/processes/web/signal with {\"signal\": \"HUP\"} and verify the response carries \"signal\": \"SIGHUP\"",
         "SIGKILL a RUNNING process from outside and verify exitsignal 'SIGKILL' in GET /api/v1/processes/web and 'killed by SIGKILL' in kahi ctl status",
         "Verify 'kahi init' and the default config use stopsignal = \"SIGTERM\"",
         "Migrate a supervisord config with stopsignal=TERM and another with stopsignal=SIGINT and verify the output has \"SIGTERM\" and \"SIGINT\"",
-        "Run the daemon as PID 1 (container) with an orphan killed by a signal and verify the reaped-orphan log names the signal in the SIG form"
+        "Run the daemon as PID 1 (container) with an orphan killed by a signal and verify the reaped-orphan log names the signal in the SIG form",
+        "POST /api/v1/processes/web/signal with {\"signal\": \"SIGHUP\"} succeeds, and with {\"signal\": \"BOGUS\"} returns 400 with 'process web: invalid signal \"BOGUS\"'",
+        "Verify README.md and cmd/kahi/kahi.toml show stopsignal = \"SIGTERM\"",
+        "Send SIGTERM to the daemon and verify the 'received signal' log line names SIGTERM"
       ],
       "passes": false,
       "dependencies": ["process-stop", "rest-api-endpoints"]
@@ -955,10 +970,10 @@
       "testing_steps": [
         "Change the config file and run 'kahi ctl reread': verify 'would apply: added=[...] changed=[...] removed=[...]' and that nothing is applied",
         "Run 'kahi ctl update' after adding, changing and removing programs: verify 'updated: added=[...] changed=[...] removed=[...]', the new program running, the changed one restarted, and the removed one stopped first and gone from status",
-        "Run 'kahi ctl add web' for an inactive but configured group and verify 'web: added' (FUNC-011)",
+        "Run 'kahi ctl add web' for an inactive but configured group and verify 'web: added', exit 0, and its autostart process RUNNING (FUNC-011)",
         "Run 'kahi ctl remove web' for a stopped group and verify 'web: removed'; with a running process verify 'group web has running processes, stop first' and exit 1",
         "Run 'kahi ctl reread' and 'kahi ctl update' with an invalid config file and verify 'config error: {details}', exit 1, and nothing applied",
-        "Add an unknown key to the config and verify reread, update, reload and add print 'warning: ...' lines on stderr",
+        "Add bogus = 1 under [programs.web] and verify reread, update and reload print the parser's 'warning: ...' line for programs.web.bogus on stderr",
         "Verify POST /api/v1/config/reload returns the 'warnings' array both with ?dry_run=true and for an applied reload"
       ],
       "passes": false,
@@ -1003,13 +1018,13 @@
       "title": "Graceful Shutdown on SIGTERM/SIGINT/SIGQUIT",
       "description": "Initiate graceful shutdown on termination signals, stopping all groups in reverse priority order. A second signal forces immediate SIGKILL to all remaining processes.",
       "testing_steps": [
-        "Send SIGTERM to Kahi and verify all process groups are stopped in reverse priority order and daemon exits with code 0",
-        "Send SIGINT to Kahi and verify the same graceful shutdown behavior as SIGTERM",
-        "Send a second SIGTERM during shutdown while processes are still stopping and verify SIGKILL is sent to all remaining processes",
-        "Verify autorestart is suppressed during shutdown",
-        "Verify new process starts are rejected during shutdown",
-        "Verify the API continues to serve status requests during shutdown",
-        "Verify processes that do not stop within stopwaitsecs receive SIGKILL escalation"
+        "Send SIGTERM with programs at priorities 300 and 100 and verify the 300 level stops first and the daemon exits 0",
+        "Send SIGINT and verify the same ordered shutdown and exit code 0",
+        "Send SIGQUIT and verify the same ordered shutdown and exit code 0",
+        "Send a second SIGTERM during shutdown while a process ignores SIGTERM and verify it is SIGKILLed within 1s",
+        "During shutdown, POST /api/v1/processes/web/start returns 409 {\"error\": \"daemon is shutting down\", \"code\": \"SHUTTING_DOWN\"}",
+        "During shutdown, GET /api/v1/processes returns 200 while /healthz returns 503 {\"status\": \"shutting_down\"}",
+        "Let an autorestart=true process exit during shutdown and verify it is not restarted (graceful-shutdown step 10)"
       ],
       "passes": false,
       "dependencies": ["process-stop", "priority-ordering"]
@@ -1210,11 +1225,15 @@
         "Let a RUNNING process exit 3 with exitcodes = [0] and verify PROCESS_STATE_EXITED carries expected 'false' and exitstatus '3'; exit 0 gives expected 'true'; a process killed by SIGKILL carries exitsignal 'SIGKILL'",
         "Verify the RUNNING event's pid equals the process pid and STARTING's is '0' (published before the spawn)",
         "Unit (process): a subscriber that queries the process state from its callback sees the state of the event",
-        "Verify all 7 states have corresponding event types and each is delivered on the stream in a start, stop, exit, backoff and fatal sequence, with each event's from_state equal to the previous event's state",
+        "Run a program with startsecs = 1, startretries = 1 and a command that exits 1 at once, start it, and verify the stream carries STARTING, BACKOFF, STARTING, FATAL in that order, each from_state equal to the previous state; then a normal program covers RUNNING, STOPPING, STOPPED and EXITED",
         "Set startretries = 0 on a command that exits at once and verify PROCESS_STATE_FATAL arrives with from_state STARTING"
       ],
       "passes": false,
-      "dependencies": ["event-bus", "process-state-machine"]
+      "dependencies": [
+        "event-bus",
+        "process-state-machine",
+        "signal-name-convention"
+      ]
     },
     {
       "id": "process-log-events",
@@ -1475,19 +1494,22 @@
       "description": "Stop all process groups in reverse priority order during shutdown, with configurable timeout and SIGKILL escalation.",
       "testing_steps": [
         "Run daemon shutdown with app (priority 300), cache (200) and db (100), each exiting 1s after SIGTERM, and verify cache is signalled only after app exited and db only after cache exited; the daemon exits 0 between 3 and 5 seconds after the signal",
-        "Give two programs priority 300 and verify both receive SIGTERM together and level 200 is signalled only after both have exited",
+        "Give two programs priority 300 and verify both receive SIGTERM within 200 ms of each other and level 200 is signalled only after both have exited",
         "Let a level-300 process ignore SIGTERM with stopwaitsecs = 2 and verify it is SIGKILLed after 2s and level 200 is signalled once it has been reaped",
-        "Set shutdown_timeout below the time the levels need and verify that at the deadline every remaining process, including levels not yet signalled, is SIGKILLed and the daemon exits",
-        "Send a second SIGTERM during shutdown and verify every remaining process is SIGKILLed at once and the daemon exits",
+        "Set shutdown_timeout = 2 with three levels (300, 200, 100) whose processes exit 1.5s after SIGTERM: verify level 100 is never signalled, its process is SIGKILLed at the deadline, and the daemon exits 0 between 2 and 3 seconds after the signal",
+        "Send a second SIGTERM, and in separate runs a second SIGINT and SIGQUIT, during shutdown and verify every remaining process is SIGKILLed within 1s and the daemon exits 0",
         "Unit (supervisor): a process not reaped within 1s after the timeout SIGKILL is logged as 'process {name} stuck, giving up' and the daemon exits anyway",
         "Configure levels whose largest stopwaitsecs sum to more than shutdown_timeout and verify the warning 'ordered shutdown can take up to {n}s (largest stopwaitsecs per priority level, summed), more than supervisor.shutdown_timeout ({t}s); processes still running then are SIGKILLed' at load and again after a reload",
         "Verify each level is logged at INFO as 'stopping priority level {p}' with its process names, and '{table}/{own}' for members of a [groups] table",
         "Verify a STARTING process is stopped with its stop signal and a BACKOFF process moves to STOPPED without a signal during shutdown",
-        "Verify nothing is started, restarted or retried after shutdown has begun (an autorestart=true process that exits during shutdown stays down)",
+        "Let an autorestart=true process exit during shutdown and verify no new pid and no spawn log line appear within 2s",
         "Put two programs in a [groups] table with priority 400 and verify they stop in the first level, before a program with priority 300",
         "Verify the old per-program warning 'stopwaitsecs exceeds shutdown_timeout' no longer appears",
         "Verify 'kahi init' output, cmd/kahi/kahi.toml and the README carry the tuning comments for shutdown_timeout, priority and stopwaitsecs",
-        "Verify the default shutdown timeout is 30 seconds"
+        "Verify the default shutdown timeout is 30 seconds",
+        "Verify STOPPED, EXITED and FATAL processes are skipped: they are not named in any 'stopping priority level' line",
+        "Unit (process): StopAll followed by ShutdownLevels (and the reverse) does not panic (shutdownCh closed through sync.Once)",
+        "Unit (config): the per-level sum warning counts a [groups] table member at the table's priority, not its own"
       ],
       "passes": false,
       "dependencies": ["process-stop", "priority-ordering"]
@@ -1610,10 +1632,10 @@
       "title": "Post-Migration Config Validation",
       "description": "Validate the generated kahi.toml after migration by parsing and validating it as a valid Kahi config, reporting errors for manual correction.",
       "testing_steps": [
-        "Run migration and verify the generated TOML is parsed and validated as a valid Kahi config",
-        "Run migration on a config that produces validation errors and verify they are reported to the user",
-        "Verify the generated file is still available for manual correction even when validation errors exist",
-        "Verify validation catches missing required fields that could not be inferred from supervisord config"
+        "Run 'kahi migrate in.conf -o out.toml' on a valid supervisord config and verify exit 0, 'wrote out.toml', and that 'kahi daemon -c out.toml' starts",
+        "Migrate a config whose result fails validation (a program with numprocs=2 and a process_name without %(process_num)) and verify each problem is printed on stderr as 'validation: {error}', then 'generated config failed validation', exit 1",
+        "Verify out.toml is still written in that case, so it can be corrected by hand",
+        "Migrate a [program:x] without command and verify a 'validation:' line names the missing command"
       ],
       "passes": false,
       "dependencies": ["config-migration-tool", "toml-config-parser"]
@@ -1708,8 +1730,7 @@
         "TestLogViewerAssetEncoding: verify every line of log.js containing '/api/v1/processes/' also contains 'encodeURIComponent('",
         "TestStreamLogSubscribesBeforeFlush (internal/api): on a fresh events.NewBus(), serve GET /api/v1/processes/web/log/stdout/stream through srv.handler with a ResponseWriter whose Flush records the bus subscriber count for the stream's event type, cancel the request context after the first Flush, and verify the recorded count is 1",
         "Mutation check: move bus.Subscribe after flusher.Flush() in handleStreamLog and verify TestStreamLogSubscribesBeforeFlush fails",
-        "Run 'go test -count=1 -run TestLogViewer ./internal/web/...' and 'go test -count=1 -run TestStreamLogSubscribesBeforeFlush ./internal/api/...'",
-        "Drive log.js with a stream that sends 'event: gap' mid-line and 'event: reset' and verify the pending partial line is ended, then '[{n} bytes not shown]' and '[log restarted]' lines appear"
+        "Run 'go test -count=1 -run TestLogViewer ./internal/web/...' and 'go test -count=1 -run TestStreamLogSubscribesBeforeFlush ./internal/api/...'"
       ],
       "passes": true,
       "verified_by": [
@@ -1780,12 +1801,12 @@
       "title": "In-Memory Process Output Ring Buffer",
       "description": "Maintain a configurable in-memory ring buffer per process per stream (stdout/stderr) for log tailing without file logging, with oldest data eviction.",
       "testing_steps": [
-        "Write a test with default config and verify 'kahi ctl tail web' returns data from the ring buffer",
-        "Configure stdout_capture_maxbytes='1MB' and write more than 1MB to stdout and verify the buffer holds only the last 1MB",
-        "Write a test that verifies new output evicts the oldest data when the buffer is full",
-        "Verify the ring buffer is per-process per-stream (stdout and stderr are separate)",
-        "Verify memory is freed when a process config is removed",
-        "Verify the ring buffer feeds SSE streaming when no log file exists"
+        "With default config and no log file, write 'hello' and verify 'kahi ctl tail web' prints it from the ring buffer",
+        "Write 70000 bytes to stdout and verify GET /api/v1/processes/web/log/stdout?length=1000000 returns exactly the last 65536 bytes",
+        "Write 65536 bytes of 'a' then 10 bytes of 'b' and verify the buffer ends with the 10 'b' bytes and holds 65536 bytes",
+        "Write different text to stdout and stderr and verify each stream's log read returns only its own text",
+        "Remove the program by reload and verify GET /api/v1/processes/web/log/stdout returns 404 'no such process: web'",
+        "Verify the SSE log stream of a program without a log file replays from the ring buffer (Last-Event-ID resume)"
       ],
       "passes": false,
       "dependencies": ["process-output-capture"]
@@ -2329,7 +2350,7 @@
         "Verify webhook Headers values are masked and any userinfo in a webhook URL is stripped",
         "Verify non-secret fields (program name, command, numprocs) are returned unchanged",
         "Run 'go test -run TestGetConfig ./internal/api/...' and confirm the regression test asserts absence of the seeded secrets",
-        "Verify any config reload or diff response that echoes config applies the same redaction"
+        "Verify POST /api/v1/config/reload?dry_run=true returns no seeded secret values in its body"
       ],
       "passes": false,
       "dependencies": ["rest-api-endpoints", "http-basic-auth"]
@@ -2362,9 +2383,9 @@
       "description": "When a program's per-process user differs from the supervisor, the child must not inherit the supervisor's full environment by default. Start from a minimal base (PATH, target-user HOME, SUPERVISOR_* vars) plus the program's explicit environment, unless inheritance is explicitly opted into.",
       "testing_steps": [
         "Export a distinctive variable (for example ROOT_SECRET) in the supervisor environment, configure a program with user set to a different uid:gid, spawn it, and verify the child environment does not contain ROOT_SECRET",
-        "Verify the child receives only a minimal base (PATH, HOME for the target user, SUPERVISOR_* vars) plus the program's explicit environment entries",
+        "Run the orphaner 'env' subcommand as a program with user = 65534 and verify it prints exactly PATH, HOME, the SUPERVISOR_* variables and the program's environment entries",
         "Configure a program with no per-process user and verify it still inherits the supervisor environment (backward compatible)",
-        "Configure a privilege-differentiated program that explicitly opts into inheritance and verify it receives the full environment",
+        "Configure a program with user = 65534 and inherit_environment = true and verify the orphaner 'env' output contains ROOT_SECRET",
         "Verify HOME resolves from the target user's passwd entry and falls back to / when unresolved",
         "Run 'go test -run TestBuildEnv ./internal/process/...' and confirm the differing-user clean-by-default path is covered"
       ],
@@ -2381,7 +2402,7 @@
         "Verify the daemon resolves config from the system search paths only (/etc/kahi/kahi.toml, /etc/kahi.toml)",
         "Verify an explicit '-c ./kahi.toml' is still honored",
         "Verify KAHI_CONFIG pointing at any path is still honored",
-        "With no config in system paths and none explicit, verify the daemon exits non-zero listing the searched paths",
+        "With no config in the system paths and none explicit, verify the daemon exits 1 with 'no config file found; searched [/etc/kahi/kahi.toml /etc/kahi.toml]'",
         "Run 'go test -run TestResolve ./internal/config/...' and confirm the daemon search order excludes the CWD entry"
       ],
       "passes": false,
@@ -2414,10 +2435,10 @@
       "title": "Log Open Hardening Beyond the Final Path Component",
       "description": "Extend the existing O_NOFOLLOW final-component guard so a swapped parent-directory symlink cannot redirect a root daemon's log writes, using an openat-style per-component open where supported, otherwise documenting the trusted-path assumption.",
       "testing_steps": [
-        "Create a log directory, replace a parent component with a symlink to an unintended location, attempt to open the log file, and verify the open fails or resolves within the intended directory",
-        "Verify writes are never redirected through the swapped parent directory",
+        "Set stdout_logfile to <dir>/logs/app.log where logs is a symlink to another directory, start the program, and verify it goes to FATAL with 'cannot open log file' and nothing is written in the symlink target",
+        "Swap a parent directory of a running program's log for a symlink, send SIGUSR2 (reopen), and verify no file appears in the symlink target",
         "Verify a normal log path with no symlinked components opens unchanged from the prior O_NOFOLLOW behavior",
-        "On a platform lacking openat semantics, verify the final-component O_NOFOLLOW guard remains and the trusted-path assumption is documented",
+        "Verify internal/logging/open_other.go documents the trusted-path assumption for platforms without openat (doc check)",
         "Run 'go test -run TestLogOpen ./internal/logging/...' covering the parent-symlink case"
       ],
       "passes": false,
@@ -2446,11 +2467,11 @@
       "description": "Configured per-process rlimits and umask must actually be applied in the child (post-fork, pre-exec); currently ExecSpawner ignores SpawnConfig.RLimits and per-process Umask, so operator-set isolation is silently unenforced.",
       "testing_steps": [
         "Configure a program with a NOFILE rlimit, spawn it, and verify the child runs with that limit via /proc/<pid>/limits or a getrlimit self-check",
-        "Configure a program with an NPROC rlimit and verify it is applied to the child",
+        "Configure a program with an NPROC rlimit of 512 and verify the orphaner 'limits' subcommand prints 512 for NPROC (container, ADR-037)",
         "Configure a program with a umask, spawn it, have it create a file, and verify the file mode reflects the configured umask",
         "Configure a program with neither rlimit nor umask and verify the child inherits the supervisor's limits and umask",
         "Configure an invalid rlimit value and verify config validation rejects it",
-        "Verify limits and umask are applied in the child post-fork pre-exec via SysProcAttr or child init",
+        "Run the orphaner 'umask' and 'limits' subcommands as the program in the container and verify they print the configured umask and NOFILE value",
         "Run 'go test -run TestApplyRLimits ./internal/process/...' and 'go test -run TestApplyUmask ./internal/process/...' and confirm they are exercised through the spawn path, not only directly"
       ],
       "passes": false,
@@ -2464,8 +2485,8 @@
       "testing_steps": [
         "Start the daemon with default config and verify the control socket is mode 0700 owned by the service UID via stat",
         "Verify a chmod failure at bind closes the listener so no world-accessible socket is served",
-        "Set server.unix.chmod to 0770 or 0666 and verify the daemon refuses to start with an owner-only error",
-        "Set server.unix.chown and verify the daemon refuses to start with a not-supported error",
+        "Set server.unix.chmod to 0770 and verify the daemon refuses to start with 'control socket must be owner-only (0700); got 0770'",
+        "Set server.unix.chown and verify the daemon refuses to start with 'server.unix.chown is not supported; socket is owner-only'",
         "Verify the migrator does not emit chown into generated config and the generated template drops the commented chown example",
         "Run 'go test ./internal/api/... ./internal/config/...' covering the chown and chmod rejections"
       ],

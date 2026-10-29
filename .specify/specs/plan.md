@@ -1061,19 +1061,18 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 **Date:** 2026-10-29
 **Status:** Accepted
 
-**Context:** FUNC-027, #155. Each capture writer keeps a 64 KB ring buffer. The Manager's stdout/stderr handler closures (`manager.go`, `LoadConfig`) call `cw.Capture(data)` and publish the returned chunk on the bus; with `redirect_stderr` the stderr closure captures into the stdout writer but still publishes PROCESS_LOG_STDERR. `handleStreamLog` forwards bus chunks live, without ids, and drops a chunk when 64 are queued. `ReadTail` does not take `cw.mu`.
+**Context:** FUNC-027, #155. Each capture writer keeps a 64 KB ring buffer. The Manager's stdout/stderr handler closures (`manager.go`, `LoadConfig`) call `cw.Capture(data)` and publish the returned chunk on the bus; with `redirect_stderr` no stderr capture writer exists, so no stderr closure is installed, and the process routes its stderr pipe to the stdout handler (`process.go`); the `redirect` branch inside the stderr closure is dead. Two pipe goroutines can then call the stdout closure concurrently. `handleStreamLog` forwards bus chunks live, without ids, and drops a chunk when 64 are queued. `ReadTail` does not take `cw.mu`.
 
 **Decision:** (user decision 2026-10-29: close + reset + gap event)
 
-1. `CaptureWriter` counts the bytes it has captured (after ANSI stripping) in `total int64`. `Capture(data) (out []byte, end int64)` returns the stripped chunk and `total` after it, both computed under `cw.mu`, so `end` matches the buffer contents. The closures put `end` in the event data as a decimal string. With `redirect_stderr` the stderr closure publishes PROCESS_LOG_STDOUT, so the stderr stream stays empty.
+1. `CaptureWriter` gets a `generation` (decimal Unix nanoseconds at its creation, unique per process creation and across daemon restarts) and counts the bytes it has captured (after ANSI stripping) in `total int64`. `CaptureWriter.CaptureAndPublish(data, publish func(out []byte, end int64))` strips, stores, advances `total` and calls `publish` while holding `cw.mu`, so two goroutines writing the same stream publish in offset order. The closures publish with `id` = "{generation}-{end}" in the event data. The dead `redirect` branch is removed; with `redirect_stderr` the stderr stream stays empty, as today.
 2. `CaptureWriter.ReadFrom(offset int64) (data []byte, start, total int64)` returns, under `cw.mu`, what the ring buffer holds after `offset`, the offset it starts at, and `total`. `api.ProcessManager` gains `ReadLogFrom(name, stream, offset)`. `ReadTail` takes `cw.mu` as well.
-3. `handleStreamLog` parses `Last-Event-ID`: absent or empty = live only; non-numeric or negative = 400 "invalid resume position: {value}". It subscribes first, then reads the replay:
-   - `offset > total`: the counter restarted (reload or remove+add recreated the process): `event: reset`, `data: {}`, then replay everything held.
+3. `handleStreamLog` parses `Last-Event-ID`: absent or empty = live only; not `{generation}-{offset}` with a non-negative offset = 400 "invalid resume position: {value}". It subscribes first, then reads the replay:
+   - another generation, or `offset > total`: the process was created again: `event: reset`, `data: {}`, then replay everything held.
    - `start > offset`: `event: gap`, `data: {"bytes": start-offset}`, then replay from `start`.
-   - otherwise replay from `offset` (nothing when `offset == total`).
-     The replay is one unnamed event with `id: {start + len(data)}`; live chunks follow, skipping any whose `end` is not past the replayed end. Every log event gets `id: {end}`.
+   - otherwise replay from `offset` (nothing when `offset == total`). The replay is one unnamed event with `id: {generation}-{start + len(data)}`; live chunks follow, skipping any whose `end` is not past the replayed end. Every log event gets `id: {generation}-{end}`; `gap` and `reset` events get none.
 4. When the subscriber queue is full the handler ends the response instead of dropping a chunk. A browser EventSource reconnects with its last id, and step 3 replays the missed bytes (or announces a gap). No chunk is dropped silently from an open stream.
-5. The counter and buffer belong to the capture writer, so they restart at 0 when a program is recreated by reload or remove+add.
+5. The generation, counter and buffer belong to the capture writer, so a recreated process (reload, remove+add, daemon restart) gets a new generation and offsets from 0. A plain offset could not tell a recreated process that already wrote past the old offset from the same process (user decision 2026-10-29).
 
 **Alternatives Considered:**
 
@@ -1093,8 +1092,8 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 
 **Decision:**
 
-1. A `[groups]` table owns its members (user decision 2026-10-29): `LoadConfig` builds no implicit group for a member program, so `web:*` and add/remove of a member name report "no such group". The supervisor keeps `inactive map[string]bool`, the groups removed at runtime. `Supervisor.AddGroup(name)` fails with "no such group: {name}" if the loaded config defines no program or `[groups]` table of that name, with "group already active: {name}" if it is active; otherwise it loads that group's programs from the loaded config into the Manager (`activateGroup`), starts the autostart ones, publishes ADDED and clears the mark. `Supervisor.RemoveGroup(name)` fails with "no such group" or "group {name} has running processes, stop first" (any process not STOPPED, EXITED or FATAL); otherwise the Manager retires each process first (`Retire`, so a pending restart or backoff retry cannot fire), then drops the group's processes, capture writers and group entry (`deactivateGroup`), publishes REMOVED and the supervisor marks it inactive. Both hold the supervisor's `reloadMu` and fail with "shutting down" once shutdown has begun.
-2. `LoadConfig` runs at startup only. Reload no longer calls it: `ApplyReload` calls `activateGroup` for each added program or table and `deactivateGroup` for each removed one, so a group removed at runtime is not re-created behind the supervisor's back. `applyReload` and `PreviewReload` move an inactive group that the new config still defines from "changed"/unchanged to "added" (activated, mark cleared); one the new config drops is forgotten.
+1. A `[groups]` table owns its members (user decision 2026-10-29): `LoadConfig` builds no implicit group for a member program, and a member's `Process.Group()` is the table name (status, API, events). `{name}:*` resolves a group first, then a program of that name (`Manager.programProcesses`), so `web:*` keeps working for members. add/remove of a member program fail with "{prog} is in group {table}; use {table}" (404). The supervisor keeps `inactive map[string]bool`, the groups removed at runtime. `Supervisor.AddGroup(name)` fails with "no such group: {name}" if the loaded config defines no program or `[groups]` table of that name, with "group already active: {name}" if it is active; otherwise it loads that group's programs from the loaded config into the Manager (`activateGroup`), starts the autostart ones, publishes ADDED and clears the mark. `Supervisor.RemoveGroup(name)` fails with "no such group" or "group {name} has running processes, stop first" (any process not STOPPED, EXITED or FATAL); otherwise the Manager retires each process first (`Retire`, so a pending restart or backoff retry cannot fire), then drops the group's processes, capture writers and group entry (`deactivateGroup`), publishes REMOVED and the supervisor marks it inactive. Both hold the supervisor's `reloadMu` and fail with "daemon is shutting down" (409 SHUTTING_DOWN, as the other APIs) once shutdown has begun.
+2. `LoadConfig` runs at startup only. Reload no longer calls it. `ConfigDiff` diffs groups as well as programs: the unit is the effective group (a table, or a program outside any table), with its member list and its settings. `ApplyReload` calls `deactivateGroup` for each removed or changed group and `activateGroup` for each added or changed one (a changed group is recreated, which restarts it only if it was running, starting or in backoff, as #119), then rebuilds the group priorities. A table dropped while its programs stay is a removed table plus added program groups; a table added over active programs is removed program groups plus an added table; a changed member list is both. So a group removed at runtime is not re-created behind the supervisor's back. `applyReload` and `PreviewReload` move an inactive group that the new config still defines from "changed"/unchanged to "added" (activated, mark cleared); one the new config drops is forgotten.
 3. API: `POST /api/v1/groups/{name}/add` and `/remove` behind `requireAuth`, 409 CONFLICT for the two state errors, 404 NOT_FOUND for unknown groups; `api.ConfigManager` (wired to the supervisor) gains `AddGroup`/`RemoveGroup`; both API test mocks get stubs.
 4. `kahi ctl add|remove` call these routes, print "{group}: added" / "{group}: removed", exit 1 on error. The unused `Manager.AddGroup`/`RemoveGroup` are replaced.
 
@@ -1112,7 +1111,7 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 
 **Context:** FUNC-031, #213. `ctl start|stop|restart` print per-target errors and exit 0; `all` is sent as a process name.
 
-**Decision:** The three commands attempt every target, collect failures, and return an error after the loop ("{n} of {m} failed", printed on stderr by `main`) so the binary exits 1; the per-target lines are unchanged. `all` must be the only argument: combined with other names it is a usage error, "all cannot be combined with other names", exit 2 (a `usageError` type that `main` maps to 2), and nothing is sent (user decision 2026-10-29). The single argument `all` calls `/api/v1/all/{action}` and prints one line per result ("{name}: ok|skipped|error: {message}"), failing when any result is an error. `name:*` keeps the group route.
+**Decision:** The three commands attempt every target, collect failures, and return an error after the loop ("{n} of {m} failed", printed on stderr by `main`) so the binary exits 1; the per-target lines are unchanged. `all` must be the only argument: combined with other names it is a usage error, "all cannot be combined with other names", and nothing is sent. Every usage error of every `kahi` command exits 2 (user decision 2026-10-29): a `usageError` type that `main` maps to 2, returned by the `all` check, by the cobra `Args` validators (wrapped) and by `SetFlagErrorFunc`; unknown subcommands are cobra's arg errors too. Runtime failures stay 1. The single argument `all` calls `/api/v1/all/{action}` and prints one line per result ("{name}: ok|skipped|error: {message}"), failing when any result is an error. `name:*` keeps the group route.
 
 **Alternatives Considered:** A `--keep-going` flag -- rejected; every target is attempted already, only the exit code changes.
 
@@ -1123,7 +1122,7 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 **Date:** 2026-10-29
 **Status:** Accepted
 
-**Context:** FUNC-009, #214. `LoadConfig` builds the implicit group of each program, then `[groups]` tables, overwriting an implicit group of the same name. `internal/process/group.go` holds `ValidateGroupNameCollisions` and two builders that nothing calls.
+**Context:** FUNC-009, FUNC-010, #214. The "multiple groups" error names the two groups in map order; it will name them sorted. `LoadConfig` builds the implicit group of each program, then `[groups]` tables, overwriting an implicit group of the same name. `internal/process/group.go` holds `ValidateGroupNameCollisions` and two builders that nothing calls.
 
 **Decision:** `config.validateGroupReferences` (which runs after includes) also refuses a `[groups]` key equal to a program key: "groups.{x}: name collides with program {x}". The dead functions in `group.go` and their tests are removed.
 
@@ -1145,13 +1144,13 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 **Date:** 2026-10-29
 **Status:** Accepted
 
-**Context:** User decision 2026-10-29: signal names follow the `<signal.h>` definitions. Today the config accepts only bare names (`validate.go`, `process.go` signal switch), the default and `kahi init` write `TERM`, the runloop strips `SIG` from `unix.SignalName` for `exitsignal` and the reaped-orphan log, `kahi migrate` strips `SIG`, and the signal API echoes the name it received. `exitsignal` (#204) is not in a release yet.
+**Context:** User decision 2026-10-29: signal names follow the `<signal.h>` definitions. Input is already lenient: `config` validation and `process.ParseSignal` strip a `SIG` prefix and ignore case; `ParseSignal` also accepts STOP and CONT for the signal API. Output is not: the default and `kahi init` write `TERM` (`generate.go` lists bare names), the runloop strips `SIG` from `unix.SignalName` for `exitsignal` and the reaped-orphan log and logs received signals with `sig.String()` ("terminated"), `kahi migrate` strips `SIG` and its warning says `stopsignal = KILL`, and the signal API echoes the name it received. `exitsignal` (#204) is not in a release yet.
 
 **Decision:**
 
-1. One parser in `internal/config`, `ParseSignal(name) (syscall.Signal, canonical string, error)`, accepts the seven supported signals with or without the `SIG` prefix and returns the `SIG` form. Config validation, the process stop path, the signal API and `kahi ctl signal` use it; the error text is unchanged ("invalid signal").
-2. Every output uses `unix.SignalName` unmodified: `exitsignal` in the API, status and events, the signal API's `signal` field, ctl lines, log lines.
-3. The default `stopsignal` is `SIGTERM`; `kahi init`, the sample configs and the README show the `SIG` form; `kahi migrate` writes it.
+1. Input stays as lenient as today (optional `SIG` prefix, any case). `process.ParseSignal` returns the canonical `SIG` name as well; the signal API and `kahi ctl signal` keep its nine signals (TERM, HUP, INT, QUIT, KILL, USR1, USR2, STOP, CONT), `stopsignal` keeps its seven (no STOP/CONT). The error text is unchanged ("invalid signal").
+2. Every output uses `unix.SignalName` unmodified: `exitsignal` in the API, status and events, the signal API's `signal` field, ctl lines, the reaped-orphan log, the "received signal" log (instead of `sig.String()`), and the migrate warning text.
+3. The default `stopsignal` is `SIGTERM`; `kahi init` (including the comment listing the allowed names), the sample configs and the README show the `SIG` form; `kahi migrate` writes it.
 
 **Alternatives Considered:** SIG form only on input -- rejected, it breaks every existing `stopsignal = "TERM"` config and supervisord habits.
 
@@ -1164,14 +1163,26 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 Each step is one PR, tested red first, with e2e proof against the binary and the feature_list entries it completes; `GOOS=linux go vet -tags=e2e ./e2e/` before pushing.
 
 1. **Spec, plan, features** (this change): clarify, ADR-031..038, feature_list steps.
-2. **#213 ctl exit codes and `all`** (ADR-035) and the cli-process-control e2e. First, because the homogeneous-groups e2e asserts exit 1.
-3. **#214 collision check** (ADR-036) and the homogeneous-groups e2e.
-4. **Signal names** (ADR-038, new issue): parser, outputs, defaults, migrate; before the event work so EXITED carries `SIGKILL` from the start.
+2. **Signal names** (ADR-038, new issue): canonical names, outputs, defaults, migrate. First, so every later step asserts `SIG` names (cli-process-control's "web: signaled SIGHUP", EXITED's `SIGKILL`).
+3. **#213 ctl exit codes and `all`** (ADR-035, all usage errors exit 2) and the cli-process-control e2e; before the collision check because the homogeneous-groups e2e asserts exit codes.
+4. **#214 collision check** (ADR-036) and the homogeneous-groups e2e.
 5. **#154 event payloads** (ADR-032, the state part) and the event-bus / process-state-events e2e (one stream step through `/api/v1/events/stream`).
-6. **#212 group add/remove** (ADR-034, with the group events of ADR-032) and the heterogeneous-groups / group-lifecycle / process-group-events / cli-config-operations e2e.
-7. **#155 log stream resume** (ADR-033, `log.js` gap/reset handling) and the process-output-ring-buffer / sse-streaming / web-ui-log-viewer e2e.
-8. **#151 ordered shutdown** (ADR-031) and the graceful-shutdown / signal-shutdown / priority-ordering / signal-queuing e2e.
-9. **E2E only:** config-search-paths, daemon-config-search-excludes-cwd, migration-validation, process-output-capture, child-process-isolation, and the security entries (config-api-secret-redaction, log-open-symlink-hardening, control-socket-owner-only-lockdown, unix-socket-owner-only-at-bind, socket-dir-probe-no-follow, api-cross-origin-protection, web-ui-auth-output-encoding).
-10. **Root steps in a container** (ADR-037, the shared helper is part of root-detection-warning): root-detection-warning, spawn-rlimit-umask-application, clean-env-privilege-differentiated-children.
+6. **#212 group add/remove** (ADR-034, with the group events of ADR-032) and the heterogeneous-groups / group-lifecycle / process-group-events / cli-config-operations e2e (config-hot-reload's reload steps that these entries need are covered here; the entry itself stays with #136).
+7. **E2E for capture:** process-output-capture and process-output-ring-buffer, which sse-streaming depends on.
+8. **#155 log stream resume** (ADR-033, `log.js` gap/reset handling) and the sse-streaming / web-ui-log-viewer e2e.
+9. **#151 ordered shutdown** (ADR-031) and the graceful-shutdown / signal-shutdown / priority-ordering / signal-queuing e2e.
+10. **E2E only:** config-search-paths, daemon-config-search-excludes-cwd, config-migration-tool and migration-validation, and the security entries (config-api-secret-redaction, log-open-symlink-hardening, control-socket-owner-only-lockdown, unix-socket-owner-only-at-bind, socket-dir-probe-no-follow, api-cross-origin-protection, web-ui-auth-output-encoding); child-process-isolation.
+11. **Root steps in a container** (ADR-037, the shared helper is part of root-detection-warning): root-detection-warning, spawn-rlimit-umask-application, clean-env-privilege-differentiated-children.
 
-Every passing entry that depends on a failing one (process-bulk-actions on graceful-shutdown and priority-ordering, web-ui-log-viewer on sse-streaming and process-output-ring-buffer) is resolved by the end of v0.2.3, when those pass.
+**Dependencies on entries outside these steps.** v0.2.3 also needs the #136 re-check (heterogeneous-groups is scheduled above; config-hot-reload, signal-sighup-reload, log-reopen-sigusr2, signal-sigusr2-log-reopen, http-basic-auth and config-include-system stay with #136) and the root entries' own dependencies, which step 11 proves together with them in the container: privilege-dropping (root-detection-warning), resource-limits and process-umask (spawn-rlimit-umask-application), per-process-user-switching (clean-env-privilege-differentiated-children). Passing entries that depend on failing ones (25 pairs at this change), by the step that resolves the failing side:
+
+- step 3 (cli-process-control): cli-status-display, cli-log-tailing, cli-daemon-operations, cli-health-check
+- step 5 (event-bus): tick-events
+- step 7 (process-output-capture, process-output-ring-buffer): log-rotation, ansi-escape-stripping, web-ui-log-viewer, api-input-bounds-validation
+- step 8 (sse-streaming): cli-log-tailing, web-ui-status-page, web-ui-log-viewer
+- step 9 (priority-ordering, graceful-shutdown): process-bulk-actions
+- step 10 (config-migration-tool, api-cross-origin-protection, web-ui-auth-output-encoding): migration-dry-run, process-bulk-actions, web-ui-config-mounting, web-ui-e2e-reachability
+- #136 (http-basic-auth, config-hot-reload): tcp-listener-fail-closed-auth, bcrypt-only-password-constant-time, process-bulk-actions, web-ui-config-mounting
+- accepted, infrastructure on infrastructure: e2e-test-infrastructure -> integration-test-infrastructure, release-pipeline-hardening -> semver-alpha-releases
+
+v0.2.3 is tagged only when every pair outside the accepted line is resolved.
