@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -235,19 +236,49 @@ stdout_logfile = "`+log+`"
 			want := "ERROR: failed\ncleared\nsplit green\n"
 			for what, got := range map[string]string{"log file": string(file), "tail": tail.String(), "tail -f": follow.String()} {
 				if strip {
-					// tail -f breaks lines at every chunk (#190), so only
-					// the text is compared there.
-					cmp, w := got, want
-					if what == "tail -f" {
-						cmp, w = strings.ReplaceAll(got, "\n", ""), strings.ReplaceAll(want, "\n", "")
-					}
-					if strings.Contains(got, "\x1b") || !strings.Contains(cmp, strings.TrimSuffix(w, "\n")) {
+					// tail -f shows the output exactly, also the line
+					// written in two chunks (#190).
+					if strings.Contains(got, "\x1b") || !strings.Contains(got, want) {
 						t.Errorf("%s: %q, want %q without escapes", what, got, want)
 					}
-				} else if what != "tail -f" && !strings.Contains(got, "\x1b[31mERROR\x1b[0m") {
+				} else if !strings.Contains(got, "\x1b[31mERROR\x1b[0m") {
 					t.Errorf("%s: %q, want the escapes kept", what, got)
 				}
 			}
 		})
+	}
+}
+
+// kahi ctl tail -f prints the output as written: a line written in two
+// chunks stays one line, and no blank lines are added (#190).
+func TestLog_TailFollowCLIExact(t *testing.T) {
+	dir := t.TempDir()
+	script := writeScript(t, dir, "chunks.sh", `sleep 1
+printf 'one\n'
+printf 'split '
+sleep 0.3
+printf 'line\n'
+printf 'three\n'
+exec sleep 300`)
+	client, socket := startDaemon(t, `
+[programs.chunks]
+command = "`+script+`"
+startsecs = 0
+`)
+	waitForState(t, client, "chunks", "RUNNING", 5*time.Second)
+	cmd := exec.Command(kahiBinary, "ctl", "-s", socket, "tail", "-f", "chunks")
+	out := &syncBuffer{}
+	cmd.Stdout = out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+
+	deadline := time.Now().Add(10 * time.Second)
+	for !strings.Contains(out.String(), "three\n") && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if got, want := out.String(), "one\nsplit line\nthree\n"; got != want {
+		t.Fatalf("ctl tail -f printed %q, want %q", got, want)
 	}
 }
