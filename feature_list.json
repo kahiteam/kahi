@@ -868,15 +868,21 @@
       "description": "Tail process stdout/stderr logs from the CLI, supporting static tail, follow mode via SSE, and configurable byte count.",
       "testing_steps": [
         "Run 'kahi ctl tail web' and verify the last 1600 bytes of stdout are printed",
-        "Run 'kahi ctl tail -f web' and verify new output is streamed in real time",
+        "Run 'kahi ctl tail -f web' and verify new output is streamed in real time, exactly as written (a line written in two chunks stays one line)",
         "Run 'kahi ctl tail web stderr' and verify stderr log is tailed",
         "Run 'kahi ctl tail nonexistent' and verify 'no such process' error",
         "Run 'kahi ctl tail -f web' and press Ctrl+C and verify the stream terminates cleanly",
         "Run 'kahi ctl tail --bytes 500 web' and verify the byte count is honored",
         "Verify tail reads from the ring buffer when no log file is configured"
       ],
-      "passes": false,
-      "dependencies": ["sse-streaming", "cli-process-control"]
+      "passes": true,
+      "dependencies": ["sse-streaming", "cli-process-control"],
+      "verified_by": [
+        "TestCtl_Tail",
+        "TestLog_TailFollowCLIExact",
+        "TestLog_TailFollow",
+        "TestLog_TailStderr"
+      ]
     },
     {
       "id": "cli-foreground-attach",

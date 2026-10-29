@@ -337,16 +337,30 @@ func (c *Client) TailFollow(ctx context.Context, name, stream string, w io.Write
 		return fmt.Errorf("%s", errBody["error"])
 	}
 
-	// Parse SSE stream.
-	buf := make([]byte, 4096)
+	return copySSEData(ctx, resp.Body, w)
+}
+
+// copySSEData writes the data of each SSE event to w exactly as sent: the
+// event's "data:" lines joined with newlines, as an EventSource does, and
+// nothing added. A chunk of output that ends mid-line then continues on the
+// same line with the next event, instead of each chunk ending a line (#190).
+func copySSEData(ctx context.Context, body io.Reader, w io.Writer) error {
+	rd := bufio.NewReader(body)
+	var data []string
 	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			// Extract data lines from SSE.
-			for line := range strings.SplitSeq(string(buf[:n]), "\n") {
-				if strings.HasPrefix(line, "data: ") {
-					_, _ = fmt.Fprintln(w, line[6:])
+		line, err := rd.ReadString('\n')
+		if line != "" && err == nil {
+			line = strings.TrimSuffix(line, "\n")
+			switch {
+			case line == "":
+				if data != nil {
+					_, _ = io.WriteString(w, strings.Join(data, "\n"))
+					data = nil
 				}
+			case strings.HasPrefix(line, "data: "):
+				data = append(data, line[len("data: "):])
+			case line == "data:":
+				data = append(data, "")
 			}
 		}
 		if err != nil {
