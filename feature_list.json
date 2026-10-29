@@ -380,7 +380,7 @@
       "id": "group-lifecycle",
       "category": "functional",
       "title": "Runtime Group Add and Remove",
-      "description": "Add and remove process groups at runtime via API/CLI, including adding new groups from reloaded config and removing inactive groups.",
+      "description": "Add and remove process groups at runtime via API/CLI, including adding new groups from reloaded config and removing inactive groups. Its reload steps also exercise config-hot-reload, which depends on this entry, so that dependency is not recorded in reverse.",
       "testing_steps": [
         "Add a new program to the config file, run 'kahi ctl update', and verify its group is added and its autostart processes are RUNNING",
         "Remove a group, then run 'kahi ctl add {group}': verify '{group}: added' and its autostart processes RUNNING",
@@ -392,13 +392,14 @@
         "Remove a group, change its program in the config file, run 'kahi ctl update', and verify the group is active again with the changed config and reported under added",
         "Remove a group, edit its command in the config file, run 'kahi ctl add' without reread, and verify the group comes back with the old command (add uses the loaded config)",
         "Remove a group, then delete its program from the config file and reload: verify it is not reported under added or removed and 'kahi ctl add' then says 'no such group'",
-        "Define [groups.services] with web and api: verify 'kahi ctl remove services' (all stopped) removes both members, 'kahi ctl add services' adds both, and 'kahi ctl remove web' says 'no such group: web'",
-        "Remove a [groups] table from the config file and reload: verify its member processes leave status",
+        "Define [groups.services] with web and api: verify 'kahi ctl remove services' (all stopped) removes both members and 'kahi ctl add services' adds both; 'kahi ctl remove web' and 'kahi ctl add web' fail with 'web is in group services; use services' and exit 1, and POST /api/v1/groups/web/remove returns 404 with that text",
+        "Drop the [groups.services] table while web and api stay in [programs] and reload: verify status lists web_0 and api_0 with group 'web' and 'api' and the autostart ones RUNNING",
         "Verify POST /api/v1/groups/{name}/remove returns 409 CONFLICT with running processes and 404 NOT_FOUND for an unknown group",
         "Verify POST /api/v1/groups/{name}/add returns 409 CONFLICT for an active group and 404 NOT_FOUND for an unknown group",
         "Start a crashing program (startretries = 3), stop it while in BACKOFF, remove its group, and verify no spawn occurs within 3s and status does not list it",
         "After 'kahi ctl remove web', verify 'kahi ctl reread' prints 'would apply: added=[web] changed=[] removed=[]'",
-        "Unit (supervisor): AddGroup and RemoveGroup during shutdown return 'daemon is shutting down' (409 SHUTTING_DOWN)"
+        "Unit (supervisor): AddGroup and RemoveGroup during shutdown return 'daemon is shutting down' (409 SHUTTING_DOWN)",
+        "Drop the [groups.services] table and its programs and reload: verify their processes leave status"
       ],
       "passes": false,
       "dependencies": ["homogeneous-groups", "heterogeneous-groups"]
@@ -491,10 +492,10 @@
       "description": "Search predefined paths for the config file when not explicitly specified via -c flag, with support for KAHI_CONFIG environment variable override.",
       "testing_steps": [
         "Run 'kahi daemon' with no -c and no KAHI_CONFIG in a directory with ./kahi.toml and verify the daemon searches only /etc/kahi/kahi.toml and /etc/kahi.toml ('no config file found; searched [...]'), while 'kahi ctl' in the same directory uses ./kahi.toml for its socket",
-        "Write a test that starts Kahi with -c /path/to/config.toml and verifies only the specified path is used",
+        "Start the daemon with -c x.toml (program only_x) while /etc/kahi/kahi.toml is absent and verify 'kahi ctl status' lists only_x",
         "Run 'kahi daemon' with no config found and verify exit code 1 and 'no config file found; searched [/etc/kahi/kahi.toml /etc/kahi.toml]'",
-        "Write a test with KAHI_CONFIG env var set and verify it takes precedence over search paths",
-        "Write a test with a non-readable config file and verify exit with error message 'cannot read config: {path}: {error}'",
+        "Set KAHI_CONFIG to y.toml (program only_y) with no -c and verify 'kahi ctl status' lists only_y",
+        "chmod 000 the config named by -c and verify exit 1 with 'cannot read config: {path}: permission denied' (skipped as root)",
         "Set KAHI_CONFIG to a path that does not exist and verify 'cannot read config: {path}: {error}' and exit 1, with no fall-back to the search paths",
         "Set KAHI_CONFIG and pass -c with a different file and verify -c wins",
         "Point -c at a symlink to a config file and verify the daemon loads the target"
@@ -557,9 +558,9 @@
       "title": "Process stdout/stderr Pipe Capture",
       "description": "Capture child process stdout and stderr via pipes and route output to configured destinations: container stdout as JSON lines, or specified log files.",
       "testing_steps": [
-        "Write a test that starts a process with default config and verifies stdout output is forwarded as JSON lines with time, process, stream, and log fields",
-        "Write a test with stdout_logfile configured and verify output is written to the specified file",
-        "Write a test with redirect_stderr=true and verify stderr output is merged into the stdout stream",
+        "Run the daemon in the foreground with a program that prints 'hello' and verify its stdout carries one JSON line with time, process 'web_0', stream 'stdout' and log 'hello'",
+        "Set stdout_logfile and verify the file contains exactly 'hello\\n' after the program printed hello",
+        "Set redirect_stderr = true, write 'err' to stderr, and verify the JSON line has stream 'stdout' and log 'err', and stdout_logfile contains it",
         "Point stdout_logfile at a directory that does not exist and verify the process goes to FATAL with 'cannot open log file' in its status description",
         "Write two lines in one chunk and a third without a newline followed later by its newline, and verify the daemon's stdout carries three JSON lines, the third only after its newline",
         "Write a final line without a newline and exit, and verify the daemon's stdout still carries that line",
@@ -758,8 +759,8 @@
         "Request /log/stdin/stream and verify 400 with 'stream must be stdout or stderr'",
         "Verify SSE responses include X-Accel-Buffering: no",
         "Verify every log event carries 'id: {generation}-{offset}' with offset = bytes of the stream captured so far, and that reconnecting with that Last-Event-ID replays only the bytes after that offset, as one event whose id is its end",
-        "Reconnect with Last-Event-ID equal to the current offset and verify nothing is replayed",
-        "Write more than 64 KB, reconnect with Last-Event-ID: 0, and verify 'event: gap' with data {\"bytes\": n}, n = total written - 65536, precedes the replay of the held bytes",
+        "Reconnect with Last-Event-ID equal to the last received id and verify nothing is replayed",
+        "Write more than 64 KB, reconnect with Last-Event-ID '{generation}-0' (generation from a received id), and verify 'event: gap' with data {\"bytes\": n}, n = total written - 65536, precedes the replay of the held bytes",
         "Verify a request without Last-Event-ID, or with an empty one, streams live output only",
         "Reload a config that recreates the program and reconnect with the old id: verify 'event: reset' (no id line) and the replay of everything held, with the new generation in the ids, also when the new process has already written more than the old offset",
         "Unit (api): a subscriber that falls 64 events behind has its stream closed; resuming with its last id returns the missed bytes",
@@ -771,7 +772,8 @@
         "Unit (api): a live chunk whose end is not past the replayed end is not sent",
         "With strip_ansi = true, write colored output and verify the live event data and the replay are identical and contain no escape sequences",
         "Unit (logging): two goroutines writing the same stream publish ids in increasing order",
-        "TestLogViewerGapReset (internal/web): static/log.js registers 'gap' and 'reset' listeners, ends the pending partial line, and renders '[{n} bytes not shown]' and '[log restarted]'"
+        "TestLogViewerGapReset (internal/web): in the embedded static/log.js the 'gap' and 'reset' handlers call the pending-line flush before rendering '[{n} bytes not shown]' and '[log restarted]' (index order in the handler source)",
+        "Restart the daemon and reconnect with an id from the old daemon: verify 'event: reset' and the replay of the new process's held output"
       ],
       "passes": false,
       "dependencies": [
@@ -870,7 +872,8 @@
         "Run 'kahi ctl stop all web' and verify 'all cannot be combined with other names', exit code 2, and nothing stopped",
         "Run 'kahi ctl signal HUP web' with web stopped and verify 'process not running: web' and exit code 1",
         "Run 'kahi ctl' without a subcommand and verify the help text and exit code 0",
-        "Run 'kahi ctl start' with no argument and 'kahi ctl status --bogus' and verify exit code 2 for both"
+        "Run 'kahi ctl start' with no argument and 'kahi ctl status --bogus' and verify exit code 2 for both",
+        "Run 'kahi daemon --bogus', 'kahi migrate' with no input, 'kahi bogus' and 'kahi ctl foo' and verify exit code 2 for each"
       ],
       "passes": false,
       "dependencies": [
@@ -891,11 +894,11 @@
         "POST /api/v1/processes/web/signal with {\"signal\": \"HUP\"} and verify the response carries \"signal\": \"SIGHUP\"",
         "SIGKILL a RUNNING process from outside and verify exitsignal 'SIGKILL' in GET /api/v1/processes/web and 'killed by SIGKILL' in kahi ctl status",
         "Verify 'kahi init' and the default config use stopsignal = \"SIGTERM\"",
-        "Migrate a supervisord config with stopsignal=TERM and another with stopsignal=SIGINT and verify the output has \"SIGTERM\" and \"SIGINT\"",
         "Run the daemon as PID 1 (container) with an orphan killed by a signal and verify the reaped-orphan log names the signal in the SIG form",
         "POST /api/v1/processes/web/signal with {\"signal\": \"SIGHUP\"} succeeds, and with {\"signal\": \"BOGUS\"} returns 400 with 'process web: invalid signal \"BOGUS\"'",
         "Verify README.md and cmd/kahi/kahi.toml show stopsignal = \"SIGTERM\"",
-        "Send SIGTERM to the daemon and verify the 'received signal' log line names SIGTERM"
+        "Send SIGTERM to the daemon and verify the 'received signal' log line names SIGTERM",
+        "POST /api/v1/processes/web/signal with {\"signal\": \"STOP\"} succeeds, while stopsignal = \"STOP\" is refused with 'invalid signal'"
       ],
       "passes": false,
       "dependencies": ["process-stop", "rest-api-endpoints"]
@@ -1226,7 +1229,8 @@
         "Verify the RUNNING event's pid equals the process pid and STARTING's is '0' (published before the spawn)",
         "Unit (process): a subscriber that queries the process state from its callback sees the state of the event",
         "Run a program with startsecs = 1, startretries = 1 and a command that exits 1 at once, start it, and verify the stream carries STARTING, BACKOFF, STARTING, FATAL in that order, each from_state equal to the previous state; then a normal program covers RUNNING, STOPPING, STOPPED and EXITED",
-        "Set startretries = 0 on a command that exits at once and verify PROCESS_STATE_FATAL arrives with from_state STARTING"
+        "Set startretries = 0 on a command that exits at once and verify PROCESS_STATE_FATAL arrives with from_state STARTING",
+        "Put web in [groups.services] and verify PROCESS_STATE_RUNNING of web_0 carries group 'services'"
       ],
       "passes": false,
       "dependencies": [
@@ -1276,7 +1280,8 @@
         "Verify that when PROCESS_GROUP_ADDED arrives its processes are already in status, and when PROCESS_GROUP_REMOVED arrives they are already gone",
         "Verify a group of a numprocs=2 program carries processes 'web_0,web_1' (sorted, comma-separated)",
         "Remove a program and a [groups] table through reloads and verify PROCESS_GROUP_REMOVED for each, the table's listing all its processes",
-        "Verify the daemon's startup publishes no PROCESS_GROUP_ADDED, and a reload that restarts a changed program publishes neither group event"
+        "Verify the daemon's startup publishes no PROCESS_GROUP_ADDED, and a reload that restarts a changed program publishes neither group event",
+        "Add a [groups.services] table over active programs web and api by reload and verify PROCESS_GROUP_REMOVED for web and api, then PROCESS_GROUP_ADDED for services"
       ],
       "passes": false,
       "dependencies": ["event-bus", "group-lifecycle"]
@@ -1505,7 +1510,7 @@
         "Let an autorestart=true process exit during shutdown and verify no new pid and no spawn log line appear within 2s",
         "Put two programs in a [groups] table with priority 400 and verify they stop in the first level, before a program with priority 300",
         "Verify the old per-program warning 'stopwaitsecs exceeds shutdown_timeout' no longer appears",
-        "Verify 'kahi init' output, cmd/kahi/kahi.toml and the README carry the tuning comments for shutdown_timeout, priority and stopwaitsecs",
+        "Verify 'kahi init' output, cmd/kahi/kahi.toml and the README carry the tuning comments: shutdown_timeout mentions 'largest stopwaitsecs in each level', priority mentions 'stop together', stopwaitsecs mentions 'holds up the next' level",
         "Verify the default shutdown timeout is 30 seconds",
         "Verify STOPPED, EXITED and FATAL processes are skipped: they are not named in any 'stopping priority level' line",
         "Unit (process): StopAll followed by ShutdownLevels (and the reverse) does not panic (shutdownCh closed through sync.Once)",
@@ -1559,7 +1564,8 @@
         "Verify an [include] section becomes a commented TOML include listing its globs, with a warning to migrate each included file",
         "Verify environment variables are mapped from supervisord format to Kahi format",
         "Verify signal names are normalized (e.g., SIGTERM to TERM)",
-        "Verify comments from the original file are preserved as TOML comments where possible"
+        "Verify comments from the original file are preserved as TOML comments where possible",
+        "Migrate a supervisord config with stopsignal=TERM and another with stopsignal=SIGINT and verify the output has \"SIGTERM\" and \"SIGINT\"; migrating stopwaitsecs=0 warns with 'stopsignal = SIGKILL'"
       ],
       "passes": false,
       "dependencies": ["toml-config-parser"]
@@ -1799,7 +1805,7 @@
       "id": "process-output-ring-buffer",
       "category": "functional",
       "title": "In-Memory Process Output Ring Buffer",
-      "description": "Maintain a configurable in-memory ring buffer per process per stream (stdout/stderr) for log tailing without file logging, with oldest data eviction.",
+      "description": "Keep a fixed 64 KB in-memory ring buffer per process per stream (stdout/stderr) for log tailing and streaming without file logging, evicting the oldest data; configurable size is #113 (v0.3.0).",
       "testing_steps": [
         "With default config and no log file, write 'hello' and verify 'kahi ctl tail web' prints it from the ring buffer",
         "Write 70000 bytes to stdout and verify GET /api/v1/processes/web/log/stdout?length=1000000 returns exactly the last 65536 bytes",
@@ -2398,10 +2404,10 @@
       "title": "Daemon Config Search Excludes the Current Directory",
       "description": "The daemon must not load ./kahi.toml from an untrusted current working directory ahead of system paths, which is a local privilege-escalation vector when root starts the daemon from an attacker-writable directory. Explicit -c and KAHI_CONFIG are still honored.",
       "testing_steps": [
-        "Place a ./kahi.toml in the working directory, start the daemon without -c or KAHI_CONFIG, and verify the CWD file is not selected",
+        "Place a ./kahi.toml in the working directory, start the daemon without -c or KAHI_CONFIG, and verify exit 1 with 'no config file found; searched [/etc/kahi/kahi.toml /etc/kahi.toml]' (the CWD file is not used)",
         "Verify the daemon resolves config from the system search paths only (/etc/kahi/kahi.toml, /etc/kahi.toml)",
-        "Verify an explicit '-c ./kahi.toml' is still honored",
-        "Verify KAHI_CONFIG pointing at any path is still honored",
+        "Start the daemon with '-c ./kahi.toml' (program only_cwd) and verify 'kahi ctl status' lists only_cwd",
+        "Set KAHI_CONFIG=./kahi.toml and verify 'kahi ctl status' lists only_cwd",
         "With no config in the system paths and none explicit, verify the daemon exits 1 with 'no config file found; searched [/etc/kahi/kahi.toml /etc/kahi.toml]'",
         "Run 'go test -run TestResolve ./internal/config/...' and confirm the daemon search order excludes the CWD entry"
       ],

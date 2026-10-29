@@ -911,7 +911,7 @@ This feature adds two complementary mechanisms:
 - `{name}:*` resolves a group first and otherwise the program of that name, so `web:*` still targets the processes of a member program `web` and `services:*` targets the whole table (decided 2026-10-29, so existing scripts keep working). Single members are also reachable by process name (`web_0`)
 - `kahi ctl add|remove` act on groups only: for a member program they fail with "{prog} is in group {table}; use {table}" and exit 1 (404 NOT_FOUND from the API)
 - Status, the API and state events report a member's `group` as the table name ("services"); `%(group_name)s` in config expansion stays the program name (FUNC-012)
-- A reload that drops a table whose programs stay in `[programs]` stops and removes the table's group (PROCESS_GROUP_REMOVED) and adds each program as its own group (PROCESS_GROUP_ADDED; autostart applies), as supervisord does. A reload that adds a table over active programs removes their own groups and adds the table the same way. Changing a table's member list does both: a member that leaves gets its own group, one that joins leaves its own group
+- A reload that drops a table whose programs stay in `[programs]` stops and removes the table's group (PROCESS_GROUP_REMOVED) and adds each program as its own group (PROCESS_GROUP_ADDED; autostart applies, so a running member with `autostart = false` stays stopped after the split), as supervisord does. A reload that adds a table over active programs removes their own groups and adds the table the same way. Changing a table's member list does both: a member that leaves gets its own group, one that joins leaves its own group
 - `reread`, `update` and `reload` list an added, changed or removed table by its name under added/changed/removed
 - Empty groups (no programs) are rejected at config validation
 
@@ -958,7 +958,7 @@ This feature adds two complementary mechanisms:
 - "Stopped" means every process of the group is STOPPED, EXITED or FATAL; STARTING, RUNNING, BACKOFF and STOPPING count as running
 - A removed group's processes leave status and the API until the group is added again. A reload, `kahi ctl update` or `kahi ctl add` brings it back; a reload reports it under "added"
 - A `[groups]` table owns its members (FUNC-010): `kahi ctl add|remove {table}` adds or removes all member processes; a member program name fails with "{prog} is in group {table}; use {table}"
-- Removing a `[groups]` table from the config file removes its member processes from management at the next reload; adding one adds them. Each publishes one group event listing the table's processes (FUNC-053)
+- A reload that drops a `[groups]` table whose programs stay splits it into program groups, and one that adds a table merges them (FUNC-010); one that drops the table and its programs removes the processes. Each table add or remove publishes one group event listing the table's processes (FUNC-053)
 - A reload drops an inactive group that the config no longer defines; it is no longer reported anywhere
 - API: `POST /api/v1/groups/{name}/add` and `POST /api/v1/groups/{name}/remove`; errors are 409 CONFLICT (already active, has running processes) and 404 NOT_FOUND (no such group). `kahi ctl add` and `kahi ctl remove` use them and print "{group}: added" / "{group}: removed"
 - Adding a group that the config does not define is "no such group: {name}"
@@ -2361,7 +2361,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Edge Cases:**
 
-- Log events contain raw output data (before any ANSI stripping)
+- Log events carry the chunk the capture writer stored (ANSI-stripped when `strip_ansi = true`), the same data the log stream sends (FUNC-027). Until `stdout_events_enabled` is implemented (#160, v0.3.0) they are published for every process, because the log stream is built on them
 - High-throughput processes can generate many events; subscribers must handle backpressure
 
 **Dependencies:** FUNC-049, FUNC-018
@@ -3354,7 +3354,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 - A `gap` event first ends the pending partial line as a line, then shows a line "[{n} bytes not shown]"; a `reset` event does the same with "[log restarted]" and then renders the replay
 - The server closes a stream whose client falls 64 events behind; `EventSource` reconnects and resumes, so a fast writer no longer leaves silent gaps (v0.2.3)
 - With `strip_ansi = true` the backlog and the stream are both stripped: the stream publishes the chunk the capture writer stored, which its offsets count (FUNC-027)
-- The ring buffer is a fixed 64 KB regardless of `stdout_capture_maxbytes` (a FUNC-082 discrepancy tracked separately)
+- The ring buffer is a fixed 64 KB by design (FUNC-082); making it configurable is #113 (v0.3.0)
 - The read endpoint ignores its `offset` parameter; the viewer does not use it
 - `stderr` with `redirect_stderr = true` has no capture and returns an empty body (the "no output" message)
 - Auto-scroll to bottom; scrolling up pauses auto-scroll until the user returns to the bottom
