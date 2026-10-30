@@ -1163,7 +1163,7 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 Each step is one PR, tested red first, with e2e proof against the binary and the feature_list entries it completes; `GOOS=linux go vet -tags=e2e ./e2e/` before pushing.
 
 1. **Spec, plan, features** (this change): clarify, ADR-031..038, feature_list steps.
-2. **Signal names** (ADR-038, new issue): canonical names, outputs, defaults, migrate. First, so every later step asserts `SIG` names (cli-process-control's "web: signaled SIGHUP", EXITED's `SIGKILL`).
+2. **Signal names** (#215, ADR-038): canonical names, outputs, defaults, migrate. First, so every later step asserts `SIG` names (cli-process-control's "web: signaled SIGHUP", EXITED's `SIGKILL`).
 3. **#213 ctl exit codes and `all`** (ADR-035, all usage errors exit 2) and the cli-process-control e2e; before the collision check because the homogeneous-groups e2e asserts exit codes.
 4. **#214 collision check** (ADR-036) and the homogeneous-groups e2e.
 5. **#154 event payloads** (ADR-032, the state part) and the event-bus / process-state-events e2e (one stream step through `/api/v1/events/stream`).
