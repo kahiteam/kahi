@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"sort"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -191,7 +190,7 @@ shutdown:
 
 // handleSignal processes a signal and returns true if shutdown should begin.
 func (s *Supervisor) handleSignal(sig os.Signal) bool {
-	s.logger.Info("received signal", "signal", sig.String())
+	s.logger.Info("received signal", "signal", signalName(sig))
 
 	switch sig {
 	case syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT:
@@ -210,7 +209,7 @@ func (s *Supervisor) handleSignal(sig os.Signal) bool {
 		return false
 
 	default:
-		s.logger.Warn("unhandled signal", "signal", sig.String())
+		s.logger.Warn("unhandled signal", "signal", signalName(sig))
 		return false
 	}
 }
@@ -313,7 +312,7 @@ func (s *Supervisor) handleSigchld() {
 		status := ws.ExitStatus()
 		var sig string
 		if ws.Signaled() {
-			sig = strings.TrimPrefix(unix.SignalName(ws.Signal()), "SIG")
+			sig = unix.SignalName(ws.Signal())
 		}
 
 		p := s.manager.ProcessByPid(pid)
@@ -374,7 +373,7 @@ func (s *Supervisor) waitForShutdown() {
 					return
 				}
 			case syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT:
-				s.logger.Warn("signal received during shutdown, killing remaining processes", "signal", sig.String())
+				s.logger.Warn("signal received during shutdown, killing remaining processes", "signal", signalName(sig))
 				s.killRemaining()
 				return
 			}
@@ -528,4 +527,12 @@ func (s *Supervisor) warnWebChange(newCfg *config.Config) {
 	if newCfg.Server.Web != s.startupWeb {
 		s.logger.Warn("server.web changes take effect after restart")
 	}
+}
+
+// signalName names sig as in <signal.h> ("SIGTERM") for log output (ADR-038).
+func signalName(sig os.Signal) string {
+	if s, ok := sig.(syscall.Signal); ok {
+		return unix.SignalName(s)
+	}
+	return sig.String()
 }

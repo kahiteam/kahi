@@ -178,7 +178,7 @@ func writeProgramSection(b *strings.Builder, sec INISection, result *Result) {
 		if key == "stopwaitsecs" && strings.TrimSpace(value) == "0" {
 			value = "1"
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("programs.%s: stopwaitsecs = 0 is not allowed; wrote 1 (use stopsignal = KILL for an immediate kill)", sec.Name))
+				fmt.Sprintf("programs.%s: stopwaitsecs = 0 is not allowed; wrote 1 (use stopsignal = SIGKILL for an immediate kill)", sec.Name))
 		}
 		mapped := MapProgramOption(key, value)
 		writeOption(b, mapped)

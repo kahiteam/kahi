@@ -10,12 +10,6 @@ import (
 	"github.com/kahiteam/kahi/internal/logging"
 )
 
-// validSignals lists the supported stop signals.
-var validSignals = map[string]bool{
-	"TERM": true, "HUP": true, "INT": true, "QUIT": true,
-	"KILL": true, "USR1": true, "USR2": true,
-}
-
 // knownRLimits lists the resource-limit environment keys the supervisor
 // applies to child processes. Values must be "unlimited", "-1", a single
 // unsigned integer, or a "soft:hard" pair of unsigned integers.
@@ -54,8 +48,7 @@ func Validate(cfg *Config) []error {
 			errs = append(errs, fmt.Errorf("%s: autorestart must be true, false, or unexpected, got %q", prefix, p.Autorestart))
 		}
 
-		sig := strings.TrimPrefix(strings.ToUpper(p.Stopsignal), "SIG")
-		if !validSignals[sig] {
+		if !IsStopSignal(p.Stopsignal) {
 			errs = append(errs, fmt.Errorf("%s: invalid stopsignal %q", prefix, p.Stopsignal))
 		}
 

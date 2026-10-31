@@ -286,7 +286,7 @@ kahi init --stdout            # print to stdout
 # startsecs = 1                # seconds before considered started
 # startretries = 3             # max retries before FATAL
 # exitcodes = [0]              # expected exit codes
-# stopsignal = "TERM"          # stop signal (TERM, HUP, INT, QUIT, KILL, USR1, USR2)
+# stopsignal = "SIGTERM"       # stop signal (SIGTERM, SIGHUP, SIGINT, SIGQUIT, SIGKILL, SIGUSR1, SIGUSR2)
 # stopwaitsecs = 10            # seconds to wait before SIGKILL
 # stopasgroup = false          # send stop signal to process group
 # killasgroup = false          # send SIGKILL to process group

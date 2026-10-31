@@ -55,7 +55,7 @@ shutdown_timeout = 5
 file = "/run/kahi.sock"
 
 [programs.orphaner]
-command = "/orphaner spawn 3"
+command = "/orphaner spawn 3 kill"
 startsecs = 0
 autorestart = "false"
 `,
@@ -104,6 +104,10 @@ ENTRYPOINT ["/kahi", "daemon", "-c", "/kahi.toml"]
 	}
 	if n := strings.Count(logs, `"msg":"reaped orphan"`); n != 3 {
 		t.Fatalf("reaped %d orphans, want 3; logs:\n%s", n, logs)
+	}
+	// The orphans end by SIGKILL; the log names it as in <signal.h> (#215).
+	if n := strings.Count(logs, `"signal":"SIGKILL"`); n != 3 {
+		t.Errorf("%d reaped-orphan lines name SIGKILL, want 3; logs:\n%s", n, logs)
 	}
 	for _, want := range []string{"running as PID 1; orphaned processes are reaped", `"process":"orphaner"`} {
 		if !strings.Contains(logs, want) {

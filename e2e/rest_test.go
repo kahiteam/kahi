@@ -105,7 +105,7 @@ stopwaitsecs = 2
 	// Signal: HUP reaches the child.
 	var sig map[string]string
 	apiDo(t, socket, "POST", "/api/v1/processes/web/signal", `{"signal":"HUP"}`).jsonBody(t, "signal", http.StatusOK, &sig)
-	if sig["status"] != "signaled" || sig["name"] != "web" || sig["signal"] != "HUP" {
+	if sig["status"] != "signaled" || sig["name"] != "web" || sig["signal"] != "SIGHUP" {
 		t.Errorf("signal body %v", sig)
 	}
 	waitForMarker(t, marker, "HUP", 5*time.Second)
