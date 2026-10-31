@@ -120,11 +120,18 @@ func (c *Client) Restart(name string) error {
 	return err
 }
 
-// Signal sends a signal to a process.
-func (c *Client) Signal(name, sig string) error {
+// Signal sends a signal to a process and returns the signal's name as the
+// daemon reports it ("SIGHUP").
+func (c *Client) Signal(name, sig string) (string, error) {
 	body := fmt.Sprintf(`{"signal":"%s"}`, sig)
-	_, err := c.doJSON("POST", "/api/v1/processes/"+name+"/signal", strings.NewReader(body))
-	return err
+	result, err := c.doJSON("POST", "/api/v1/processes/"+name+"/signal", strings.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	if s, ok := result["signal"].(string); ok && s != "" {
+		return s, nil
+	}
+	return sig, nil
 }
 
 // StartGroup starts all processes in a group.
@@ -235,7 +242,7 @@ func formatStatusTable(procs []ProcessInfo, w io.Writer, color bool) error {
 		if p.State == "EXITED" {
 			desc = fmt.Sprintf("exit %d", p.ExitStatus)
 			if p.ExitSignal != "" {
-				desc = "killed by SIG" + p.ExitSignal
+				desc = "killed by " + p.ExitSignal
 			}
 		}
 

@@ -73,7 +73,8 @@ func mockAPIServer() *httptest.Server {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "signaled", "name": name})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "signaled", "name": name,
+			"signal": "SIG" + strings.TrimPrefix(strings.ToUpper(body.Signal), "SIG")})
 	})
 
 	mux.HandleFunc("GET /api/v1/processes/{name}/log/{stream}", func(w http.ResponseWriter, r *http.Request) {
@@ -196,8 +197,12 @@ func TestClientSignal(t *testing.T) {
 	defer ts.Close()
 	c := testClient(ts)
 
-	if err := c.Signal("web", "HUP"); err != nil {
+	got, err := c.Signal("web", "HUP")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if got != "SIGHUP" {
+		t.Fatalf("signal = %q, want SIGHUP (the daemon's name)", got)
 	}
 }
 
@@ -206,7 +211,7 @@ func TestClientSignalInvalid(t *testing.T) {
 	defer ts.Close()
 	c := testClient(ts)
 
-	err := c.Signal("web", "INVALID")
+	_, err := c.Signal("web", "INVALID")
 	if err == nil {
 		t.Fatal("expected error for invalid signal")
 	}

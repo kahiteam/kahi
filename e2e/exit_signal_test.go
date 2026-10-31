@@ -44,8 +44,8 @@ autorestart = "unexpected"
 	out, _, _ = runKahi(t, t.TempDir(), "ctl", "-s", socket, "status", "--json", "victim")
 	var procs []map[string]any
 	if json.Unmarshal([]byte(out), &procs) != nil || len(procs) != 1 ||
-		procs[0]["exitsignal"] != "KILL" || procs[0]["exitstatus"] != float64(-1) {
-		t.Errorf("status --json: %s; want exitsignal KILL and exitstatus -1", out)
+		procs[0]["exitsignal"] != "SIGKILL" || procs[0]["exitstatus"] != float64(-1) {
+		t.Errorf("status --json: %s; want exitsignal SIGKILL and exitstatus -1", out)
 	}
 
 	// The TERM death of "again" was unexpected: it runs again, new pid.

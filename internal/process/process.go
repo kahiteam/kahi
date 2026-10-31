@@ -526,7 +526,7 @@ func (p *Process) HandleExit(exitCode int) {
 }
 
 // HandleExitStatus is HandleExit with the signal that killed the child, if
-// any ("KILL"); exitCode is then -1 (#201). A signal death is never in
+// any ("SIGKILL"); exitCode is then -1 (#201). A signal death is never in
 // exitcodes, so autorestart = "unexpected" restarts it, as in supervisord.
 func (p *Process) HandleExitStatus(exitCode int, signal string) {
 	p.mu.Lock()
@@ -836,29 +836,12 @@ func (p *Process) doPublishState(state State, pid int) {
 	})
 }
 
-// ParseSignal converts a signal name to os.Signal.
+// ParseSignal converts a signal name, with or without the SIG prefix, to
+// os.Signal (config.ParseSignal); nil when the name is not supported.
 func ParseSignal(name string) os.Signal {
-	name = strings.TrimPrefix(strings.ToUpper(name), "SIG")
-	switch name {
-	case "TERM":
-		return syscall.SIGTERM
-	case "HUP":
-		return syscall.SIGHUP
-	case "INT":
-		return syscall.SIGINT
-	case "QUIT":
-		return syscall.SIGQUIT
-	case "KILL":
-		return syscall.SIGKILL
-	case "USR1":
-		return syscall.SIGUSR1
-	case "USR2":
-		return syscall.SIGUSR2
-	case "STOP":
-		return syscall.SIGSTOP
-	case "CONT":
-		return syscall.SIGCONT
-	default:
+	sig, _, ok := config.ParseSignal(name)
+	if !ok {
 		return nil
 	}
+	return sig
 }

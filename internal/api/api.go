@@ -35,7 +35,7 @@ type ProcessInfo struct {
 	Uptime      int64  `json:"uptime"`
 	Description string `json:"description"`
 	ExitStatus  int    `json:"exitstatus"`
-	// ExitSignal names the signal that killed the process ("KILL"); then
+	// ExitSignal names the signal that killed the process ("SIGKILL"); then
 	// ExitStatus is -1 (#201).
 	ExitSignal string `json:"exitsignal,omitempty"`
 }
@@ -516,7 +516,9 @@ func (s *Server) handleSignalProcess(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusCode, err.Error(), errorCode(statusCode))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "signaled", "name": name, "signal": body.Signal})
+	// Signal names follow <signal.h> in every output (ADR-038).
+	_, canonical, _ := config.ParseSignal(body.Signal)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "signaled", "name": name, "signal": canonical})
 }
 
 func (s *Server) handleWriteStdin(w http.ResponseWriter, r *http.Request) {

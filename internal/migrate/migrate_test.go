@@ -199,8 +199,8 @@ stopsignal = SIGTERM
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(result.TOML, `stopsignal = "TERM"`) {
-		t.Errorf("TOML = %s, want stopsignal = TERM", result.TOML)
+	if !strings.Contains(result.TOML, `stopsignal = "SIGTERM"`) {
+		t.Errorf("TOML = %s, want stopsignal = SIGTERM", result.TOML)
 	}
 }
 

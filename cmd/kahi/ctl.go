@@ -159,10 +159,11 @@ var ctlSignalCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := newCtlClient()
 		sig, name := args[0], args[1]
-		if err := c.Signal(name, sig); err != nil {
+		signaled, err := c.Signal(name, sig)
+		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: signaled %s\n", name, sig)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: signaled %s\n", name, signaled)
 		return nil
 	},
 }
