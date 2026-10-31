@@ -321,9 +321,9 @@ func TestCLI_MigrateToStdout(t *testing.T) {
 			t.Fatalf("%v printed TOML kahi cannot load: %v\n%s", args, err, out)
 		}
 		web := cfg.Programs["web"]
-		if web.Command != "/bin/sleep 300" || web.Stopsignal != "INT" ||
+		if web.Command != "/bin/sleep 300" || web.Stopsignal != "SIGINT" ||
 			web.Environment["A"] != "1" || web.Environment["B"] != "two" {
-			t.Fatalf("%v: web = %+v, want command, INT and environment mapped", args, web)
+			t.Fatalf("%v: web = %+v, want command, SIGINT and environment mapped", args, web)
 		}
 		for _, opt := range []string{"stdout_events_enabled", "stderr_events_enabled"} {
 			if !strings.Contains(stderr, `unsupported option "`+opt+`"`) {

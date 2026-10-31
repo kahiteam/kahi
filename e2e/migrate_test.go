@@ -137,7 +137,7 @@ killasgroup=0
 		"redirect_stderr = true\n", "stopasgroup = true\n", "killasgroup = true\n",
 		"exitcodes = [0, 2]\n",
 		"redirect_stderr = false\n", "stopasgroup = false\n", "killasgroup = false\n",
-		`stopsignal = "INT"`,
+		`stopsignal = "SIGINT"`,
 		`stdout_logfile_maxbytes = "50MB"`,
 		`A = "1"`, `B = "two"`,
 		"# UNSUPPORTED: stdout_syslog = true\n",
@@ -154,7 +154,7 @@ killasgroup=0
 		t.Fatalf("migrated config does not load: %v", err)
 	}
 	web := cfg.Programs["web"]
-	if web.Startsecs != 10 || web.Stopsignal != "INT" || !web.RedirectStderr || web.Environment["B"] != "two" {
+	if web.Startsecs != 10 || web.Stopsignal != "SIGINT" || !web.RedirectStderr || web.Environment["B"] != "two" {
 		t.Errorf("loaded web = %+v", web)
 	}
 }
