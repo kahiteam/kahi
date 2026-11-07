@@ -63,12 +63,14 @@ func TestNormalizeSignal(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"TERM", "TERM"},
-		{"term", "TERM"},
-		{"SIGTERM", "TERM"},
-		{"sigterm", "TERM"},
-		{"HUP", "HUP"},
-		{"SIGHUP", "HUP"},
+		{"TERM", "SIGTERM"},
+		{"term", "SIGTERM"},
+		{"SIGTERM", "SIGTERM"},
+		{"sigterm", "SIGTERM"},
+		{"HUP", "SIGHUP"},
+		{"SIGHUP", "SIGHUP"},
+		{" int ", "SIGINT"},
+		{"bogus", "BOGUS"},
 	}
 	for _, tt := range tests {
 		got := NormalizeSignal(tt.input)
@@ -100,8 +102,8 @@ func TestMapGroupOptionPriority(t *testing.T) {
 }
 
 func TestMapProgramOptionSignal(t *testing.T) {
-	opt := MapProgramOption("stopsignal", "SIGTERM")
-	if opt.Value != `"TERM"` {
-		t.Errorf("value = %q, want \"TERM\"", opt.Value)
+	opt := MapProgramOption("stopsignal", "TERM")
+	if opt.Value != `"SIGTERM"` {
+		t.Errorf("value = %q, want \"SIGTERM\"", opt.Value)
 	}
 }

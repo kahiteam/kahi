@@ -64,7 +64,7 @@ func ApplyDefaults(cfg *Config, md toml.MetaData) {
 			p.Exitcodes = []int{0}
 		}
 		if p.Stopsignal == "" {
-			p.Stopsignal = "TERM"
+			p.Stopsignal = "SIGTERM"
 		}
 		if unset(p.Stopwaitsecs, "programs", name, "stopwaitsecs") {
 			p.Stopwaitsecs = 10

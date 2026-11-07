@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/kahiteam/kahi/internal/config"
 )
 
 // OptionMapping describes how to convert a supervisord option to Kahi TOML.
@@ -197,11 +199,13 @@ func convertValue(value, typ string) string {
 	}
 }
 
-// NormalizeSignal normalizes a signal name to uppercase without SIG prefix.
+// NormalizeSignal writes a signal name in its <signal.h> form ("SIGTERM").
+// A name Kahi does not know is kept, upper-cased, for validation to report.
 func NormalizeSignal(sig string) string {
-	sig = strings.TrimSpace(strings.ToUpper(sig))
-	sig = strings.TrimPrefix(sig, "SIG")
-	return sig
+	if _, canonical, ok := config.ParseSignal(sig); ok {
+		return canonical
+	}
+	return strings.TrimSpace(strings.ToUpper(sig))
 }
 
 // convertEnvironment converts supervisord environment format to TOML table.

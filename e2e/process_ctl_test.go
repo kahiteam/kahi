@@ -128,7 +128,7 @@ startsecs = 0
 
 	info1, _ := getProcessInfo(client, "trapper")
 
-	if err := client.Signal("trapper", "USR1"); err != nil {
+	if _, err := client.Signal("trapper", "USR1"); err != nil {
 		t.Fatalf("signal USR1: %v", err)
 	}
 
@@ -150,7 +150,7 @@ func TestProcess_SignalTerm(t *testing.T) {
 	client, _ := startDaemon(t, processCtlConfig)
 	waitForState(t, client, "sleeper", "RUNNING", 5*time.Second)
 
-	if err := client.Signal("sleeper", "TERM"); err != nil {
+	if _, err := client.Signal("sleeper", "TERM"); err != nil {
 		t.Fatalf("signal TERM: %v", err)
 	}
 

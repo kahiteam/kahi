@@ -890,7 +890,7 @@
       "description": "Every output names signals in the <signal.h> form (SIGTERM); stopsignal, kahi ctl signal and the signal API accept the name with or without the SIG prefix (ADR-038).",
       "testing_steps": [
         "Configure stopsignal = \"TERM\" on one program and \"SIGTERM\" on another, both running a script that writes a marker file when it traps TERM, stop both, and verify both markers",
-        "Configure stopsignal = \"BOGUS\" and verify the config is refused with 'invalid signal'",
+        "Configure stopsignal = \"BOGUS\" and verify the daemon refuses the config with 'programs.web: invalid stopsignal \"BOGUS\"' and exit 1",
         "POST /api/v1/processes/web/signal with {\"signal\": \"HUP\"} and verify the response carries \"signal\": \"SIGHUP\"",
         "SIGKILL a RUNNING process from outside and verify exitsignal 'SIGKILL' in GET /api/v1/processes/web and 'killed by SIGKILL' in kahi ctl status",
         "Verify 'kahi init' and the default config use stopsignal = \"SIGTERM\"",
@@ -898,9 +898,19 @@
         "POST /api/v1/processes/web/signal with {\"signal\": \"SIGHUP\"} succeeds, and with {\"signal\": \"BOGUS\"} returns 400 with 'process web: invalid signal \"BOGUS\"'",
         "Verify README.md and cmd/kahi/kahi.toml show stopsignal = \"SIGTERM\"",
         "Send SIGTERM to the daemon and verify the 'received signal' log line names SIGTERM",
-        "POST /api/v1/processes/web/signal with {\"signal\": \"STOP\"} succeeds, while stopsignal = \"STOP\" is refused with 'invalid signal'"
+        "POST /api/v1/processes/web/signal with {\"signal\": \"STOP\"} and {\"signal\": \"CONT\"} succeeds (response SIGSTOP / SIGCONT), while stopsignal = \"STOP\" is refused with 'programs.web: invalid stopsignal \"STOP\"'"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestSignalNames_StopsignalBothForms",
+        "TestSignalNames_StopsignalRefused",
+        "TestSignalNames_SignalAPI",
+        "TestExitSignal_Reported",
+        "TestSignalNames_Defaults",
+        "TestPID1_ReapsOrphans",
+        "TestSignalNames_Docs",
+        "TestSignalNames_ReceivedSignalLog"
+      ],
       "dependencies": ["process-stop", "rest-api-endpoints"]
     },
     {
@@ -1568,6 +1578,7 @@
         "Migrate a supervisord config with stopsignal=TERM and another with stopsignal=SIGINT and verify the output has \"SIGTERM\" and \"SIGINT\"; migrating stopwaitsecs=0 warns with 'stopsignal = SIGKILL'"
       ],
       "passes": false,
+      "verified_by": ["TestSignalNames_Migrate"],
       "dependencies": ["toml-config-parser"]
     },
     {
