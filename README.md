@@ -189,9 +189,9 @@ kahi ctl [command] [flags]
 
 | Subcommand | Arguments          | Description                                  |
 | ---------- | ------------------ | -------------------------------------------- |
-| `start`    | `process...`       | Start processes (supports `group:*` syntax)  |
-| `stop`     | `process...`       | Stop processes                               |
-| `restart`  | `process...`       | Restart processes                            |
+| `start`    | `process...`       | Start processes (`group:*`, or `all`)        |
+| `stop`     | `process...`       | Stop processes (`group:*`, or `all`)         |
+| `restart`  | `process...`       | Restart processes (`group:*`, or `all`)      |
 | `status`   | `[process...]`     | Show process status (`--json`, `--no-color`) |
 | `signal`   | `signal process`   | Send a signal to a process                   |
 | `tail`     | `process [stream]` | Tail process log output (`-f` to follow)     |
@@ -207,6 +207,15 @@ kahi ctl [command] [flags]
 | `ready`    |                    | Check daemon readiness (`--process` filter)  |
 | `pid`      | `[process]`        | Show daemon or process PID                   |
 | `version`  |                    | Show remote daemon version                   |
+
+`start`, `stop` and `restart` try every target and exit 1 if any of them
+failed, after printing `{n} of {m} failed`. `all` acts on every process in
+priority order through the bulk API, prints one line per process (`ok`,
+`skipped` or `error: ...`), and must be the only target; a program named `all`
+is reachable as `all:*`.
+
+Every `kahi` command exits 0 on success, 1 on a runtime failure and 2 on a
+usage error (wrong number of arguments, unknown flag or subcommand).
 
 ### migrate
 

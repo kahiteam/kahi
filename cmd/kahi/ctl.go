@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -69,24 +70,7 @@ var ctlStartCmd = &cobra.Command{
 	Short: "Start processes",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c := newCtlClient()
-		for _, name := range args {
-			if strings.HasSuffix(name, ":*") {
-				group := strings.TrimSuffix(name, ":*")
-				if err := c.StartGroup(group); err != nil {
-					fmt.Fprintf(os.Stderr, "%s: %s\n", name, err)
-					continue
-				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: started\n", name)
-			} else {
-				if err := c.Start(name); err != nil {
-					fmt.Fprintf(os.Stderr, "%s: %s\n", name, err)
-					continue
-				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: started\n", name)
-			}
-		}
-		return nil
+		return runAction(cmd, args, "start", "started", (*ctl.Client).Start, (*ctl.Client).StartGroup)
 	},
 }
 
@@ -95,24 +79,7 @@ var ctlStopCmd = &cobra.Command{
 	Short: "Stop processes",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c := newCtlClient()
-		for _, name := range args {
-			if strings.HasSuffix(name, ":*") {
-				group := strings.TrimSuffix(name, ":*")
-				if err := c.StopGroup(group); err != nil {
-					fmt.Fprintf(os.Stderr, "%s: %s\n", name, err)
-					continue
-				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: stopped\n", name)
-			} else {
-				if err := c.Stop(name); err != nil {
-					fmt.Fprintf(os.Stderr, "%s: %s\n", name, err)
-					continue
-				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: stopped\n", name)
-			}
-		}
-		return nil
+		return runAction(cmd, args, "stop", "stopped", (*ctl.Client).Stop, (*ctl.Client).StopGroup)
 	},
 }
 
@@ -121,35 +88,65 @@ var ctlRestartCmd = &cobra.Command{
 	Short: "Restart processes",
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c := newCtlClient()
-		for _, name := range args {
-			if name == "all" {
-				// Restart all requires listing first.
-				var buf strings.Builder
-				if err := c.Status(nil, true, &buf); err != nil {
-					return err
-				}
-				// For now, restart individually.
-				if err := c.Restart(name); err != nil {
-					fmt.Fprintf(os.Stderr, "%s: %s\n", name, err)
-					continue
-				}
-			} else if strings.HasSuffix(name, ":*") {
-				group := strings.TrimSuffix(name, ":*")
-				if err := c.RestartGroup(group); err != nil {
-					fmt.Fprintf(os.Stderr, "%s: %s\n", name, err)
-					continue
-				}
-			} else {
-				if err := c.Restart(name); err != nil {
-					fmt.Fprintf(os.Stderr, "%s: %s\n", name, err)
-					continue
-				}
-			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: restarted\n", name)
-		}
-		return nil
+		return runAction(cmd, args, "restart", "restarted", (*ctl.Client).Restart, (*ctl.Client).RestartGroup)
 	},
+}
+
+// runAction applies action to every target: a process name, a group as
+// name:*, or all, which must be the only target and goes through the ordered
+// bulk API. Every target is attempted; the command fails when any of them
+// did (ADR-035, #213).
+func runAction(cmd *cobra.Command, args []string, action, done string, one, group func(*ctl.Client, string) error) error {
+	for _, name := range args {
+		if name == "all" && len(args) > 1 {
+			return usageError{errors.New("all cannot be combined with other names")}
+		}
+	}
+	c := newCtlClient()
+	if len(args) == 1 && args[0] == "all" {
+		return runAll(cmd, c, action)
+	}
+	failed := 0
+	for _, name := range args {
+		var err error
+		if g, ok := strings.CutSuffix(name, ":*"); ok {
+			err = group(c, g)
+		} else {
+			err = one(c, name)
+		}
+		if err != nil {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", name, err)
+			failed++
+			continue
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", name, done)
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d of %d failed", failed, len(args))
+	}
+	return nil
+}
+
+// runAll prints one line per process of a bulk action and fails when any
+// process failed.
+func runAll(cmd *cobra.Command, c *ctl.Client, action string) error {
+	results, err := c.All(action)
+	if err != nil {
+		return err
+	}
+	failed := 0
+	for _, r := range results {
+		if r.Status == "error" {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: error: %s\n", r.Name, r.Error)
+			failed++
+			continue
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", r.Name, r.Status)
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d of %d failed", failed, len(results))
+	}
+	return nil
 }
 
 var ctlSignalCmd = &cobra.Command{

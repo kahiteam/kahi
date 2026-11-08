@@ -349,6 +349,7 @@
         "Define [programs.web] in the main config and again in an included file and verify the daemon refuses with 'duplicate program name \"web\": defined in both main config and {include path}'"
       ],
       "passes": false,
+      "verified_by": ["TestCtlExit_PartialFailure"],
       "dependencies": ["numprocs-instances", "cli-process-control"]
     },
     {
@@ -859,7 +860,7 @@
       "testing_steps": [
         "Run 'kahi ctl start web' with web stopped and verify 'web: started' and the process RUNNING",
         "Run 'kahi ctl stop web' with web running and verify 'web: stopped' and the process STOPPED",
-        "Run 'kahi ctl restart all' and verify every process is restarted through the bulk API with one '{name}: ok' line each",
+        "Run 'kahi ctl restart all' and verify every process is restarted through the bulk API (new pids) with one '{name}: ok' line each, in priority order",
         "Run 'kahi ctl signal HUP web' and 'kahi ctl signal SIGHUP web' against a script that writes a marker file when it traps HUP and verify the marker appears and 'web: signaled SIGHUP' is printed both times",
         "Run 'kahi ctl start web:*' and verify all processes in the web group are started",
         "Run 'kahi ctl start web api worker' and verify all three are started",
@@ -867,7 +868,7 @@
         "Run 'kahi ctl start nonexistent web' and verify web is started, 'nonexistent: no such process: nonexistent' is printed, '1 of 2 failed' on stderr, and exit code 1",
         "Run 'kahi ctl signal INVALID web' and verify exit code 1 with 'process web: invalid signal \"INVALID\"'",
         "Run 'kahi ctl stop web:*' and verify all processes in the web group are stopped",
-        "Run 'kahi ctl restart all' with one process that fails to start and one stopped autostart=false process and verify the '{name}: error: {message}' and '{name}: skipped' lines, '1 of 2 failed' on stderr (one error among the results), and exit code 1",
+        "Run 'kahi ctl restart all' and 'kahi ctl start all' with two running processes and one whose command cannot spawn and verify the '{name}: ok' / '{name}: skipped' lines, '{name}: error: {message}' for the failing one, '1 of 3 failed' on stderr, and exit code 1",
         "Define a program named all and verify 'kahi ctl start all:*' starts it",
         "Run 'kahi ctl stop all web' and verify 'all cannot be combined with other names', exit code 2, and nothing stopped",
         "Run 'kahi ctl signal HUP web' with web stopped and verify 'process not running: web' and exit code 1",
@@ -875,7 +876,18 @@
         "Run 'kahi ctl start' with no argument and 'kahi ctl status --bogus' and verify exit code 2 for both",
         "Run 'kahi daemon --bogus', 'kahi migrate' with no input, 'kahi bogus' and 'kahi ctl foo' and verify exit code 2 for each"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestCtlExit_StartStop",
+        "TestCtlExit_PartialFailure",
+        "TestCtlExit_Groups",
+        "TestCtlExit_All",
+        "TestCtlExit_AllWithNames",
+        "TestCtlExit_SignalErrors",
+        "TestCtlExit_NoDaemon",
+        "TestCtlExit_UsageErrors",
+        "TestSignalNames_SignalAPI"
+      ],
       "dependencies": [
         "rest-api-endpoints",
         "cli-framework",
