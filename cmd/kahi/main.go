@@ -27,8 +27,9 @@ func main() {
 		return // unreachable: RunChildInit execs on success
 	}
 
+	markUsageErrors(rootCmd)
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
 }

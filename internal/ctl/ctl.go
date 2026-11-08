@@ -134,6 +134,32 @@ func (c *Client) Signal(name, sig string) (string, error) {
 	return sig, nil
 }
 
+// ActionResult is one process's outcome of a bulk action (FUNC-083):
+// Status is "ok", "skipped" or "error".
+type ActionResult struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+// All runs action ("start", "stop" or "restart") on every process through
+// the ordered bulk API and returns one result per process.
+func (c *Client) All(action string) ([]ActionResult, error) {
+	result, err := c.doJSON("POST", "/api/v1/all/"+action, nil)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(result["results"])
+	if err != nil {
+		return nil, fmt.Errorf("invalid response: %w", err)
+	}
+	var results []ActionResult
+	if err := json.Unmarshal(raw, &results); err != nil {
+		return nil, fmt.Errorf("invalid response: %w", err)
+	}
+	return results, nil
+}
+
 // StartGroup starts all processes in a group.
 func (c *Client) StartGroup(name string) error {
 	_, err := c.doJSON("POST", "/api/v1/groups/"+name+"/start", nil)
