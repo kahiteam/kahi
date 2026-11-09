@@ -342,14 +342,20 @@
       "description": "Each program definition implicitly creates a group with the same name containing all its numprocs instances.",
       "testing_steps": [
         "Load a [programs.web] section with numprocs=2 and verify a group named 'web' exists containing web_0 and web_1",
-        "Write a unit test that issues 'start web:*' and verifies all processes in the web group are started",
+        "Run 'kahi ctl start web:*' and 'kahi ctl stop web:*' on a numprocs=2 program and verify both processes start and stop",
         "Run 'kahi ctl start nope:*' and verify 'no such group: nope' and exit code 1",
         "Verify a program with numprocs=1 creates a group with a single process",
         "Configure [groups.web] next to [programs.web] and verify the daemon refuses the config with 'groups.web: name collides with program web' (#214)",
         "Define [programs.web] in the main config and again in an included file and verify the daemon refuses with 'duplicate program name \"web\": defined in both main config and {include path}'"
       ],
-      "passes": false,
-      "verified_by": ["TestCtlExit_PartialFailure"],
+      "passes": true,
+      "verified_by": [
+        "TestGroupNames_ProgramIsGroup",
+        "TestCtlExit_Groups",
+        "TestCtlExit_PartialFailure",
+        "TestGroupNames_CollisionRefused",
+        "TestGroupNames_IncludeRedefinesProgram"
+      ],
       "dependencies": ["numprocs-instances", "cli-process-control"]
     },
     {

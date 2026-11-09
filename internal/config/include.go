@@ -189,8 +189,20 @@ func stopWaitWarnings(cfg *Config) []string {
 func validateGroupReferences(cfg *Config) []error {
 	var errs []error
 
-	// Check group program references.
-	for groupName, group := range cfg.Groups {
+	// Sorted, so the errors and the group named first are deterministic.
+	groupNames := make([]string, 0, len(cfg.Groups))
+	for name := range cfg.Groups {
+		groupNames = append(groupNames, name)
+	}
+	sort.Strings(groupNames)
+
+	for _, groupName := range groupNames {
+		group := cfg.Groups[groupName]
+		// A [groups] table named like a program would replace that
+		// program's own group (FUNC-009, #214).
+		if _, ok := cfg.Programs[groupName]; ok {
+			errs = append(errs, fmt.Errorf("groups.%s: name collides with program %s", groupName, groupName))
+		}
 		if len(group.Programs) == 0 {
 			errs = append(errs, fmt.Errorf("groups.%s: empty group (no programs)", groupName))
 		}
@@ -203,8 +215,8 @@ func validateGroupReferences(cfg *Config) []error {
 
 	// Check for programs in multiple explicit groups.
 	progToGroup := make(map[string]string)
-	for groupName, group := range cfg.Groups {
-		for _, progName := range group.Programs {
+	for _, groupName := range groupNames {
+		for _, progName := range cfg.Groups[groupName].Programs {
 			if existing, ok := progToGroup[progName]; ok {
 				errs = append(errs, fmt.Errorf("program %q is in multiple groups: %s and %s", progName, existing, groupName))
 			}
