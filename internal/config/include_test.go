@@ -217,6 +217,43 @@ func TestValidateGroupReferencesMultipleGroups(t *testing.T) {
 	}
 }
 
+// The multiple-groups error names the groups in sorted order, whatever the
+// map order.
+func TestValidateGroupReferencesMultipleGroupsSorted(t *testing.T) {
+	cfg := &Config{
+		Programs: map[string]ProgramConfig{"web": {Command: "/usr/bin/web"}},
+		Groups: map[string]GroupConfig{
+			"zeta":  {Programs: []string{"web"}},
+			"alpha": {Programs: []string{"web"}},
+		},
+	}
+	for i := 0; i < 20; i++ {
+		errs := validateGroupReferences(cfg)
+		if len(errs) != 1 || errs[0].Error() != `program "web" is in multiple groups: alpha and zeta` {
+			t.Fatalf("errs = %v", errs)
+		}
+	}
+}
+
+// A [groups] table named like a program would replace the program's own
+// group; it is refused (#214).
+func TestValidateGroupReferencesNameCollision(t *testing.T) {
+	cfg := &Config{
+		Programs: map[string]ProgramConfig{
+			"web": {Command: "/usr/bin/web"},
+			"api": {Command: "/usr/bin/api"},
+		},
+		Groups: map[string]GroupConfig{
+			"web":      {Programs: []string{"api"}},
+			"services": {Programs: []string{"web"}},
+		},
+	}
+	errs := validateGroupReferences(cfg)
+	if len(errs) != 1 || errs[0].Error() != "groups.web: name collides with program web" {
+		t.Fatalf("errs = %v, want only the collision", errs)
+	}
+}
+
 func TestLoadWithIncludesWarnsStopwaitsecsOverShutdownTimeout(t *testing.T) {
 	dir := t.TempDir()
 	confDir := filepath.Join(dir, "conf.d")
