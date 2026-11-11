@@ -880,7 +880,8 @@
         "Run 'kahi ctl signal HUP web' with web stopped and verify 'process not running: web' and exit code 1",
         "Run 'kahi ctl' without a subcommand and verify the help text and exit code 0",
         "Run 'kahi ctl start' with no argument and 'kahi ctl status --bogus' and verify exit code 2 for both",
-        "Run 'kahi daemon --bogus', 'kahi migrate' with no input, 'kahi bogus' and 'kahi ctl foo' and verify exit code 2 for each"
+        "Run 'kahi daemon --bogus', 'kahi migrate' with no input, 'kahi bogus' and 'kahi ctl foo' and verify exit code 2 for each",
+        "Run 'kahi ctl stop all' where two programs ignore SIGTERM with stopwaitsecs = 16 and verify it waits past 30s and exits 0 with both 'ok' lines; with --timeout 1s verify exit 1 with 'daemon still working after 1s' within about 1s while the daemon still stops the process (#222)"
       ],
       "passes": true,
       "verified_by": [
@@ -892,7 +893,9 @@
         "TestCtlExit_SignalErrors",
         "TestCtlExit_NoDaemon",
         "TestCtlExit_UsageErrors",
-        "TestSignalNames_SignalAPI"
+        "TestSignalNames_SignalAPI",
+        "TestCtlTimeout_StopAllOutlasts30s",
+        "TestCtlTimeout_Flag"
       ],
       "dependencies": [
         "rest-api-endpoints",

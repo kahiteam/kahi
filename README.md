@@ -212,8 +212,10 @@ kahi ctl [command] [flags]
 failed, after printing `{n} of {m} failed`. `all` acts on every process in
 priority order through the bulk API, prints one line per process (`ok`,
 `skipped` or `error: ...`), and must be the only target; a program named `all`
-is reachable as `all:*`.
-
+is reachable as `all:*`. They wait as long as the daemon works on the action
+(each process is bounded by its `stopwaitsecs`); `--timeout 30s` limits the
+wait, and ctl then exits 1 with `daemon still working after 30s` while the
+daemon finishes the action. Queries such as `status` give up after 30s.
 Every `kahi` command exits 0 on success, 1 on a runtime failure and 2 on a
 usage error (wrong number of arguments, unknown flag or subcommand).
 

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,42 +19,90 @@ import (
 	"time"
 )
 
+const (
+	// dialTimeout bounds connecting, so a missing daemon fails fast.
+	dialTimeout = 5 * time.Second
+	// defaultQueryTimeout bounds a request the daemon answers at once; it
+	// only catches a daemon that stopped responding.
+	defaultQueryTimeout = 30 * time.Second
+)
+
 // Client communicates with a Kahi daemon API.
+//
+// There is no overall timeout on the HTTP client: actions that wait on
+// processes (start, stop, restart, all, groups) take as long as the daemon
+// needs, which it bounds itself through each process's stopwaitsecs.
+// Queries are bounded by queryTimeout, actions by actionTimeout when set
+// (#222).
 type Client struct {
-	httpClient *http.Client
-	baseURL    string
-	username   string
-	password   string
+	httpClient    *http.Client
+	baseURL       string
+	username      string
+	password      string
+	queryTimeout  time.Duration
+	actionTimeout time.Duration
 }
 
 // NewUnixClient creates a client that connects via Unix socket.
 func NewUnixClient(socketPath string) *Client {
+	dialer := &net.Dialer{Timeout: dialTimeout}
 	return &Client{
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-					return net.Dial("unix", socketPath)
+					return dialer.DialContext(ctx, "unix", socketPath)
 				},
 			},
-			Timeout: 30 * time.Second,
 		},
-		baseURL: "http://unix",
+		baseURL:      "http://unix",
+		queryTimeout: defaultQueryTimeout,
 	}
 }
 
 // NewTCPClient creates a client that connects via TCP.
 func NewTCPClient(addr, username, password string) *Client {
+	dialer := &net.Dialer{Timeout: dialTimeout}
 	return &Client{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-		baseURL:    "http://" + addr,
-		username:   username,
-		password:   password,
+		httpClient:   &http.Client{Transport: &http.Transport{DialContext: dialer.DialContext}},
+		baseURL:      "http://" + addr,
+		username:     username,
+		password:     password,
+		queryTimeout: defaultQueryTimeout,
 	}
 }
 
+// SetActionTimeout bounds actions that wait on processes (start, stop,
+// restart, all, groups). 0, the default, waits as long as the daemon works.
+func (c *Client) SetActionTimeout(d time.Duration) {
+	c.actionTimeout = d
+}
+
+// cancelOnClose releases a request's context once its body is closed.
+type cancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b cancelOnClose) Close() error {
+	err := b.ReadCloser.Close()
+	b.cancel()
+	return err
+}
+
+// do sends a query, bounded by queryTimeout.
 func (c *Client) do(method, path string, body io.Reader) (*http.Response, error) {
-	req, err := http.NewRequest(method, c.baseURL+path, body)
+	return c.doWithin(c.queryTimeout, method, path, body)
+}
+
+// doWithin sends a request bounded by timeout; 0 means no bound.
+func (c *Client) doWithin(timeout time.Duration, method, path string, body io.Reader) (*http.Response, error) {
+	ctx, cancel := context.Background(), context.CancelFunc(func() {})
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 	if body != nil {
@@ -62,11 +111,31 @@ func (c *Client) do(method, path string, body io.Reader) (*http.Response, error)
 	if c.username != "" {
 		req.SetBasicAuth(c.username, c.password)
 	}
-	return c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	resp.Body = cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
+	return resp, nil
 }
 
 func (c *Client) doJSON(method, path string, body io.Reader) (map[string]any, error) {
-	resp, err := c.do(method, path, body)
+	return c.doJSONWithin(c.queryTimeout, method, path, body)
+}
+
+// doAction sends an action that waits on processes, bounded only by
+// actionTimeout.
+func (c *Client) doAction(method, path string, body io.Reader) (map[string]any, error) {
+	result, err := c.doJSONWithin(c.actionTimeout, method, path, body)
+	if err != nil && c.actionTimeout > 0 && errors.Is(err, context.DeadlineExceeded) {
+		return nil, fmt.Errorf("daemon still working after %s", c.actionTimeout)
+	}
+	return result, err
+}
+
+func (c *Client) doJSONWithin(timeout time.Duration, method, path string, body io.Reader) (map[string]any, error) {
+	resp, err := c.doWithin(timeout, method, path, body)
 	if err != nil {
 		return nil, fmt.Errorf("connection failed: %w", err)
 	}
@@ -104,19 +173,19 @@ type ProcessInfo struct {
 
 // Start starts a process by name.
 func (c *Client) Start(name string) error {
-	_, err := c.doJSON("POST", "/api/v1/processes/"+name+"/start", nil)
+	_, err := c.doAction("POST", "/api/v1/processes/"+name+"/start", nil)
 	return err
 }
 
 // Stop stops a process by name.
 func (c *Client) Stop(name string) error {
-	_, err := c.doJSON("POST", "/api/v1/processes/"+name+"/stop", nil)
+	_, err := c.doAction("POST", "/api/v1/processes/"+name+"/stop", nil)
 	return err
 }
 
 // Restart restarts a process by name.
 func (c *Client) Restart(name string) error {
-	_, err := c.doJSON("POST", "/api/v1/processes/"+name+"/restart", nil)
+	_, err := c.doAction("POST", "/api/v1/processes/"+name+"/restart", nil)
 	return err
 }
 
@@ -145,7 +214,7 @@ type ActionResult struct {
 // All runs action ("start", "stop" or "restart") on every process through
 // the ordered bulk API and returns one result per process.
 func (c *Client) All(action string) ([]ActionResult, error) {
-	result, err := c.doJSON("POST", "/api/v1/all/"+action, nil)
+	result, err := c.doAction("POST", "/api/v1/all/"+action, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -162,19 +231,19 @@ func (c *Client) All(action string) ([]ActionResult, error) {
 
 // StartGroup starts all processes in a group.
 func (c *Client) StartGroup(name string) error {
-	_, err := c.doJSON("POST", "/api/v1/groups/"+name+"/start", nil)
+	_, err := c.doAction("POST", "/api/v1/groups/"+name+"/start", nil)
 	return err
 }
 
 // StopGroup stops all processes in a group.
 func (c *Client) StopGroup(name string) error {
-	_, err := c.doJSON("POST", "/api/v1/groups/"+name+"/stop", nil)
+	_, err := c.doAction("POST", "/api/v1/groups/"+name+"/stop", nil)
 	return err
 }
 
 // RestartGroup restarts all processes in a group.
 func (c *Client) RestartGroup(name string) error {
-	_, err := c.doJSON("POST", "/api/v1/groups/"+name+"/restart", nil)
+	_, err := c.doAction("POST", "/api/v1/groups/"+name+"/restart", nil)
 	return err
 }
 

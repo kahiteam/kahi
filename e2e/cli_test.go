@@ -28,7 +28,19 @@ import (
 // code.
 func runKahi(t *testing.T, dir string, args ...string) (stdout, stderr string, code int) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	return runKahiIn(t, dir, 15*time.Second, args...)
+}
+
+// runKahiTimeout is runKahi in a temporary directory, for a command that may
+// legitimately take longer than 15s.
+func runKahiTimeout(t *testing.T, limit time.Duration, args ...string) (stdout, stderr string, code int) {
+	t.Helper()
+	return runKahiIn(t, t.TempDir(), limit, args...)
+}
+
+func runKahiIn(t *testing.T, dir string, limit time.Duration, args ...string) (stdout, stderr string, code int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, kahiBinary, args...)
 	cmd.Dir = dir
@@ -37,7 +49,7 @@ func runKahi(t *testing.T, dir string, args ...string) (stdout, stderr string, c
 	cmd.Stderr = &errb
 	err := cmd.Run()
 	if ctx.Err() != nil {
-		t.Fatalf("kahi %v did not finish within 15s", args)
+		t.Fatalf("kahi %v did not finish within %v", args, limit)
 	}
 	var exitErr *exec.ExitError
 	switch {
