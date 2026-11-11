@@ -122,6 +122,34 @@
     else queued.push(e.data);
   };
 
+  // On a reconnect EventSource sends the last event id and the server
+  // replays what was missed. When part of it is gone (gap) or the process was
+  // created again (reset), end the pending partial line and mark the break.
+  function flushPending() {
+    if (pending !== '') renderLine(pending);
+    pending = '';
+  }
+
+  function markBreak(text) {
+    flushPending();
+    renderLine(text);
+    scrollToEnd();
+  }
+
+  source.addEventListener('gap', function (e) {
+    var bytes = 0;
+    try {
+      bytes = JSON.parse(e.data).bytes;
+    } catch (err) {
+      bytes = '?';
+    }
+    if (backlogDone) markBreak('[' + bytes + ' bytes not shown]');
+  });
+
+  source.addEventListener('reset', function () {
+    if (backlogDone) markBreak('[log restarted]');
+  });
+
   source.onerror = function () {
     // EventSource retries on its own.
     if (source.readyState !== EventSource.CLOSED) setStatus('Reconnecting...');

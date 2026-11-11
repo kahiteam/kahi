@@ -36,6 +36,11 @@ func mustHash(pw string) string {
 
 type mockProcessManager struct {
 	processes []ProcessInfo
+	// logHeld, logTotal and logGen describe the stdout buffer ReadLogFrom
+	// serves (ADR-033).
+	logHeld  []byte
+	logTotal int64
+	logGen   string
 }
 
 func (m *mockProcessManager) List() []ProcessInfo { return m.processes }
@@ -92,6 +97,24 @@ func (m *mockProcessManager) ReadLog(name string, stream string, offset int64, l
 		return nil, err
 	}
 	return []byte("log output\n"), nil
+}
+
+// ReadLogFrom serves logHeld, the tail of a stream whose total is logTotal
+// and whose generation is logGen ("g" by default).
+func (m *mockProcessManager) ReadLogFrom(name, stream string, offset int64) ([]byte, int64, int64, string, error) {
+	if _, err := m.Get(name); err != nil {
+		return nil, 0, 0, "", err
+	}
+	gen := m.logGen
+	if gen == "" {
+		gen = "g"
+	}
+	oldest := m.logTotal - int64(len(m.logHeld))
+	start := max(offset, oldest)
+	if start >= m.logTotal {
+		return nil, m.logTotal, m.logTotal, gen, nil
+	}
+	return m.logHeld[start-oldest:], start, m.logTotal, gen, nil
 }
 func (m *mockProcessManager) StartAllOrdered() []ActionResult   { return []ActionResult{} }
 func (m *mockProcessManager) StopAllOrdered() []ActionResult    { return []ActionResult{} }

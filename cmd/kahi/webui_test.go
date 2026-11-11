@@ -209,7 +209,7 @@ func TestREADMEDocumentsWebUI(t *testing.T) {
 		t.Error("the Security section does not warn about a reverse proxy in front of the Unix socket")
 	}
 	if !strings.Contains(section(readme, "### Web UI"), "strip_ansi") {
-		t.Error("the Web UI section does not note the strip_ansi backlog/stream difference")
+		t.Error("the Web UI section does not say how strip_ansi applies to the backlog and the stream")
 	}
 }
 

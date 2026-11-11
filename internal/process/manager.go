@@ -259,34 +259,15 @@ func (m *Manager) createProgramLocked(progName string, progCfg config.ProgramCon
 				return nil
 			}),
 		}
+		// Each captured chunk is published with its stream id, under the
+		// capture writer's lock so ids stay in order (ADR-033). With
+		// redirect_stderr there is no stderr writer: the process routes its
+		// stderr pipe to the stdout handler.
 		if stdoutCW != nil {
-			cw := stdoutCW
-			opts = append(opts, WithStdoutHandler(func(name string, data []byte) {
-				data = cw.Capture(data)
-				if bus != nil && len(data) > 0 {
-					bus.Publish(events.Event{
-						Type: events.ProcessLogStdout,
-						Data: map[string]string{"name": name, "data": string(data)},
-					})
-				}
-			}))
+			opts = append(opts, WithStdoutHandler(logPublisher(bus, stdoutCW, events.ProcessLogStdout)))
 		}
 		if stderrCW != nil {
-			cw := stderrCW
-			redirect := inst.Config.RedirectStderr
-			opts = append(opts, WithStderrHandler(func(name string, data []byte) {
-				if redirect && stdoutCW != nil {
-					data = stdoutCW.Capture(data)
-				} else {
-					data = cw.Capture(data)
-				}
-				if bus != nil && len(data) > 0 {
-					bus.Publish(events.Event{
-						Type: events.ProcessLogStderr,
-						Data: map[string]string{"name": name, "data": string(data)},
-					})
-				}
-			}))
+			opts = append(opts, WithStderrHandler(logPublisher(bus, stderrCW, events.ProcessLogStderr)))
 		}
 
 		if h := m.passthroughHandler(inst.Config); h != nil {
@@ -762,6 +743,42 @@ func (m *Manager) ReadLog(name string, stream string, offset int64, length int) 
 		return []byte{}, nil
 	}
 	return cw.ReadTail(length), nil
+}
+
+// logPublisher returns a pipe handler that captures data and publishes it as
+// a log event with its stream id.
+func logPublisher(bus *events.Bus, cw *logging.CaptureWriter, t events.EventType) func(name string, data []byte) {
+	return func(name string, data []byte) {
+		var publish func([]byte, string)
+		if bus != nil {
+			publish = func(out []byte, id string) {
+				bus.Publish(events.Event{
+					Type: t,
+					Data: map[string]string{"name": name, "data": string(out), "id": id},
+				})
+			}
+		}
+		cw.CaptureAndPublish(data, publish)
+	}
+}
+
+// ReadLogFrom returns what a stream's buffer still holds after offset, the
+// offset it starts at, the total captured so far and the stream's generation
+// (ADR-033). A stream without a writer (stderr with redirect_stderr) is
+// empty.
+func (m *Manager) ReadLogFrom(name, stream string, offset int64) (data []byte, start, total int64, generation string, err error) {
+	m.mu.RLock()
+	_, ok := m.processes[name]
+	cw := m.captures[name+":"+stream]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, 0, 0, "", fmt.Errorf("no such process: %s", name)
+	}
+	if cw == nil {
+		return nil, 0, 0, "", nil
+	}
+	data, start, total = cw.ReadFrom(offset)
+	return data, start, total, cw.Generation(), nil
 }
 
 // --- api.GroupManager implementation ---

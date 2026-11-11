@@ -790,6 +790,13 @@
         "Restart the daemon and reconnect with an id from the old daemon: verify 'event: reset' and the replay of the new process's held output"
       ],
       "passes": false,
+      "verified_by": [
+        "TestLogStream_IDsAndResume",
+        "TestLogStream_Gap",
+        "TestLogStream_ResetAfterRecreate",
+        "TestLogStream_StderrRedirectAndFraming",
+        "TestLogStream_EventTypesFilter"
+      ],
       "dependencies": [
         "rest-api-endpoints",
         "process-output-ring-buffer",
