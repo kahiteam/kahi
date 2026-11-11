@@ -14,6 +14,7 @@ import (
 
 // ctl shutdown returns only once the daemon has exited.
 func TestCtl_ShutdownWaits(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ready := filepath.Join(dir, "ready")
 	// Ignores TERM, so the shutdown takes stopwaitsecs (2s) to KILL it.
@@ -50,6 +51,7 @@ stopwaitsecs = 2
 }
 
 func TestCtl_ReloadVersionPID(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, `
 [programs.web]
 command = "/bin/sleep 300"

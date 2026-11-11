@@ -1162,6 +1162,22 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 
 **Consequences:** API consumers see `"SIGHUP"` instead of `"HUP"` in the signal response. Release-note item.
 
+### ADR-039: Parallel E2E Tests
+
+**Date:** 2026-11-11
+**Status:** Accepted
+
+**Context:** #197. The e2e suite ran its tests one after another and took about 820 s of the 900 s `-timeout` (14 min TestMain guard) by #212, with #155, #151 and the #149/#162 entries still to add. Almost every test starts its own daemon on its own socket and temp directory.
+
+**Decision:** Every e2e test calls `t.Parallel()` unless it changes process-wide state: `t.Setenv`/`os.Setenv` (env, expansion, unprivileged, kahi init) or a fixed TCP port (auth, tcp). Go runs those serial tests first, before any parallel test resumes. Shared lazy state in the package (the Web UI password hash) is guarded by a mutex. `task test-e2e` and `task e2e-coverage` pass `-parallel={{.E2E_PARALLEL}}`, 4 by default, which keeps the timing assertions (startsecs, backoff, stopwaitsecs, ctl timeouts) stable under `-race` on a 4-vCPU CI runner; `task test-e2e E2E_PARALLEL=n` overrides it. A new e2e test calls `t.Parallel()` unless it falls under the exceptions.
+
+**Alternatives Considered:**
+
+1. **Shard the suite across CI jobs:** Rejected -- the local run stays serial, and each shard pays the race build again.
+2. **Raise the timeouts:** Rejected -- it hides the growth instead of fixing it.
+
+**Consequences:** The suite takes about 3.5 minutes instead of about 13. A test that flakes only under parallel load is fixed (looser bound, or serial with a comment) rather than retried.
+
 ---
 
 ### Implementation Sequencing (v0.2.4: #149 and #162 in full)

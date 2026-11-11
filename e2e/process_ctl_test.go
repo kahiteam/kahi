@@ -25,6 +25,7 @@ startsecs = 1
 `
 
 func TestProcess_Start(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, processCtlConfig)
 	waitForState(t, client, "sleeper", "RUNNING", 5*time.Second)
 
@@ -45,6 +46,7 @@ func TestProcess_Start(t *testing.T) {
 }
 
 func TestProcess_Stop(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, processCtlConfig)
 	waitForState(t, client, "sleeper", "RUNNING", 5*time.Second)
 
@@ -55,6 +57,7 @@ func TestProcess_Stop(t *testing.T) {
 }
 
 func TestProcess_Restart(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, processCtlConfig)
 	waitForState(t, client, "sleeper", "RUNNING", 5*time.Second)
 
@@ -73,6 +76,7 @@ func TestProcess_Restart(t *testing.T) {
 }
 
 func TestProcess_Status(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, processCtlConfig)
 	waitForState(t, client, "sleeper", "RUNNING", 5*time.Second)
 
@@ -93,6 +97,7 @@ func TestProcess_Status(t *testing.T) {
 }
 
 func TestProcess_StatusWithOptions(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, processCtlConfig)
 	waitForState(t, client, "sleeper", "RUNNING", 5*time.Second)
 
@@ -109,6 +114,7 @@ func TestProcess_StatusWithOptions(t *testing.T) {
 }
 
 func TestProcess_Signal(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// Use a script that traps USR1 so it doesn't terminate
 	// (/bin/sleep exits on USR1 on macOS).
@@ -147,6 +153,7 @@ startsecs = 0
 }
 
 func TestProcess_SignalTerm(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, processCtlConfig)
 	waitForState(t, client, "sleeper", "RUNNING", 5*time.Second)
 
@@ -167,6 +174,7 @@ func TestProcess_SignalTerm(t *testing.T) {
 }
 
 func TestProcess_StartAlreadyRunning(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, processCtlConfig)
 	waitForState(t, client, "sleeper", "RUNNING", 5*time.Second)
 
@@ -177,6 +185,7 @@ func TestProcess_StartAlreadyRunning(t *testing.T) {
 }
 
 func TestProcess_StopAlreadyStopped(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, processCtlConfig)
 	waitForState(t, client, "sleeper", "RUNNING", 5*time.Second)
 
@@ -188,6 +197,7 @@ func TestProcess_StopAlreadyStopped(t *testing.T) {
 }
 
 func TestProcess_StartBadName(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, processCtlConfig)
 	waitForState(t, client, "sleeper", "RUNNING", 5*time.Second)
 
@@ -202,6 +212,7 @@ func TestProcess_StartBadName(t *testing.T) {
 }
 
 func TestProcess_StartFails(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.broken]
 command = "/nonexistent/binary/that/does/not/exist"
@@ -213,6 +224,7 @@ startretries = 1
 }
 
 func TestProcess_StopWaitSecs(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ready := filepath.Join(dir, "ready")
 	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\necho ready > "+ready+"\nsleep 300")
@@ -241,6 +253,7 @@ stopwaitsecs = 2
 }
 
 func TestProcess_StopSignal(t *testing.T) {
+	t.Parallel()
 	// Process with custom stopsignal.
 	client, _ := startDaemon(t, `
 [programs.custom]
@@ -259,6 +272,7 @@ stopwaitsecs = 5
 }
 
 func TestProcess_StartRetries(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.flaky]
 command = "`+binFalse+`"
@@ -271,6 +285,7 @@ startretries = 2
 }
 
 func TestProcess_StartSecs(t *testing.T) {
+	t.Parallel()
 	// Process must survive startsecs=2 to be considered RUNNING.
 	client, _ := startDaemon(t, `
 [programs.quick]

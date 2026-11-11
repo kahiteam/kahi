@@ -14,6 +14,7 @@ import (
 // Configs whose processes would share a name are refused: the daemon tracks
 // processes by name, so all but one would silently never run (#166).
 func TestNumprocs_ConfigErrors(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, programs, want string
 	}{
@@ -58,6 +59,7 @@ func TestNumprocs_ConfigErrors(t *testing.T) {
 // A reload that would create a duplicate process name is rejected, and the
 // running processes are left alone.
 func TestReload_DuplicateProcessNameRejected(t *testing.T) {
+	t.Parallel()
 	client, socketPath := startDaemon(t, `
 [programs.a]
 command = "/bin/sleep 300"
@@ -113,6 +115,7 @@ startsecs = 0
 // With process_name unset, numprocs > 1 names instances <program>_<n>, so
 // they cannot collide (#166).
 func TestNumprocs_AutoNames(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.web]
 command = "/bin/sleep 300"

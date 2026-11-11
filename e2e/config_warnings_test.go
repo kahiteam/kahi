@@ -14,6 +14,7 @@ import (
 // kahi ctl reread and update print the new config's warnings, so a user who
 // sets an ignored key learns it has no effect (#140).
 func TestCLI_RereadAndUpdateShowConfigWarnings(t *testing.T) {
+	t.Parallel()
 	client, socketPath := startDaemon(t, `
 [programs.web]
 command = "/bin/sleep 300"

@@ -60,6 +60,7 @@ func streamEvents(t *testing.T, ctx context.Context, socket, query string) <-cha
 // "when"; the default stream carries no ticks; once shutdown begins, no tick
 // arrives while processes are still being stopped.
 func TestTickEvents_StreamAndShutdown(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ready := filepath.Join(dir, "ready")
 	// Ignores TERM, so shutdown takes stopwaitsecs (8s) and the stream stays

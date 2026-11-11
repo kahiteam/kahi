@@ -56,6 +56,7 @@ func inode(t *testing.T, path string) uint64 {
 // Rotation keeps exactly backups files, numbered .1 (newest) to .N, and moves
 // the file by rename, so the first log file's inode lives on as a backup.
 func TestLog_RotationKeepsNBackups(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	logs := filepath.Join(dir, "logs")
 	if err := os.Mkdir(logs, 0o755); err != nil {
@@ -112,6 +113,7 @@ stdout_logfile_backups = 3
 
 // maxbytes = 0 means no limit: the file grows and nothing rotates.
 func TestLog_RotationUnlimited(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	log := filepath.Join(dir, "out.log")
 	client, _ := startDaemon(t, `
@@ -139,6 +141,7 @@ stdout_logfile_maxbytes = "0"
 
 // When the rename fails, the daemon keeps writing to the current file.
 func TestLog_RotationRenameFailureKeepsWriting(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}
@@ -184,6 +187,7 @@ stdout_logfile_backups = 2
 
 // An unparseable size is a config error, not "no limit" (#187).
 func TestLog_InvalidMaxbytesRefused(t *testing.T) {
+	t.Parallel()
 	for _, size := range []string{"10K", "1.5MB", "abc", "-1"} {
 		expectRefused(t, "[programs.web]\ncommand = \"/bin/sleep 300\"\nstdout_logfile_maxbytes = \""+size+"\"\n",
 			`programs.web: stdout_logfile_maxbytes must be a size like 50MB (B, KB, MB or GB), got "`+size+`"`)
@@ -194,6 +198,7 @@ func TestLog_InvalidMaxbytesRefused(t *testing.T) {
 // and tail -f, also when a sequence is split across reads; without it the
 // sequences are kept.
 func TestLog_ANSIStripEverywhere(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// Colours, cursor movement, erase and private modes; the last sequence
 	// is split across two writes with a pause between them.
@@ -252,6 +257,7 @@ stdout_logfile = "`+log+`"
 // kahi ctl tail -f prints the output as written: a line written in two
 // chunks stays one line, and no blank lines are added (#190).
 func TestLog_TailFollowCLIExact(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "chunks.sh", `sleep 1
 printf 'one\n'

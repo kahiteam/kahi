@@ -131,6 +131,7 @@ func startDaemonCaptured(t *testing.T, dir string, programs string) (stdout, std
 }
 
 func TestOutput_PassthroughJSONLines(t *testing.T) {
+	t.Parallel()
 	dir := shortTempDir(t)
 	{
 		writeScript(t, dir, "print.sh", "printf 'first \\033[31mred\\033[0m\\n'\necho oops >&2\necho second\nprintf 'no newline'\nsleep 1.5")

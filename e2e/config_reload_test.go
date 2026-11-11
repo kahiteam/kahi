@@ -65,6 +65,7 @@ func daemonPID(t *testing.T, client *ctl.Client) int {
 }
 
 func TestReload_AddProgram(t *testing.T) {
+	t.Parallel()
 	client, socketPath := startDaemon(t, `
 [programs.existing]
 command = "/bin/sleep 300"
@@ -109,6 +110,7 @@ autostart = false
 }
 
 func TestReload_RemoveProgram(t *testing.T) {
+	t.Parallel()
 	client, socketPath := startDaemon(t, `
 [programs.keeper]
 command = "/bin/sleep 300"
@@ -156,6 +158,7 @@ startsecs = 0
 
 // A changed program must restart with its new config (#104).
 func TestReload_ChangeProgram(t *testing.T) {
+	t.Parallel()
 	marker := filepath.Join(t.TempDir(), "marker")
 	client, socketPath := startDaemon(t, markerProgram(t, "mutable", marker, "v1"))
 	waitForState(t, client, "mutable", "RUNNING", 5*time.Second)
@@ -177,6 +180,7 @@ func TestReload_ChangeProgram(t *testing.T) {
 // SIGHUP takes the same path as the API reload, without blocking the main
 // loop that reaps the changed program's old process (#104).
 func TestReload_SIGHUPChangeProgram(t *testing.T) {
+	t.Parallel()
 	marker := filepath.Join(t.TempDir(), "marker")
 	client, socketPath := startDaemon(t, markerProgram(t, "mutable", marker, "v1"))
 	waitForState(t, client, "mutable", "RUNNING", 5*time.Second)
@@ -193,6 +197,7 @@ func TestReload_SIGHUPChangeProgram(t *testing.T) {
 
 // An environment-only change is a change too.
 func TestReload_ChangeEnvironment(t *testing.T) {
+	t.Parallel()
 	marker := filepath.Join(t.TempDir(), "marker")
 	script := writeScript(t, t.TempDir(), "env.sh", "echo \"$VERSION\" > \"$1\"\nexec sleep 300")
 	program := func(version string) string {
@@ -212,6 +217,7 @@ func TestReload_ChangeEnvironment(t *testing.T) {
 
 // reread reports the diff and applies nothing (#105).
 func TestReload_Reread(t *testing.T) {
+	t.Parallel()
 	client, socketPath := startDaemon(t, `
 [programs.stable]
 command = "/bin/sleep 300"
@@ -264,6 +270,7 @@ startsecs = 0
 }
 
 func TestReload_NoChange(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.static]
 command = "/bin/sleep 300"
@@ -288,6 +295,7 @@ startsecs = 0
 }
 
 func TestReload_InvalidConfig(t *testing.T) {
+	t.Parallel()
 	client, socketPath := startDaemon(t, `
 [programs.safe]
 command = "/bin/sleep 300"
@@ -322,6 +330,7 @@ startsecs = 0
 // Supervision-only edits, including autostart = false, must not restart or
 // stop a running program.
 func TestReload_SupervisionChangeKeepsProcessRunning(t *testing.T) {
+	t.Parallel()
 	client, socketPath := startDaemon(t, `
 [programs.steady]
 command = "/bin/sleep 300"
@@ -356,6 +365,7 @@ description = "edited"
 
 // A stopped program stays stopped when a reload recreates it.
 func TestReload_ChangeStoppedProgramStaysStopped(t *testing.T) {
+	t.Parallel()
 	client, socketPath := startDaemon(t, `
 [programs.idle]
 command = "/bin/sleep 300"

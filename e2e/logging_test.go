@@ -18,6 +18,7 @@ import (
 )
 
 func TestLog_TailStdout(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "echoer.sh", "echo hello-stdout\nexec sleep 300")
 
@@ -40,6 +41,7 @@ startsecs = 0
 }
 
 func TestLog_TailStderr(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "errwriter.sh", "echo hello-stderr >&2\nexec sleep 300")
 
@@ -62,6 +64,7 @@ startsecs = 0
 }
 
 func TestLog_TailBytes(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "longout.sh", "seq 1 100 | while read i; do echo line-$i; done\nexec sleep 300")
 
@@ -102,6 +105,7 @@ func (b *syncBuf) String() string {
 }
 
 func TestLog_TailFollow(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "streamer.sh", "while true; do echo stream-line; sleep 0.1; done")
 
@@ -136,6 +140,7 @@ startsecs = 0
 }
 
 func TestLog_Rotation(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	logDir := filepath.Join(dir, "logs")
 	if err := os.MkdirAll(logDir, 0755); err != nil {
@@ -170,6 +175,7 @@ stdout_logfile_backups = 2
 }
 
 func TestLog_ANSIStrip(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "colored.sh", `printf '\033[31mred text\033[0m\n'
 exec sleep 300`)
@@ -201,6 +207,7 @@ strip_ansi = true
 // reopen the file at its configured path so new output lands there and the
 // rotated file stops growing (#107).
 func TestLog_SIGUSR2ReopensRotatedLog(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "out.log")
 	script := writeScript(t, dir, "ticker.sh", "while :; do echo tick; sleep 0.1; done")
@@ -253,6 +260,7 @@ stdout_logfile = "`+logPath+`"
 
 // SIGUSR2 also reopens the daemon's own log file (#129).
 func TestLog_SIGUSR2ReopensDaemonLog(t *testing.T) {
+	t.Parallel()
 	dir, err := os.MkdirTemp("", "k-")
 	if err != nil {
 		t.Fatal(err)
@@ -298,6 +306,7 @@ func TestLog_SIGUSR2ReopensDaemonLog(t *testing.T) {
 // and status says why. Each start retries the file, so the process starts
 // once the directory exists (FUNC-018, #171).
 func TestLog_UnwritableLogfileFatal(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	logDir := filepath.Join(dir, "later")
 	logPath := filepath.Join(logDir, "web.log")

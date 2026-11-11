@@ -34,6 +34,7 @@ func containerRuntime(t *testing.T) string {
 // Kahi reaps orphaned processes it did not start, and logs them as expected
 // orphans instead of warnings (FUNC-065, #145).
 func TestPID1_ReapsOrphans(t *testing.T) {
+	t.Parallel()
 	rt := containerRuntime(t)
 	dir := t.TempDir()
 	build := func(out, pkg string) {
@@ -134,6 +135,7 @@ ENTRYPOINT ["/kahi", "daemon", "-c", "/kahi.toml"]
 
 // In the foreground, SIGINT (Ctrl+C) shuts the daemon down gracefully.
 func TestForeground_SIGINTShutsDown(t *testing.T) {
+	t.Parallel()
 	cmd, _, done, _, _ := shutdownDaemon(t, 10, `
 [programs.worker]
 command = "/bin/sleep 300"
@@ -156,6 +158,7 @@ startsecs = 0
 // Not as PID 1, Kahi's grandchildren are reparented elsewhere: Kahi reaps
 // only its own children and reports no unknown ones.
 func TestPID1_NotPID1ReapsOwnChildrenOnly(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	cmd := exec.Command("go", "build", "-o", filepath.Join(dir, "orphaner"), "./testdata/orphaner")
 	if b, err := cmd.CombinedOutput(); err != nil {

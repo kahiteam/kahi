@@ -19,6 +19,7 @@ import (
 
 // stopsignal "TERM" and "SIGTERM" both stop the program with SIGTERM.
 func TestSignalNames_StopsignalBothForms(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	programs := ""
 	for _, form := range []string{"TERM", "SIGTERM"} {
@@ -43,6 +44,7 @@ func TestSignalNames_StopsignalBothForms(t *testing.T) {
 // An unknown stopsignal, and STOP (allowed for the signal API only), are
 // config errors.
 func TestSignalNames_StopsignalRefused(t *testing.T) {
+	t.Parallel()
 	for _, value := range []string{"BOGUS", "STOP"} {
 		t.Run(value, func(t *testing.T) {
 			dir := t.TempDir()
@@ -64,6 +66,7 @@ func TestSignalNames_StopsignalRefused(t *testing.T) {
 // The signal API and kahi ctl signal accept both forms and answer with the
 // <signal.h> name; STOP and CONT stay available there.
 func TestSignalNames_SignalAPI(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "got")
 	ready := filepath.Join(dir, "ready")
@@ -127,6 +130,7 @@ startsecs = 0
 
 // The default stopsignal and the kahi init template use the SIG form.
 func TestSignalNames_Defaults(t *testing.T) {
+	t.Parallel()
 	_, socket := startDaemon(t, `
 [programs.web]
 command = "/bin/sleep 300"
@@ -145,6 +149,7 @@ command = "/bin/sleep 300"
 
 // The daemon logs received signals by their <signal.h> name.
 func TestSignalNames_ReceivedSignalLog(t *testing.T) {
+	t.Parallel()
 	dir := shortTempDir(t)
 	socketPath := filepath.Join(dir, "kahi.sock")
 	logPath := filepath.Join(dir, "kahi.log")
@@ -179,6 +184,7 @@ func TestSignalNames_ReceivedSignalLog(t *testing.T) {
 
 // The README and the sample config show the SIG form.
 func TestSignalNames_Docs(t *testing.T) {
+	t.Parallel()
 	for _, path := range []string{"../README.md", "../cmd/kahi/kahi.toml"} {
 		b, err := os.ReadFile(path)
 		if err != nil {
@@ -193,6 +199,7 @@ func TestSignalNames_Docs(t *testing.T) {
 // kahi migrate writes stopsignal in the SIG form and its stopwaitsecs = 0
 // warning names SIGKILL.
 func TestSignalNames_Migrate(t *testing.T) {
+	t.Parallel()
 	out, stderr, code := migrate(t, `[program:a]
 command = /bin/sleep 300
 stopsignal = TERM

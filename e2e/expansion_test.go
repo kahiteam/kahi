@@ -100,6 +100,7 @@ func pidsOf(t *testing.T, client *ctl.Client, names []string) map[string]int {
 
 // numprocs_start offsets the instance numbers.
 func TestNumprocs_StartOffset(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.worker]
 command = "/bin/sleep 300"
@@ -125,6 +126,7 @@ stopwaitsecs = 2
 // Every instance is a separate child: unique names, unique non-zero PIDs,
 // numbered sequentially from 0.
 func TestNumprocs_FiveInstancesUniquePIDs(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.worker]
 command = "/bin/sleep 300"
@@ -151,6 +153,7 @@ stopwaitsecs = 2
 
 // Stopping or starting one instance leaves its siblings running untouched.
 func TestNumprocs_InstancesIndependent(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.worker]
 command = "/bin/sleep 300"
@@ -195,6 +198,7 @@ stopwaitsecs = 2
 // %(group_name)s is the program's own group; see #167 for programs listed in
 // an explicit [groups] table.
 func TestNumprocs_TemplateVariables(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "vars.sh", "echo VARS=$P,$N,$G,$C\nexec sleep 300")
 	client, _ := startDaemon(t, `
@@ -291,6 +295,7 @@ MULTI = "%(program_name)s-%(process_num)d-${KAHI_E2E_X}"
 
 // An expansion error is a config error: the daemon does not start.
 func TestExpansion_Errors(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, program, want string
 	}{
