@@ -71,6 +71,7 @@ func wantState(t *testing.T, e stateEvent, state, from string) {
 }
 
 func TestStateEvents_StartRunExit(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, `
 [programs.web]
 command = "/bin/sleep 300"
@@ -106,6 +107,7 @@ autorestart = "false"
 }
 
 func TestStateEvents_ExitStatus(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "exit.sh", "sleep 1.5\nexit \"$1\"")
 	client, socket := startDaemon(t, `
@@ -144,6 +146,7 @@ exitcodes = [0]
 // STARTING, BACKOFF, STARTING, FATAL: a retry, then giving up in one step,
 // reported from STARTING; then the stop path.
 func TestStateEvents_BackoffFatalAndStop(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, `
 [programs.crash]
 command = "/bin/sh -c 'exit 1'"
@@ -192,6 +195,7 @@ startsecs = 0
 // (FUNC-052, #154). SUPERVISOR_STATE_RUNNING is published before any client
 // can connect; TestRunPublishesEvents (supervisor) proves it.
 func TestStateEvents_SupervisorStopping(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, `
 [programs.web]
 command = "/bin/sleep 300"

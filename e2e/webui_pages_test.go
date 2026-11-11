@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,13 +61,21 @@ func startWeb(t *testing.T, webExtra, programs string) webDaemon {
 	return d
 }
 
-var webHash string
+// webHash is the bcrypt hash of the Web UI test password, computed once;
+// webHashMu guards it because the tests run in parallel (#197).
+var (
+	webHashMu sync.Mutex
+	webHash   string
+)
 
 func writeWebConfig(t *testing.T, d webDaemon, web, programs string) {
 	t.Helper()
+	webHashMu.Lock()
 	if webHash == "" {
 		webHash = hashPassword(t, "secret")
 	}
+	hash := webHash
+	webHashMu.Unlock()
 	cfg := fmt.Sprintf(`[supervisor]
 logfile = %q
 log_level = "debug"
@@ -82,7 +91,7 @@ username = "admin"
 %s = %q
 
 %s
-%s`, d.log, d.socket, strings.TrimPrefix(d.base, "http://"), "pass"+"word", webHash, web, programs)
+%s`, d.log, d.socket, strings.TrimPrefix(d.base, "http://"), "pass"+"word", hash, web, programs)
 	if err := os.WriteFile(d.config, []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +118,7 @@ func (d webDaemon) waitForLog(t *testing.T, want string) {
 }
 
 func TestWebUI_StatusPage(t *testing.T) {
+	t.Parallel()
 	d := startWeb(t, "", `
 [programs.web]
 command = "/bin/sleep 300"
@@ -183,6 +193,7 @@ autostart = false
 
 // The shipped app.js and log.js carry the behaviour the pages rely on.
 func TestWebUI_ScriptContents(t *testing.T) {
+	t.Parallel()
 	d := startWeb(t, "", "")
 	_, app := d.get(t, "/ui/static/app.js")
 	for _, want := range []string{
@@ -225,6 +236,7 @@ func TestWebUI_ScriptContents(t *testing.T) {
 }
 
 func TestWebUI_LogViewerPages(t *testing.T) {
+	t.Parallel()
 	d := startWeb(t, "", `
 [programs.web]
 command = "/bin/sleep 300"
@@ -256,6 +268,7 @@ autostart = false
 }
 
 func TestWebUI_Assets(t *testing.T) {
+	t.Parallel()
 	d := startWeb(t, "", "")
 	for path, ct := range map[string]string{
 		"/ui/static/app.js":      "text/javascript; charset=utf-8",
@@ -295,6 +308,7 @@ func TestWebUI_Assets(t *testing.T) {
 // static_dir overrides embedded assets file by file, only for the allowed
 // types, never the templates, and never through a symlink out of the dir.
 func TestWebUI_StaticOverlay(t *testing.T) {
+	t.Parallel()
 	overlay := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "secret.js")
 	for name, content := range map[string]string{
@@ -350,6 +364,7 @@ func TestWebUI_StaticOverlay(t *testing.T) {
 // A static_dir that is missing or not a directory is warned about and the
 // embedded assets are served.
 func TestWebUI_StaticDirFallback(t *testing.T) {
+	t.Parallel()
 	file := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(file, nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -368,6 +383,7 @@ func TestWebUI_StaticDirFallback(t *testing.T) {
 // Every /ui path and / need credentials over TCP; / redirects to /ui/ and
 // /ui to /ui/.
 func TestWebUI_MountAuthAndRedirects(t *testing.T) {
+	t.Parallel()
 	d := startWeb(t, "", `
 [programs.web]
 command = "/bin/sleep 300"
@@ -396,6 +412,7 @@ startsecs = 0
 // A reload that changes [server.web] warns that the change needs a restart
 // and leaves the UI as it was.
 func TestWebUI_ReloadWarnsOnWebChange(t *testing.T) {
+	t.Parallel()
 	d := startWeb(t, "", `
 [programs.web]
 command = "/bin/sleep 300"
@@ -417,6 +434,7 @@ startsecs = 0
 
 // Shutdown ends open event streams instead of waiting for the clients.
 func TestWebUI_ShutdownEndsStreams(t *testing.T) {
+	t.Parallel()
 	d := startWeb(t, "", "")
 	req, _ := http.NewRequest(http.MethodGet, d.base+"/api/v1/events/stream", nil)
 	req.SetBasicAuth("admin", "secret")
@@ -448,6 +466,7 @@ func TestWebUI_ShutdownEndsStreams(t *testing.T) {
 // Without [server.web] nothing is mounted: /ui/, its assets and / are 404.
 // kahi init documents the table, commented out.
 func TestWebUI_Disabled(t *testing.T) {
+	t.Parallel()
 	d := startWebUIDaemon(t, false)
 	for _, path := range []string{"/ui/", "/ui/static/app.js", "/"} {
 		if resp, _ := webRequest(t, webClient, http.MethodGet, d.base+path, true); resp.StatusCode != http.StatusNotFound {

@@ -38,6 +38,7 @@ func wantLines(t *testing.T, what, out string, lines ...string) {
 // Every supervisord section type is recognised; the ones Kahi has no
 // equivalent for are kept as comments with a warning.
 func TestMigrate_SectionTypes(t *testing.T) {
+	t.Parallel()
 	out, stderr, code := migrate(t, `[supervisord]
 loglevel=debug
 
@@ -98,6 +99,7 @@ supervisor.rpcinterface_factory=x
 // Values: comments, continuation lines, variables, booleans, numbers, sizes,
 // signals, renamed and unsupported options.
 func TestMigrate_Values(t *testing.T) {
+	t.Parallel()
 	out, stderr, code := migrate(t, `[program:web]
 ; a whole-line comment
 command=/bin/sh -c "echo a;echo b" ; inline comment
@@ -161,6 +163,7 @@ killasgroup=0
 
 // A malformed line is an error naming its line number.
 func TestMigrate_ParseErrorLine(t *testing.T) {
+	t.Parallel()
 	_, stderr, code := migrate(t, "[program:web]\ncommand=/bin/sleep 300\nthis is not a key value\n")
 	if code != 1 || !strings.Contains(stderr, `parse error at line 3: expected key=value, got "this is not a key value"`) {
 		t.Fatalf("exit %d, stderr %q", code, stderr)
@@ -171,6 +174,7 @@ func TestMigrate_ParseErrorLine(t *testing.T) {
 // migrated config runs: %(program_name)s and %(process_num)02d name the
 // numprocs instances (the padding is dropped with a warning).
 func TestMigrate_TemplateVariablesRun(t *testing.T) {
+	t.Parallel()
 	dir := shortTempDir(t)
 	socket := filepath.Join(dir, "kahi.sock")
 	conf := `[unix_http_server]

@@ -13,6 +13,7 @@ import (
 )
 
 func TestStdin_Write(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "cat.sh", "while read line; do echo got:$line; done")
 
@@ -40,6 +41,7 @@ startsecs = 0
 }
 
 func TestStdin_WriteStopped(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.stopped]
 command = "/bin/cat"
@@ -52,6 +54,7 @@ autostart = false
 }
 
 func TestStdin_Attach(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "interactive.sh", "while read line; do echo reply:$line; done")
 
@@ -120,6 +123,7 @@ func (w *writerFunc) Write(p []byte) (int, error) {
 
 // Data with quotes and backslashes must reach the process unchanged (#112).
 func TestStdin_WriteSpecialCharacters(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "cat.sh", "while IFS= read -r line; do printf 'got:%s\\n' \"$line\"; done")
 

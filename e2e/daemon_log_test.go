@@ -85,6 +85,7 @@ autorestart = "false"
 // By default the daemon logs JSON lines on stdout at info level: no debug
 // lines.
 func TestDaemonLog_DefaultJSONInfo(t *testing.T) {
+	t.Parallel()
 	client, _, out := logDaemon(t, shortTempDir(t), "", exitingProgram)
 	waitForState(t, client, "blip", "EXITED", 5*time.Second)
 	s := waitFor(t, "stdout", out.String, `"msg":"supervisor running"`)
@@ -101,6 +102,7 @@ func TestDaemonLog_DefaultJSONInfo(t *testing.T) {
 
 // log_format = "text" and log_level = "debug": text lines, debug included.
 func TestDaemonLog_TextDebug(t *testing.T) {
+	t.Parallel()
 	client, _, out := logDaemon(t, shortTempDir(t), "log_format = \"text\"\nlog_level = \"debug\"\n", exitingProgram)
 	waitForState(t, client, "blip", "EXITED", 5*time.Second)
 	s := waitFor(t, "stdout", out.String, `level=INFO msg="supervisor running"`)
@@ -112,6 +114,7 @@ func TestDaemonLog_TextDebug(t *testing.T) {
 
 // logfile receives the log instead of stdout, appended to what is there.
 func TestDaemonLog_FileAppends(t *testing.T) {
+	t.Parallel()
 	dir := shortTempDir(t)
 	logfile := filepath.Join(dir, "kahi.log")
 	if err := os.WriteFile(logfile, []byte("previous line\n"), 0o644); err != nil {
@@ -129,6 +132,7 @@ func TestDaemonLog_FileAppends(t *testing.T) {
 
 // An invalid level or format and an unwritable logfile stop the daemon.
 func TestDaemonLog_ConfigErrors(t *testing.T) {
+	t.Parallel()
 	locked := filepath.Join(t.TempDir(), "locked")
 	if err := os.Mkdir(locked, 0o555); err != nil {
 		t.Fatal(err)
@@ -158,6 +162,7 @@ func TestDaemonLog_ConfigErrors(t *testing.T) {
 
 // A log_level change takes effect on reload, without a restart.
 func TestDaemonLog_ReloadChangesLevel(t *testing.T) {
+	t.Parallel()
 	dir := shortTempDir(t)
 	logfile := filepath.Join(dir, "kahi.log")
 	read := func() string { b, _ := os.ReadFile(logfile); return string(b) }

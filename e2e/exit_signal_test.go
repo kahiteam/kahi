@@ -14,6 +14,7 @@ import (
 // SIGKILL", --json and the API "exitsignal", with exitstatus -1. A signal
 // death is unexpected, so autorestart = "unexpected" restarts it (#201).
 func TestExitSignal_Reported(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, `
 [programs.victim]
 command = "/bin/sleep 300"

@@ -13,6 +13,7 @@ import (
 // kahi ctl tail, run as the binary (FUNC-035). No program here has a log
 // file, so every read comes from the in-memory buffer.
 func TestCtl_Tail(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// 3000 bytes of stdout (300 lines of 9 digits and a newline), then one
 	// line on stderr.

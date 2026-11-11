@@ -26,6 +26,7 @@ import (
 // (SEC-018), run as the binary.
 
 func TestCLI_InitStdoutAndFiles(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	// --stdout prints the template and writes nothing.
@@ -85,6 +86,7 @@ var notInTemplate = map[string]bool{
 }
 
 func TestCLI_InitDocumentsEveryKey(t *testing.T) {
+	t.Parallel()
 	out, _, code := runKahi(t, t.TempDir(), "init", "--stdout")
 	if code != 0 {
 		t.Fatalf("init --stdout: exit %d", code)
@@ -134,6 +136,7 @@ func TestCLI_InitConfigStartsDaemon(t *testing.T) {
 }
 
 func TestCLI_StatusTableContents(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	client, socket := startDaemon(t, `
 [programs.web]
@@ -192,6 +195,7 @@ autorestart = "false"
 
 // With no programs the table is the header line alone.
 func TestCLI_StatusEmpty(t *testing.T) {
+	t.Parallel()
 	_, socket := startDaemon(t, "")
 	out, _, code := runKahi(t, t.TempDir(), "ctl", "-s", socket, "status")
 	if code != 0 || strings.Join(strings.Fields(out), " ") != "NAME STATE PID UPTIME DESCRIPTION" {
@@ -203,6 +207,7 @@ var bcryptHash = regexp.MustCompile(`^\$2a\$10\$[./A-Za-z0-9]{53}$`)
 
 // Piped: the first line is hashed and only the hash is printed.
 func TestCLI_HashPasswordPiped(t *testing.T) {
+	t.Parallel()
 	cmd := exec.Command(kahiBinary, "hash-password")
 	cmd.Stdin = strings.NewReader("mypassword\nignored\n")
 	var stderr strings.Builder
@@ -238,6 +243,7 @@ func TestCLI_HashPasswordPiped(t *testing.T) {
 
 // On a terminal it prompts on stderr and reads without echo.
 func TestCLI_HashPasswordTerminal(t *testing.T) {
+	t.Parallel()
 	full := []string{kahiBinary, "hash-password"}
 	var cmd *exec.Cmd
 	if runtime.GOOS == "darwin" {

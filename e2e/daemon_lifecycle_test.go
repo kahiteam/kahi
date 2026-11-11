@@ -20,6 +20,7 @@ import (
 )
 
 func TestDaemon_Health(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.sleeper]
 command = "/bin/sleep 300"
@@ -36,6 +37,7 @@ startsecs = 0
 }
 
 func TestDaemon_Version(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.sleeper]
 command = "/bin/sleep 300"
@@ -54,6 +56,7 @@ startsecs = 0
 }
 
 func TestDaemon_PID(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.sleeper]
 command = "/bin/sleep 300"
@@ -74,6 +77,7 @@ startsecs = 0
 }
 
 func TestDaemon_Ready(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.sleeper]
 command = "/bin/sleep 300"
@@ -92,6 +96,7 @@ startsecs = 0
 }
 
 func TestDaemon_Shutdown(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	socketPath := filepath.Join(dir, "kahi.sock")
 	configPath := filepath.Join(dir, "kahi.toml")
@@ -127,6 +132,7 @@ func TestDaemon_Shutdown(t *testing.T) {
 }
 
 func TestDaemon_ShutdownTimeout(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ready := filepath.Join(dir, "ready")
 	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\necho ready > "+ready+"\nsleep 300")
@@ -197,6 +203,7 @@ func shutdownDaemon(t *testing.T, shutdownTimeout int, program string) (*exec.Cm
 // daemon exits promptly instead of waiting out stopwaitsecs or
 // shutdown_timeout (#90).
 func TestDaemon_SIGTERMShutdownIsPrompt(t *testing.T) {
+	t.Parallel()
 	cmd, _, done, _, _ := shutdownDaemon(t, 30, `
 [programs.worker]
 command = "/bin/sleep 300"
@@ -225,6 +232,7 @@ stopwaitsecs = 20
 // When shutdown_timeout expires, a child that ignores its stop signal must
 // be SIGKILLed rather than left running after the daemon exits.
 func TestDaemon_ShutdownTimeoutKillsChildren(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// The ignored disposition survives exec, so the PID kahi tracks is the
 	// one that ignores SIGTERM.
@@ -261,6 +269,7 @@ stopwaitsecs = 60
 // API must refuse to start processes (#108); before, both only applied to a
 // shutdown requested through the API.
 func TestDaemon_SignalShutdownIsReported(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// Ignores SIGTERM, so shutdown stays in progress until shutdown_timeout.
 	// The ready file is written after the trap: with startsecs = 0 the
@@ -317,6 +326,7 @@ autostart = false
 }
 
 func TestDaemon_PIDFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	socketPath := filepath.Join(dir, "kahi.sock")
 	configPath := filepath.Join(dir, "kahi.toml")
@@ -387,6 +397,7 @@ func startDaemonCmd(t *testing.T, binary, configPath, dir string, extraFlags ...
 // A second daemon with the same config must refuse to start instead of
 // taking over the running daemon's control socket (#110).
 func TestDaemon_SecondInstanceRefused(t *testing.T) {
+	t.Parallel()
 	client, socketPath := startDaemon(t, `
 [programs.sleeper]
 command = "/bin/sleep 300"

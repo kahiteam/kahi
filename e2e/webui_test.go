@@ -96,6 +96,7 @@ func webRequest(t *testing.T, client *http.Client, method, url string, auth bool
 }
 
 func TestWebUIE2EServed(t *testing.T) {
+	t.Parallel()
 	d := startWebUIDaemon(t, true)
 	resp, body := webRequest(t, webClient, http.MethodGet, d.base+"/ui/", true)
 	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
@@ -107,6 +108,7 @@ func TestWebUIE2EServed(t *testing.T) {
 }
 
 func TestWebUIE2EAuth(t *testing.T) {
+	t.Parallel()
 	d := startWebUIDaemon(t, true)
 	if resp, _ := webRequest(t, webClient, http.MethodGet, d.base+"/ui/", false); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("GET /ui/ without credentials: status %d, want 401", resp.StatusCode)
@@ -114,6 +116,7 @@ func TestWebUIE2EAuth(t *testing.T) {
 }
 
 func TestWebUIE2EUnixSocket(t *testing.T) {
+	t.Parallel()
 	d := startWebUIDaemon(t, true)
 	unixClient := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -127,6 +130,7 @@ func TestWebUIE2EUnixSocket(t *testing.T) {
 }
 
 func TestWebUIE2EAssets(t *testing.T) {
+	t.Parallel()
 	d := startWebUIDaemon(t, true)
 	for path, ct := range map[string]string{
 		"/ui/static/app.js":    "text/javascript; charset=utf-8",
@@ -142,6 +146,7 @@ func TestWebUIE2EAssets(t *testing.T) {
 }
 
 func TestWebUIE2ELogViewer(t *testing.T) {
+	t.Parallel()
 	d := startWebUIDaemon(t, true)
 	resp, body := webRequest(t, webClient, http.MethodGet, d.base+"/ui/log/sleeper/stdout", true)
 	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `data-name="sleeper"`) {
@@ -150,6 +155,7 @@ func TestWebUIE2ELogViewer(t *testing.T) {
 }
 
 func TestWebUIE2EBulk(t *testing.T) {
+	t.Parallel()
 	d := startWebUIDaemon(t, true)
 	if resp, body := webRequest(t, webClient, http.MethodPost, d.base+"/api/v1/all/stop", true); resp.StatusCode != http.StatusOK {
 		t.Fatalf("POST /api/v1/all/stop: status %d, body %s", resp.StatusCode, body)
@@ -162,6 +168,7 @@ func TestWebUIE2EBulk(t *testing.T) {
 }
 
 func TestWebUIE2EDisabled(t *testing.T) {
+	t.Parallel()
 	d := startWebUIDaemon(t, false)
 	if resp, _ := webRequest(t, webClient, http.MethodGet, d.base+"/ui/", true); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("GET /ui/ with [server.web] absent: status %d, want 404", resp.StatusCode)
@@ -194,6 +201,7 @@ func runDaemonExpectFailure(t *testing.T, configTOML string) (string, error) {
 }
 
 func TestWebUIE2EInvalidConfig(t *testing.T) {
+	t.Parallel()
 	stderr, err := runDaemonExpectFailure(t, "[server.web]\nenabled = true\n")
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) || exitErr.ExitCode() == 0 {

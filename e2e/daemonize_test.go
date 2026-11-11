@@ -50,6 +50,7 @@ func readPID(t *testing.T, path string) int {
 // -d returns once the daemon runs: it is in its own session, its PID file
 // holds its pid, it serves the socket, and a shutdown removes the PID file.
 func TestDaemonize_StartsInBackground(t *testing.T) {
+	t.Parallel()
 	dir := shortTempDir(t)
 	cfg, sock := pidfileConfig(t, dir, "")
 	pidfile := filepath.Join(dir, "kahi.pid")
@@ -92,6 +93,7 @@ func TestDaemonize_StartsInBackground(t *testing.T) {
 
 // When the background daemon fails to start, -d reports its error and exits 1.
 func TestDaemonize_ReportsStartupError(t *testing.T) {
+	t.Parallel()
 	addr := fmt.Sprintf("127.0.0.1:%d", testutil.FreeTCPPort(t))
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -114,6 +116,7 @@ func TestDaemonize_ReportsStartupError(t *testing.T) {
 // A PID file naming a live process refuses the start; a stale one is
 // replaced with a warning; an unwritable one is an error.
 func TestDaemonize_PIDFileChecks(t *testing.T) {
+	t.Parallel()
 	dir := shortTempDir(t)
 	cfg, sock := pidfileConfig(t, dir, "")
 	pidfile := filepath.Join(dir, "kahi.pid")

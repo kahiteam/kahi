@@ -12,6 +12,7 @@ import (
 )
 
 func TestRegression_UnicodeTail(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "unicode.sh", "printf 'Hello \\xe4\\xb8\\x96\\xe7\\x95\\x8c\\n'\nexec sleep 300")
 
@@ -34,6 +35,7 @@ startsecs = 0
 }
 
 func TestRegression_InvalidUTF8(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "badutf8.sh", "printf '\\xff\\xfe invalid bytes\\n'\nexec sleep 300")
 
@@ -56,6 +58,7 @@ startsecs = 0
 }
 
 func TestRegression_LiteralPercent(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "percent.sh", "echo '100% complete'\nexec sleep 300")
 
@@ -78,6 +81,7 @@ startsecs = 0
 }
 
 func TestRegression_KahiInit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	cmd := exec.Command(kahiBinary, "init")
 	cmd.Dir = dir
@@ -100,6 +104,7 @@ func TestRegression_KahiInit(t *testing.T) {
 }
 
 func TestRegression_HelpFlag(t *testing.T) {
+	t.Parallel()
 	cmd := exec.Command(kahiBinary, "--help")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -115,6 +120,7 @@ func TestRegression_HelpFlag(t *testing.T) {
 }
 
 func TestRegression_PipedTail(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "piper.sh", "for i in 1 2 3 4 5; do echo pipe-line-$i; done\nexec sleep 300")
 
@@ -140,6 +146,7 @@ startsecs = 0
 }
 
 func TestRegression_NumprocsNames(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.multi]
 command = "/bin/sleep 300"
@@ -156,6 +163,7 @@ startsecs = 0
 }
 
 func TestRegression_RedirectStderr(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "merged.sh", "echo stdout-line\necho stderr-line >&2\nexec sleep 300")
 

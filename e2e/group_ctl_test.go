@@ -36,6 +36,7 @@ priority = 200
 `
 
 func TestGroup_StartAll(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, groupCtlConfig)
 
 	if err := client.StartGroup("services"); err != nil {
@@ -46,6 +47,7 @@ func TestGroup_StartAll(t *testing.T) {
 }
 
 func TestGroup_StopAll(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, groupCtlConfig)
 
 	if err := client.StartGroup("services"); err != nil {
@@ -62,6 +64,7 @@ func TestGroup_StopAll(t *testing.T) {
 }
 
 func TestGroup_RestartAll(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, groupCtlConfig)
 
 	if err := client.StartGroup("services"); err != nil {
@@ -86,6 +89,7 @@ func TestGroup_RestartAll(t *testing.T) {
 }
 
 func TestGroup_StartSingle(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, groupCtlConfig)
 
 	// Start individual process within a group.
@@ -102,6 +106,7 @@ func TestGroup_StartSingle(t *testing.T) {
 }
 
 func TestGroup_PriorityOrder(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, groupCtlConfig)
 
 	// Start all groups. Lower priority numbers start first.
@@ -119,6 +124,7 @@ func TestGroup_PriorityOrder(t *testing.T) {
 }
 
 func TestGroup_Heterogeneous(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.fast]
 command = "/bin/sleep 300"

@@ -15,6 +15,7 @@ import (
 // priorities (#196): the group with priority 1 starts before a program with
 // priority 5 and stops after it, its members ordered by their own priority.
 func TestGroups_PriorityOrdersMembers(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	events := filepath.Join(dir, "events")
 	var cfg strings.Builder
