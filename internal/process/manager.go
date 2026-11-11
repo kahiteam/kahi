@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,7 +29,8 @@ type Manager struct {
 	shutdownCh chan struct{}
 
 	// groupPriority maps a program to the priority of the [groups] table it
-	// belongs to; ordering puts it first (#196). Rebuilt by LoadConfig.
+	// belongs to; ordering puts it first (#196). Rebuilt whenever a group is
+	// activated, deactivated or reprioritised.
 	groupPriority map[string]int
 
 	// The daemon's own stdout and stderr, which receive the output of
@@ -39,11 +41,14 @@ type Manager struct {
 	passErr io.Writer
 }
 
-// Group holds a named set of processes.
+// Group holds a named set of processes: a [groups] table, which owns its
+// member programs, or a program that no table lists (ADR-034).
 type Group struct {
 	Name      string
-	Processes []string // process names
+	Processes []string // process names, sorted
 	Priority  int
+	Programs  []string // member programs, sorted
+	Table     bool     // a [groups] table rather than a program's own group
 }
 
 // NewManager creates a process manager.
@@ -109,136 +114,194 @@ func (m *Manager) LoadConfig(cfg *config.Config) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for progName, progCfg := range cfg.Programs {
-		instances := ExpandNumprocs(progName, progCfg)
-		var procNames []string
+	specs := effectiveGroups(cfg)
+	for _, name := range sortedNames(specs) {
+		if _, active := m.groups[name]; active {
+			continue
+		}
+		m.activateLocked(name, specs[name], cfg)
+	}
+	m.rebuildGroupPriorityLocked()
+}
 
-		for _, inst := range instances {
-			if _, exists := m.processes[inst.Name]; exists {
-				continue
+// activateLocked creates the processes of a group's member programs and the
+// group itself, and returns the process names. Callers hold m.mu and make
+// sure no member program has processes yet.
+func (m *Manager) activateLocked(name string, spec groupSpec, cfg *config.Config) []string {
+	var procs []string
+	for _, prog := range spec.Programs {
+		procs = append(procs, m.createProgramLocked(prog, cfg.Programs[prog], name)...)
+	}
+	sort.Strings(procs)
+	m.groups[name] = &Group{
+		Name:      name,
+		Processes: procs,
+		Priority:  spec.Priority,
+		Programs:  spec.Programs,
+		Table:     spec.Table,
+	}
+	return procs
+}
+
+// deactivateLocked deletes a group, its processes and their capture writers,
+// and returns the process names. Callers hold m.mu; the processes are
+// stopped and retired.
+func (m *Manager) deactivateLocked(name string) []string {
+	g := m.groups[name]
+	if g == nil {
+		return nil
+	}
+	for _, procName := range g.Processes {
+		m.deleteProcessLocked(procName)
+	}
+	delete(m.groups, name)
+	return g.Processes
+}
+
+// deleteProcessLocked removes one process and closes its capture writers.
+func (m *Manager) deleteProcessLocked(name string) {
+	delete(m.processes, name)
+	for _, key := range []string{name + ":stdout", name + ":stderr"} {
+		if cw := m.captures[key]; cw != nil {
+			if err := cw.Close(); err != nil {
+				m.logger.Warn("close capture writer", "process", name, "error", err)
 			}
+		}
+		delete(m.captures, key)
+	}
+}
 
-			// Create capture writers for stdout (and stderr if not redirected).
-			stdoutCW, err := logging.NewCaptureWriter(logging.CaptureConfig{
+// rebuildGroupPriorityLocked recomputes groupPriority from the active
+// [groups] tables.
+func (m *Manager) rebuildGroupPriorityLocked() {
+	m.groupPriority = make(map[string]int)
+	for _, g := range m.groups {
+		if !g.Table {
+			continue
+		}
+		for _, prog := range g.Programs {
+			m.groupPriority[prog] = g.Priority
+		}
+	}
+}
+
+// publishGroup sends a group event listing the group's processes, sorted
+// and comma-separated (FUNC-053).
+func (m *Manager) publishGroup(t events.EventType, name string, procs []string) {
+	if m.bus == nil {
+		return
+	}
+	sorted := append([]string(nil), procs...)
+	sort.Strings(sorted)
+	m.bus.Publish(events.Event{
+		Type: t,
+		Data: map[string]string{"group": name, "processes": strings.Join(sorted, ",")},
+	})
+}
+
+// createProgramLocked creates the processes of one program, in group, with
+// their capture writers, and returns their names. Callers hold m.mu.
+func (m *Manager) createProgramLocked(progName string, progCfg config.ProgramConfig, group string) []string {
+	var procNames []string
+	for _, inst := range ExpandNumprocs(progName, progCfg) {
+		if _, exists := m.processes[inst.Name]; exists {
+			continue
+		}
+
+		// Create capture writers for stdout (and stderr if not redirected).
+		stdoutCW, err := logging.NewCaptureWriter(logging.CaptureConfig{
+			ProcessName: inst.Name,
+			Stream:      "stdout",
+			Logfile:     inst.Config.StdoutLogfile,
+			StripAnsi:   inst.Config.StripAnsi,
+			MaxBytes:    inst.Config.StdoutLogfileMaxbytes,
+			Backups:     inst.Config.StdoutLogfileBackups,
+			Logger:      m.logger,
+		})
+		// A log file that cannot be opened fails each start until it can
+		// (FUNC-018, #171); the writer still keeps the ring buffer.
+		if err != nil {
+			m.logger.Error("create stdout capture", "process", inst.Name, "error", err)
+		}
+		m.captures[inst.Name+":stdout"] = stdoutCW
+
+		var stderrCW *logging.CaptureWriter
+		if !inst.Config.RedirectStderr {
+			stderrCW, err = logging.NewCaptureWriter(logging.CaptureConfig{
 				ProcessName: inst.Name,
-				Stream:      "stdout",
-				Logfile:     inst.Config.StdoutLogfile,
+				Stream:      "stderr",
+				Logfile:     inst.Config.StderrLogfile,
 				StripAnsi:   inst.Config.StripAnsi,
-				MaxBytes:    inst.Config.StdoutLogfileMaxbytes,
-				Backups:     inst.Config.StdoutLogfileBackups,
+				MaxBytes:    inst.Config.StderrLogfileMaxbytes,
+				Backups:     inst.Config.StderrLogfileBackups,
 				Logger:      m.logger,
 			})
-			// A log file that cannot be opened fails each start until it can
-			// (FUNC-018, #171); the writer still keeps the ring buffer.
 			if err != nil {
-				m.logger.Error("create stdout capture", "process", inst.Name, "error", err)
+				m.logger.Error("create stderr capture", "process", inst.Name, "error", err)
 			}
-			m.captures[inst.Name+":stdout"] = stdoutCW
+			m.captures[inst.Name+":stderr"] = stderrCW
+		}
 
-			var stderrCW *logging.CaptureWriter
-			if !inst.Config.RedirectStderr {
-				stderrCW, err = logging.NewCaptureWriter(logging.CaptureConfig{
-					ProcessName: inst.Name,
-					Stream:      "stderr",
-					Logfile:     inst.Config.StderrLogfile,
-					StripAnsi:   inst.Config.StripAnsi,
-					MaxBytes:    inst.Config.StderrLogfileMaxbytes,
-					Backups:     inst.Config.StderrLogfileBackups,
-					Logger:      m.logger,
-				})
-				if err != nil {
-					m.logger.Error("create stderr capture", "process", inst.Name, "error", err)
+		bus := m.bus
+		name := inst.Name
+		opts := []ProcessOption{
+			WithShutdownCh(m.shutdownCh),
+			WithProgram(progName),
+			WithPreSpawn(func() error {
+				for _, cw := range []*logging.CaptureWriter{stdoutCW, stderrCW} {
+					if cw == nil {
+						continue
+					}
+					if err := cw.EnsureOpen(); err != nil {
+						return fmt.Errorf("cannot open log file for %s: %w", name, err)
+					}
 				}
-				m.captures[inst.Name+":stderr"] = stderrCW
-			}
-
-			bus := m.bus
-			name := inst.Name
-			opts := []ProcessOption{
-				WithShutdownCh(m.shutdownCh),
-				WithPreSpawn(func() error {
-					for _, cw := range []*logging.CaptureWriter{stdoutCW, stderrCW} {
-						if cw == nil {
-							continue
-						}
-						if err := cw.EnsureOpen(); err != nil {
-							return fmt.Errorf("cannot open log file for %s: %w", name, err)
-						}
-					}
-					return nil
-				}),
-			}
-			if stdoutCW != nil {
-				cw := stdoutCW
-				opts = append(opts, WithStdoutHandler(func(name string, data []byte) {
+				return nil
+			}),
+		}
+		if stdoutCW != nil {
+			cw := stdoutCW
+			opts = append(opts, WithStdoutHandler(func(name string, data []byte) {
+				data = cw.Capture(data)
+				if bus != nil && len(data) > 0 {
+					bus.Publish(events.Event{
+						Type: events.ProcessLogStdout,
+						Data: map[string]string{"name": name, "data": string(data)},
+					})
+				}
+			}))
+		}
+		if stderrCW != nil {
+			cw := stderrCW
+			redirect := inst.Config.RedirectStderr
+			opts = append(opts, WithStderrHandler(func(name string, data []byte) {
+				if redirect && stdoutCW != nil {
+					data = stdoutCW.Capture(data)
+				} else {
 					data = cw.Capture(data)
-					if bus != nil && len(data) > 0 {
-						bus.Publish(events.Event{
-							Type: events.ProcessLogStdout,
-							Data: map[string]string{"name": name, "data": string(data)},
-						})
-					}
-				}))
-			}
-			if stderrCW != nil {
-				cw := stderrCW
-				redirect := inst.Config.RedirectStderr
-				opts = append(opts, WithStderrHandler(func(name string, data []byte) {
-					if redirect && stdoutCW != nil {
-						data = stdoutCW.Capture(data)
-					} else {
-						data = cw.Capture(data)
-					}
-					if bus != nil && len(data) > 0 {
-						bus.Publish(events.Event{
-							Type: events.ProcessLogStderr,
-							Data: map[string]string{"name": name, "data": string(data)},
-						})
-					}
-				}))
-			}
-
-			if h := m.passthroughHandler(inst.Config); h != nil {
-				opts = append(opts, WithLineHandler(h))
-			}
-
-			p := NewProcess(
-				inst.Name, inst.Group, inst.Config,
-				m.spawner, m.bus, m.logger,
-				opts...,
-			)
-			m.processes[inst.Name] = p
-			procNames = append(procNames, inst.Name)
+				}
+				if bus != nil && len(data) > 0 {
+					bus.Publish(events.Event{
+						Type: events.ProcessLogStderr,
+						Data: map[string]string{"name": name, "data": string(data)},
+					})
+				}
+			}))
 		}
 
-		// Create implicit homogeneous group.
-		if _, exists := m.groups[progName]; !exists {
-			m.groups[progName] = &Group{
-				Name:      progName,
-				Processes: procNames,
-				Priority:  progCfg.Priority,
-			}
+		if h := m.passthroughHandler(inst.Config); h != nil {
+			opts = append(opts, WithLineHandler(h))
 		}
+
+		p := NewProcess(
+			inst.Name, group, inst.Config,
+			m.spawner, m.bus, m.logger,
+			opts...,
+		)
+		m.processes[inst.Name] = p
+		procNames = append(procNames, inst.Name)
 	}
-
-	// Create explicit heterogeneous groups.
-	m.groupPriority = make(map[string]int)
-	for groupName, groupCfg := range cfg.Groups {
-		for _, prog := range groupCfg.Programs {
-			m.groupPriority[prog] = groupCfg.Priority
-		}
-		var allProcs []string
-		for _, progName := range groupCfg.Programs {
-			if g, ok := m.groups[progName]; ok {
-				allProcs = append(allProcs, g.Processes...)
-			}
-		}
-		m.groups[groupName] = &Group{
-			Name:      groupName,
-			Processes: allProcs,
-			Priority:  groupCfg.Priority,
-		}
-	}
+	return procNames
 }
 
 // ProcessInstance holds expanded process info from numprocs.
@@ -363,7 +426,7 @@ func (m *Manager) sortedProcesses(ascending bool) []*Process {
 func (m *Manager) sortByPriority(procs []*Process, ascending bool) {
 	key := func(p *Process) (int, int, string) {
 		own := p.Config().Priority
-		if gp, ok := m.groupPriority[p.Group()]; ok {
+		if gp, ok := m.groupPriority[p.Program()]; ok {
 			return gp, own, p.Name()
 		}
 		return own, own, p.Name()
@@ -436,62 +499,104 @@ func (m *Manager) Groups() map[string]*Group {
 	return result
 }
 
-// AddGroup adds a group at runtime.
-func (m *Manager) AddGroup(name string, procs []string, priority int) error {
+// ActivateGroup adds a group that cfg defines but that is not active, starts
+// its autostart processes and publishes PROCESS_GROUP_ADDED (FUNC-011,
+// ADR-034). cfg is the config the daemon last loaded.
+func (m *Manager) ActivateGroup(name string, cfg *config.Config) error {
+	spec, ok := effectiveGroups(cfg)[name]
+	if !ok {
+		return unknownGroup(name, cfg)
+	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, exists := m.groups[name]; exists {
-		return fmt.Errorf("group %s already exists", name)
+	if _, active := m.groups[name]; active {
+		m.mu.Unlock()
+		return fmt.Errorf("group already active: %s", name)
 	}
-
-	m.groups[name] = &Group{
-		Name:      name,
-		Processes: procs,
-		Priority:  priority,
+	for _, prog := range spec.Programs {
+		if len(m.programProcessesLocked(prog)) > 0 {
+			m.mu.Unlock()
+			return fmt.Errorf("group %s: program %s is still active", name, prog)
+		}
 	}
+	procs := m.activateLocked(name, spec, cfg)
+	m.rebuildGroupPriorityLocked()
+	m.mu.Unlock()
 
-	if m.bus != nil {
-		m.bus.Publish(events.Event{
-			Type: events.ProcessGroupAdded,
-			Data: map[string]string{"group": name},
-		})
+	m.publishGroup(events.ProcessGroupAdded, name, procs)
+	for _, prog := range spec.Programs {
+		m.startProgram(prog, true)
 	}
 	return nil
 }
 
-// RemoveGroup removes a group at runtime.
-func (m *Manager) RemoveGroup(name string) error {
+// DeactivateGroup removes an active group whose processes are all STOPPED,
+// EXITED or FATAL and publishes PROCESS_GROUP_REMOVED (FUNC-011, ADR-034).
+// With stop, it first stops the group's processes and waits up to each
+// one's stopwaitsecs plus stopWaitMargin (kahi ctl remove --stop). Its
+// config stays; ActivateGroup or a reload brings it back.
+func (m *Manager) DeactivateGroup(name string, cfg *config.Config, stop bool) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	g, exists := m.groups[name]
-	if !exists {
-		return fmt.Errorf("no such group: %s", name)
+	g, ok := m.groups[name]
+	if !ok {
+		m.mu.Unlock()
+		return unknownGroup(name, cfg)
 	}
+	procs := m.groupProcessesSorted(g, false)
+	m.mu.Unlock()
 
-	// Check all processes are stopped.
-	for _, pName := range g.Processes {
-		if p, ok := m.processes[pName]; ok {
-			if p.State() == Running || p.State() == Starting {
-				return fmt.Errorf("cannot remove group %s: process %s is still running", name, pName)
+	// Retire first, so a queued autorestart or backoff retry cannot start a
+	// process between the check and the removal; undo it if one is running.
+	for _, p := range procs {
+		p.Retire()
+	}
+	if stop {
+		for _, p := range procs {
+			if stoppable(p.State()) {
+				if err := p.Stop(); err != nil {
+					m.logger.Error("group remove: stop failed", "group", name, "process", p.Name(), "error", err)
+				}
+			}
+		}
+		for _, p := range procs {
+			wait := time.Duration(p.Config().Stopwaitsecs+stopWaitMargin) * time.Second
+			if !m.waitForStopped(p, wait) {
+				for _, q := range procs {
+					q.unretire()
+				}
+				return fmt.Errorf("group %s: process %s did not stop", name, p.Name())
 			}
 		}
 	}
-
-	// Remove processes belonging to this group.
-	for _, pName := range g.Processes {
-		delete(m.processes, pName)
+	for _, p := range procs {
+		if !removable(p.State()) {
+			for _, q := range procs {
+				q.unretire()
+			}
+			return fmt.Errorf("group %s has running processes, stop first", name)
+		}
 	}
-	delete(m.groups, name)
 
-	if m.bus != nil {
-		m.bus.Publish(events.Event{
-			Type: events.ProcessGroupRemoved,
-			Data: map[string]string{"group": name},
-		})
-	}
+	m.mu.Lock()
+	removed := m.deactivateLocked(name)
+	m.rebuildGroupPriorityLocked()
+	m.mu.Unlock()
+	m.publishGroup(events.ProcessGroupRemoved, name, removed)
 	return nil
+}
+
+// removable reports whether a group with a process in this state can be
+// removed: only STOPPED, EXITED and FATAL count as stopped (FUNC-011).
+func removable(s State) bool {
+	return s == Stopped || s == Exited || s == Fatal
+}
+
+// unknownGroup is the error for a name that is not a group of cfg: a member
+// program of a [groups] table is addressed through its table (ADR-034).
+func unknownGroup(name string, cfg *config.Config) error {
+	if table := tableOf(cfg, name); table != "" {
+		return fmt.Errorf("%s is in group %s; use %s", name, table, table)
+	}
+	return fmt.Errorf("no such group: %s", name)
 }
 
 // AddProcess adds a process at runtime.
@@ -676,14 +781,10 @@ func (m *Manager) ListGroups() []string {
 
 // StartGroup starts all processes in a group.
 func (m *Manager) StartGroup(name string) error {
-	m.mu.RLock()
-	g, ok := m.groups[name]
-	if !ok {
-		m.mu.RUnlock()
-		return fmt.Errorf("no such group: %s", name)
+	procs, err := m.targets(name, true)
+	if err != nil {
+		return err
 	}
-	procs := m.groupProcessesSorted(g, true)
-	m.mu.RUnlock()
 
 	for _, p := range procs {
 		if err := p.Start(); err != nil {
@@ -695,14 +796,10 @@ func (m *Manager) StartGroup(name string) error {
 
 // StopGroup stops all processes in a group.
 func (m *Manager) StopGroup(name string) error {
-	m.mu.RLock()
-	g, ok := m.groups[name]
-	if !ok {
-		m.mu.RUnlock()
-		return fmt.Errorf("no such group: %s", name)
+	procs, err := m.targets(name, false)
+	if err != nil {
+		return err
 	}
-	procs := m.groupProcessesSorted(g, false)
-	m.mu.RUnlock()
 
 	for _, p := range procs {
 		if stoppable(p.State()) {
@@ -727,20 +824,34 @@ func (m *Manager) RestartGroup(name string) error {
 	}
 
 	// Wait for all group processes to reach a terminal state.
-	m.mu.RLock()
-	g, ok := m.groups[name]
-	if ok {
-		for _, pName := range g.Processes {
-			if p, exists := m.processes[pName]; exists {
-				m.mu.RUnlock()
-				m.waitForStopped(p, 30*time.Second)
-				m.mu.RLock()
-			}
-		}
+	procs, err := m.targets(name, false)
+	if err != nil {
+		return err
 	}
-	m.mu.RUnlock()
+	for _, p := range procs {
+		m.waitForStopped(p, 30*time.Second)
+	}
 
 	return m.StartGroup(name)
+}
+
+// targets resolves name:* to processes in priority order: the group of that
+// name, else the processes of the program of that name, so web:* keeps
+// working for a member of a [groups] table (ADR-034).
+func (m *Manager) targets(name string, ascending bool) ([]*Process, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var procs []*Process
+	if g, ok := m.groups[name]; ok {
+		procs = m.groupProcessesSorted(g, ascending)
+	} else {
+		procs = m.programProcessesLocked(name)
+		m.sortByPriority(procs, ascending)
+	}
+	if len(procs) == 0 {
+		return nil, fmt.Errorf("no such group: %s", name)
+	}
+	return procs, nil
 }
 
 func (m *Manager) groupProcessesSorted(g *Group, ascending bool) []*Process {
@@ -774,25 +885,24 @@ func (m *Manager) processInfo(p *Process) api.ProcessInfo {
 	}
 }
 
-// ConfigDiff computes added, changed, and removed programs between configs.
+// ConfigDiff computes the groups added, changed and removed between two
+// configs. A group is a [groups] table or a program that no table lists; it
+// is changed when its member list, its priority or any member program's
+// config differs (ADR-034).
 func ConfigDiff(old, new *config.Config) (added, changed, removed []string) {
-	for name := range new.Programs {
-		if _, exists := old.Programs[name]; !exists {
+	og, ng := effectiveGroups(old), effectiveGroups(new)
+	for name, n := range ng {
+		o, ok := og[name]
+		switch {
+		case !ok:
 			added = append(added, name)
+		case groupChanged(o, n, old, new):
+			changed = append(changed, name)
 		}
 	}
-
-	for name := range old.Programs {
-		if _, exists := new.Programs[name]; !exists {
+	for name := range og {
+		if _, ok := ng[name]; !ok {
 			removed = append(removed, name)
-		}
-	}
-
-	for name, newCfg := range new.Programs {
-		if oldCfg, exists := old.Programs[name]; exists {
-			if programChanged(oldCfg, newCfg) {
-				changed = append(changed, name)
-			}
 		}
 	}
 
@@ -800,6 +910,18 @@ func ConfigDiff(old, new *config.Config) (added, changed, removed []string) {
 	sort.Strings(changed)
 	sort.Strings(removed)
 	return
+}
+
+func groupChanged(o, n groupSpec, old, new *config.Config) bool {
+	if !reflect.DeepEqual(o, n) {
+		return true
+	}
+	for _, prog := range n.Programs {
+		if programChanged(old.Programs[prog], new.Programs[prog]) {
+			return true
+		}
+	}
+	return false
 }
 
 // programChanged compares every field: environment, logging and autostart

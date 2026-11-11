@@ -390,40 +390,72 @@ var ctlUpdateCmd = &cobra.Command{
 	},
 }
 
+var (
+	ctlAddReload  bool
+	ctlRemoveStop bool
+)
+
 var ctlAddCmd = &cobra.Command{
 	Use:   "add <group>",
-	Short: "Activate a new group from config",
-	Args:  cobra.ExactArgs(1),
+	Short: "Add back a group removed at runtime",
+	Long: "Add back a group that the loaded config defines and that was removed at runtime.\n" +
+		"With --reload, load the config file first, as kahi ctl update does.",
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
 		c := newCtlClient()
-		// Reload first to pick up new config.
-		result, err := c.Reload()
-		if err != nil {
+		var reloaded map[string]any
+		if ctlAddReload {
+			result, err := c.Reload()
+			if err != nil {
+				return err
+			}
+			printConfigWarnings(cmd, result)
+			reloaded = result
+		}
+		err := c.AddGroup(name)
+		switch {
+		case err == nil:
+		case reloaded != nil && strings.HasPrefix(err.Error(), "group already active") && inList(reloaded["added"], name):
+			// The reload itself added it back.
+		case strings.HasPrefix(err.Error(), "no such group"):
+			return fmt.Errorf("%w (not in the loaded config; run kahi ctl update, or kahi ctl add --reload)", err)
+		default:
 			return err
 		}
-		printConfigWarnings(cmd, result)
-		// Start the group.
-		if err := c.StartGroup(args[0]); err != nil {
-			return err
-		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: added and started\n", args[0])
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: added\n", name)
 		return nil
 	},
 }
 
 var ctlRemoveCmd = &cobra.Command{
 	Use:   "remove <group>",
-	Short: "Stop and remove a group",
-	Args:  cobra.ExactArgs(1),
+	Short: "Remove a stopped group (its config stays)",
+	Long: "Remove a group whose processes are all stopped; its config stays loaded.\n" +
+		"With --stop, stop the group first and wait for it.",
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c := newCtlClient()
-		// Stop the group first.
-		if err := c.StopGroup(args[0]); err != nil {
-			return fmt.Errorf("stop %s: %w", args[0], err)
+		err := newCtlClient().RemoveGroup(args[0], ctlRemoveStop)
+		if err != nil && strings.Contains(err.Error(), "has running processes") {
+			return fmt.Errorf("%w (or use kahi ctl remove --stop)", err)
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: stopped and removed\n", args[0])
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: removed\n", args[0])
 		return nil
 	},
+}
+
+// inList reports whether a JSON array from the API contains name.
+func inList(v any, name string) bool {
+	items, _ := v.([]any)
+	for _, item := range items {
+		if fmt.Sprint(item) == name {
+			return true
+		}
+	}
+	return false
 }
 
 var ctlAttachCmd = &cobra.Command{
@@ -448,6 +480,8 @@ func init() {
 	for _, cmd := range []*cobra.Command{ctlStartCmd, ctlStopCmd, ctlRestartCmd} {
 		cmd.Flags().DurationVar(&ctlActionTimeout, "timeout", 0, "how long to wait for the daemon to finish (0: as long as it works)")
 	}
+	ctlAddCmd.Flags().BoolVar(&ctlAddReload, "reload", false, "load the config file first, as kahi ctl update does")
+	ctlRemoveCmd.Flags().BoolVar(&ctlRemoveStop, "stop", false, "stop the group first and wait for it")
 	ctlStatusCmd.Flags().BoolVar(&ctlNoColor, "no-color", false, "Disable color output")
 	ctlShutdownCmd.Flags().DurationVar(&ctlShutdownTimeout, "timeout", 60*time.Second, "how long to wait for the daemon to exit (0: do not wait)")
 	ctlStatusCmd.Flags().BoolVar(&ctlJSON, "json", false, "Output JSON")

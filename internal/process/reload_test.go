@@ -60,8 +60,7 @@ func TestApplyReloadChangedProgramUsesNewConfig(t *testing.T) {
 	old, _ := mgr.GetProcess("web")
 
 	newCfg := reloadCfg(map[string]config.ProgramConfig{"web": prog("/bin/echo v2", true)})
-	added, changed, removed := ConfigDiff(oldCfg, newCfg)
-	if stuck := mgr.ApplyReload(oldCfg, newCfg, added, changed, removed); len(stuck) != 0 {
+	if stuck := mgr.ApplyReload(oldCfg, newCfg).Stuck; len(stuck) != 0 {
 		t.Fatalf("stuck = %v", stuck)
 	}
 
@@ -91,8 +90,7 @@ func TestApplyReloadRemovesProgramAndCaptures(t *testing.T) {
 	mgr, _ := startedManager(t, oldCfg)
 
 	newCfg := reloadCfg(map[string]config.ProgramConfig{"keep": prog("/bin/echo keep", true)})
-	added, changed, removed := ConfigDiff(oldCfg, newCfg)
-	mgr.ApplyReload(oldCfg, newCfg, added, changed, removed)
+	mgr.ApplyReload(oldCfg, newCfg)
 
 	if _, err := mgr.GetProcess("gone"); err == nil {
 		t.Fatal("removed program still has a process")
@@ -120,8 +118,7 @@ func TestApplyReloadHonoursAutostart(t *testing.T) {
 		"auto":   prog("/bin/echo auto", true),
 		"manual": prog("/bin/echo manual", false),
 	})
-	added, changed, removed := ConfigDiff(oldCfg, newCfg)
-	mgr.ApplyReload(oldCfg, newCfg, added, changed, removed)
+	mgr.ApplyReload(oldCfg, newCfg)
 
 	auto, _ := mgr.GetProcess("auto")
 	if s := auto.State(); s != Starting && s != Running {
@@ -139,8 +136,7 @@ func TestApplyReloadSkipsStartsDuringShutdown(t *testing.T) {
 	mgr.StopAll()
 
 	newCfg := reloadCfg(map[string]config.ProgramConfig{"late": prog("/bin/echo late", true)})
-	added, changed, removed := ConfigDiff(oldCfg, newCfg)
-	mgr.ApplyReload(oldCfg, newCfg, added, changed, removed)
+	mgr.ApplyReload(oldCfg, newCfg)
 
 	late, _ := mgr.GetProcess("late")
 	if s := late.State(); s != Stopped {
@@ -204,11 +200,9 @@ func TestApplyReloadSupervisionChangeIsInPlace(t *testing.T) {
 	changedProg.Stopwaitsecs = 30
 	changedProg.Startretries = 9
 	newCfg := reloadCfg(map[string]config.ProgramConfig{"web": changedProg})
-	added, changed, removed := ConfigDiff(oldCfg, newCfg)
-	if len(changed) != 1 {
-		t.Fatalf("changed = %v, want [web]", changed)
+	if out := mgr.ApplyReload(oldCfg, newCfg); len(out.Changed) != 1 {
+		t.Fatalf("changed = %v, want [web]", out.Changed)
 	}
-	mgr.ApplyReload(oldCfg, newCfg, added, changed, removed)
 
 	after, _ := mgr.GetProcess("web")
 	if after != before {
@@ -232,8 +226,7 @@ func TestApplyReloadRestartsRunningProgramRegardlessOfAutostart(t *testing.T) {
 	mgr, _ := startedManager(t, oldCfg)
 
 	newCfg := reloadCfg(map[string]config.ProgramConfig{"web": prog("/bin/echo v2", false)})
-	added, changed, removed := ConfigDiff(oldCfg, newCfg)
-	mgr.ApplyReload(oldCfg, newCfg, added, changed, removed)
+	mgr.ApplyReload(oldCfg, newCfg)
 
 	cur, _ := mgr.GetProcess("web")
 	if cur.Config().Command != "/bin/echo v2" {
@@ -250,8 +243,7 @@ func TestApplyReloadKeepsStoppedProgramStopped(t *testing.T) {
 	mgr, spawner := startedManager(t, oldCfg)
 
 	newCfg := reloadCfg(map[string]config.ProgramConfig{"idle": prog("/bin/echo v2", true)})
-	added, changed, removed := ConfigDiff(oldCfg, newCfg)
-	mgr.ApplyReload(oldCfg, newCfg, added, changed, removed)
+	mgr.ApplyReload(oldCfg, newCfg)
 
 	cur, _ := mgr.GetProcess("idle")
 	if cur.Config().Command != "/bin/echo v2" {

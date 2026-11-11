@@ -23,6 +23,7 @@ type Process struct {
 	mu         sync.Mutex
 	name       string
 	group      string
+	program    string // the [programs] entry; group is its [groups] table if any
 	config     config.ProgramConfig
 	sm         *StateMachine
 	spawner    ProcessSpawner
@@ -86,6 +87,12 @@ func WithShutdownCh(ch chan struct{}) ProcessOption {
 	return func(p *Process) { p.shutdownCh = ch }
 }
 
+// WithProgram names the program a process belongs to when its group is a
+// [groups] table (ADR-034). Without it the program is the group.
+func WithProgram(program string) ProcessOption {
+	return func(p *Process) { p.program = program }
+}
+
 // NewProcess creates a managed process from config.
 func NewProcess(name, group string, cfg config.ProgramConfig, spawner ProcessSpawner, bus *events.Bus, logger *slog.Logger, opts ...ProcessOption) *Process {
 	sm := NewStateMachine(StateMachineConfig{
@@ -115,8 +122,17 @@ func NewProcess(name, group string, cfg config.ProgramConfig, spawner ProcessSpa
 // Name returns the process name.
 func (p *Process) Name() string { return p.name }
 
-// Group returns the process group name.
+// Group returns the process group name: the [groups] table the program is in,
+// else the program.
 func (p *Process) Group() string { return p.group }
+
+// Program returns the name of the program the process belongs to.
+func (p *Process) Program() string {
+	if p.program != "" {
+		return p.program
+	}
+	return p.group
+}
 
 // Config returns the process configuration.
 func (p *Process) Config() config.ProgramConfig {
@@ -468,6 +484,13 @@ func (p *Process) Retire() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.retired = true
+}
+
+// unretire undoes Retire when a group removal is refused after all.
+func (p *Process) unretire() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.retired = false
 }
 
 // Kill sends SIGKILL to the process if it has a live child, honoring
