@@ -50,6 +50,10 @@ type ProcessManager interface {
 	Signal(name string, sig string) error
 	WriteStdin(name string, data []byte) error
 	ReadLog(name string, stream string, offset int64, length int) ([]byte, error)
+	// ReadLogFrom returns what a stream's in-memory buffer holds after
+	// offset, the offset it starts at, the total captured and the stream's
+	// generation, for resuming a log stream (ADR-033).
+	ReadLogFrom(name, stream string, offset int64) (data []byte, start, total int64, generation string, err error)
 
 	// Bulk actions over every configured process, in priority order
 	// (ascending for start, descending for stop). Each returns one result per
@@ -615,6 +619,20 @@ func (s *Server) handleStreamLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Last-Event-ID "{generation}-{offset}" resumes after that offset; absent
+	// or empty, the stream carries live output only (FUNC-027, ADR-033).
+	resume := r.Header.Get("Last-Event-ID")
+	var resumeGen string
+	var resumeOffset int64
+	if resume != "" {
+		var ok bool
+		resumeGen, resumeOffset, ok = parseStreamID(resume)
+		if !ok {
+			writeError(w, http.StatusBadRequest, "invalid resume position: "+resume, "BAD_REQUEST")
+			return
+		}
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming not supported", "SERVER_ERROR")
@@ -629,36 +647,87 @@ func (s *Server) handleStreamLog(w http.ResponseWriter, r *http.Request) {
 		eventType = events.ProcessLogStderr
 	}
 
-	// Subscribe before flushing the headers: a client that reads its backlog
-	// once the stream is open (the Web UI log viewer) then cannot miss a chunk
-	// published in between. A channel serializes writes to the response.
-	ch := make(chan string, 64)
-	id := s.bus.Subscribe(eventType, func(e events.Event) {
+	// Subscribe before flushing the headers and before reading the replay: a
+	// client that reads its backlog once the stream is open (the Web UI log
+	// viewer) then cannot miss a chunk published in between. A channel
+	// serializes writes to the response. A client that falls 64 chunks
+	// behind has its stream closed rather than chunks dropped: it reconnects
+	// with its last id and the replay delivers them.
+	type logChunk struct{ id, data string }
+	ch := make(chan logChunk, 64)
+	overflow := make(chan struct{})
+	var overflowOnce sync.Once
+	sub := s.bus.Subscribe(eventType, func(e events.Event) {
 		if e.Data["name"] != name {
 			return
 		}
 		select {
-		case ch <- e.Data["data"]:
+		case ch <- logChunk{id: e.Data["id"], data: e.Data["data"]}:
 		default:
+			overflowOnce.Do(func() { close(overflow) })
 		}
 	})
-	defer s.bus.Unsubscribe(id)
+	defer s.bus.Unsubscribe(sub)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
+
+	replayedGen, replayedEnd := "", int64(-1)
+	if resume != "" {
+		data, start, total, gen, err := s.processes.ReadLogFrom(name, stream, resumeOffset)
+		if err != nil {
+			return
+		}
+		switch {
+		case gen != resumeGen || resumeOffset > total:
+			// The process was created again; offsets restarted at 0.
+			_, _ = fmt.Fprint(w, "event: reset\ndata: {}\n\n")
+			data, start, _, _, _ = s.processes.ReadLogFrom(name, stream, 0)
+		case start > resumeOffset:
+			_, _ = fmt.Fprintf(w, "event: gap\ndata: {\"bytes\": %d}\n\n", start-resumeOffset)
+		}
+		replayedGen, replayedEnd = gen, start+int64(len(data))
+		if len(data) > 0 {
+			writeSSELog(w, gen+"-"+strconv.FormatInt(replayedEnd, 10), string(data))
+		}
+	}
 	flusher.Flush()
 
 	for {
 		select {
 		case <-r.Context().Done():
 			return
-		case data := <-ch:
-			writeSSEData(w, data)
+		case <-overflow:
+			return
+		case c := <-ch:
+			// Skip what the replay already sent.
+			if gen, end, ok := parseStreamID(c.id); ok && gen == replayedGen && end <= replayedEnd {
+				continue
+			}
+			writeSSELog(w, c.id, c.data)
 			flusher.Flush()
 		}
 	}
+}
+
+// parseStreamID splits a log stream id "{generation}-{offset}".
+func parseStreamID(id string) (generation string, offset int64, ok bool) {
+	gen, off, found := strings.Cut(id, "-")
+	n, err := strconv.ParseInt(off, 10, 64)
+	if !found || gen == "" || err != nil || n < 0 {
+		return "", 0, false
+	}
+	return gen, n, true
+}
+
+// writeSSELog writes one log event: its id, then its data (writeSSEData).
+func writeSSELog(w io.Writer, id, data string) {
+	if id != "" {
+		_, _ = fmt.Fprintf(w, "id: %s\n", id)
+	}
+	writeSSEData(w, data)
 }
 
 // writeSSEData writes data as one SSE "data:" field per line, ended by a single

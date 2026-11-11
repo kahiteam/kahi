@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -38,15 +40,26 @@ type CaptureWriter struct {
 	handlers []func(name string, data []byte)
 	ringBuf  *RingBuffer
 	stripper ANSIStripper
+
+	// total counts the bytes captured (after ANSI stripping) since the
+	// writer was created; generation identifies the writer, so an offset
+	// from an earlier process of the same name is recognised (ADR-033).
+	total      int64
+	generation string
 }
+
+// generations makes each writer's generation unique even when two are
+// created in the same nanosecond.
+var generations atomic.Uint64
 
 // NewCaptureWriter creates a capture writer for a process stream. If the log
 // file cannot be opened it returns the error together with a writer that
 // keeps only the ring buffer; EnsureOpen retries the file (#171).
 func NewCaptureWriter(cfg CaptureConfig) (*CaptureWriter, error) {
 	cw := &CaptureWriter{
-		config:  cfg,
-		ringBuf: NewRingBuffer(64 * 1024), // 64KB ring buffer
+		config:     cfg,
+		ringBuf:    NewRingBuffer(64 * 1024), // 64KB ring buffer
+		generation: strconv.FormatUint(uint64(time.Now().UnixNano())+generations.Add(1), 10),
 	}
 	if err := cw.EnsureOpen(); err != nil {
 		return cw, fmt.Errorf("cannot open log file: %w", err)
@@ -80,6 +93,15 @@ func (cw *CaptureWriter) Write(p []byte) (int, error) {
 // sequences stripped when strip_ansi is set, so the event stream carries the
 // same output as the log file (#186).
 func (cw *CaptureWriter) Capture(p []byte) []byte {
+	return cw.CaptureAndPublish(p, nil)
+}
+
+// CaptureAndPublish is Capture that also calls publish, while still holding
+// the writer's lock, with the captured data and its stream id
+// "{generation}-{end offset}" (ADR-033). Holding the lock keeps ids in
+// offset order when two pipes write the same stream; publish must not call
+// back into the writer.
+func (cw *CaptureWriter) CaptureAndPublish(p []byte, publish func(data []byte, id string)) []byte {
 	cw.mu.Lock()
 	defer cw.mu.Unlock()
 
@@ -106,7 +128,34 @@ func (cw *CaptureWriter) Capture(p []byte) []byte {
 		h(cw.config.ProcessName, data)
 	}
 
+	cw.total += int64(len(data))
+	if publish != nil && len(data) > 0 {
+		publish(data, cw.idLocked(cw.total))
+	}
 	return data
+}
+
+// Generation returns the writer's generation, the first part of its ids.
+func (cw *CaptureWriter) Generation() string {
+	return cw.generation
+}
+
+func (cw *CaptureWriter) idLocked(end int64) string {
+	return cw.generation + "-" + strconv.FormatInt(end, 10)
+}
+
+// ReadFrom returns what the ring buffer still holds after offset, the offset
+// that data starts at (later than offset when bytes were overwritten), and
+// the total captured so far. An offset beyond the total returns nothing.
+func (cw *CaptureWriter) ReadFrom(offset int64) (data []byte, start, total int64) {
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
+	oldest := cw.total - int64(cw.ringBuf.Len())
+	start = max(offset, oldest)
+	if start >= cw.total {
+		return nil, cw.total, cw.total
+	}
+	return cw.ringBuf.Read(int(cw.total - start)), start, cw.total
 }
 
 // AddHandler adds a callback for captured data.
@@ -118,6 +167,8 @@ func (cw *CaptureWriter) AddHandler(h func(name string, data []byte)) {
 
 // ReadTail returns the last n bytes from the ring buffer.
 func (cw *CaptureWriter) ReadTail(n int) []byte {
+	cw.mu.Lock()
+	defer cw.mu.Unlock()
 	return cw.ringBuf.Read(n)
 }
 

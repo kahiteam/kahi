@@ -399,9 +399,15 @@ in-memory buffer, then streams new output. Actions need JavaScript; without
 it the page is read-only. Changes to `[server.web]` take effect after a daemon
 restart, not on reload.
 
-With `strip_ansi = true` the buffered backlog is stripped of colour codes but
-the live stream is not, so streamed lines can show colours that the backlog
-does not.
+With `strip_ansi = true` the backlog and the live stream are both stripped of
+colour codes.
+
+The log stream (`GET /api/v1/processes/{name}/log/{stream}/stream`) gives every
+event an id, `{generation}-{offset}`. A client that reconnects with that id in
+`Last-Event-ID`, as a browser does on its own, gets what it missed from the
+64 KB in-memory buffer: an `event: gap` first if part of it is gone, or an
+`event: reset` if the process was started anew. A client too slow to keep up
+has its stream closed and resumes the same way.
 
 ## Security
 

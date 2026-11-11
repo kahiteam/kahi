@@ -32,6 +32,9 @@ func (m *mockProcessManager) WriteStdin(name string, data []byte) error { return
 func (m *mockProcessManager) ReadLog(name string, stream string, offset int64, length int) ([]byte, error) {
 	return []byte("log output"), nil
 }
+func (m *mockProcessManager) ReadLogFrom(string, string, int64) ([]byte, int64, int64, string, error) {
+	return nil, 0, 0, "g", nil
+}
 func (m *mockProcessManager) StartAllOrdered() []api.ActionResult   { return []api.ActionResult{} }
 func (m *mockProcessManager) StopAllOrdered() []api.ActionResult    { return []api.ActionResult{} }
 func (m *mockProcessManager) RestartAllOrdered() []api.ActionResult { return []api.ActionResult{} }
