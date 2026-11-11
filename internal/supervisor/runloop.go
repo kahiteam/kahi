@@ -127,10 +127,11 @@ func (s *Supervisor) Run() error {
 	s.signals = NewSignalQueue(s.logger)
 	defer s.signals.Stop()
 
-	// Publish supervisor running event.
+	// Publish supervisor running event. Like process state events it names
+	// the state it left (FUNC-052, #154).
 	s.bus.Publish(events.Event{
 		Type: events.SupervisorStateRunning,
-		Data: map[string]string{},
+		Data: map[string]string{"state": "RUNNING", "from_state": "STARTING"},
 	})
 
 	// Autostart processes.
@@ -168,10 +169,11 @@ shutdown:
 	s.shutting = true
 	s.mu.Unlock()
 
-	// Publish supervisor stopping event.
+	// Publish supervisor stopping event, once: the main loop is left only
+	// here.
 	s.bus.Publish(events.Event{
 		Type: events.SupervisorStateStopping,
-		Data: map[string]string{},
+		Data: map[string]string{"state": "STOPPING", "from_state": "RUNNING"},
 	})
 
 	// Stop all processes in reverse priority order.

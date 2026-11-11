@@ -4,6 +4,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -318,26 +320,30 @@ func TestRunPublishesEvents(t *testing.T) {
 		Logger: discardLogger(),
 	})
 
-	var receivedRunning, receivedStopping bool
-	s.bus.Subscribe(events.SupervisorStateRunning, func(e events.Event) {
-		receivedRunning = true
-	})
-	s.bus.Subscribe(events.SupervisorStateStopping, func(e events.Event) {
-		receivedStopping = true
-	})
+	var mu sync.Mutex
+	var got []string
+	record := func(e events.Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, string(e.Type)+" "+e.Data["from_state"]+">"+e.Data["state"])
+	}
+	s.bus.Subscribe(events.SupervisorStateRunning, record)
+	s.bus.Subscribe(events.SupervisorStateStopping, record)
 
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		s.Shutdown()
+		s.Shutdown() // a second request publishes nothing more
 	}()
 
 	_ = s.Run()
 
-	if !receivedRunning {
-		t.Fatal("expected SupervisorStateRunning event")
-	}
-	if !receivedStopping {
-		t.Fatal("expected SupervisorStateStopping event")
+	// Once per state change, each naming the state it left (FUNC-052, #154).
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"SUPERVISOR_STATE_RUNNING STARTING>RUNNING", "SUPERVISOR_STATE_STOPPING RUNNING>STOPPING"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("events %v, want %v", got, want)
 	}
 }
 

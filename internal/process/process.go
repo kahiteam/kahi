@@ -28,14 +28,17 @@ type Process struct {
 	spawner    ProcessSpawner
 	spawned    SpawnedProcess
 	exitCode   int
-	exitSignal string // signal that killed the child, without SIG; "" if it exited
-	startedAt  time.Time
-	bus        *events.Bus
-	logger     *slog.Logger
-	stopCh     chan struct{} // signals the stop-wait goroutine
-	killDoneCh chan struct{} // closed when process exits, cancels SIGKILL timer
-	shutdownCh chan struct{} // closed on daemon shutdown
-	retired    bool          // removed by a config reload; must never start again
+	exitSignal string // signal that killed the child ("SIGKILL"); "" if it exited
+	// lastPublished is the state of the last state event, reported as the
+	// next event's from_state. Guarded by mu, like every publish (ADR-032).
+	lastPublished State
+	startedAt     time.Time
+	bus           *events.Bus
+	logger        *slog.Logger
+	stopCh        chan struct{} // signals the stop-wait goroutine
+	killDoneCh    chan struct{} // closed when process exits, cancels SIGKILL timer
+	shutdownCh    chan struct{} // closed on daemon shutdown
+	retired       bool          // removed by a config reload; must never start again
 	// cfgMu guards config for Config(), which callers may reach from event
 	// handlers while mu is held. Writers hold mu and cfgMu.
 	cfgMu    sync.RWMutex
@@ -350,26 +353,26 @@ func (p *Process) failStartLocked(desc string, err error) error {
 	return fmt.Errorf("process %s: spawn failed: %w", p.name, err)
 }
 
-func (p *Process) watchStart(stopCh <-chan struct{}) {
-	startsecs := time.Duration(p.config.Startsecs) * time.Second
-	if startsecs == 0 {
-		// Immediate transition to RUNNING.
-		if _, err := p.sm.ProcessStarted(); err != nil {
-			p.logger.Error("state transition failed", "error", err)
-		}
-		p.publishStateUnlocked(p.sm.State())
-		return
-	}
-
-	timer := time.NewTimer(startsecs)
+// watchStart moves the process to RUNNING once it has stayed up for
+// startsecs (> 0; spawnLocked handles 0). The transition and its event happen
+// under mu, so they cannot interleave with an exit (ADR-032).
+func (p *Process) watchStart(stopCh chan struct{}) {
+	timer := time.NewTimer(time.Duration(p.config.Startsecs) * time.Second)
 	defer timer.Stop()
 
 	select {
 	case <-timer.C:
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		// The child this watcher started for may have exited (a new stopCh)
+		// and a later spawn be STARTING; that one has its own watcher.
+		if p.stopCh != stopCh || p.sm.State() != Starting {
+			return
+		}
 		if _, err := p.sm.ProcessStarted(); err != nil {
 			p.logger.Error("state transition failed", "error", err)
 		}
-		p.publishStateUnlocked(p.sm.State())
+		p.publishStateLocked(p.sm.State())
 	case <-stopCh:
 		return
 	}
@@ -617,15 +620,24 @@ func (p *Process) shouldRestart(exitCode int) bool {
 	case "false":
 		return false
 	case "unexpected":
-		for _, code := range p.config.Exitcodes {
-			if exitCode == code {
-				return false // Expected exit code, don't restart.
-			}
-		}
-		return true
+		return !p.exitExpected(exitCode, p.exitSignal)
 	default:
 		return false
 	}
+}
+
+// exitExpected reports whether an exit is expected: its code is in
+// exitcodes. A signal death (code -1) never is.
+func (p *Process) exitExpected(exitCode int, signal string) bool {
+	if signal != "" {
+		return false
+	}
+	for _, code := range p.config.Exitcodes {
+		if exitCode == code {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Process) retryAfterBackoff(stopCh <-chan struct{}) {
@@ -787,17 +799,11 @@ func (p *Process) readPipe(r io.ReadCloser, stream string, handler func(string, 
 	}
 }
 
-// publishStateLocked publishes a state event while the mutex is held.
+// publishStateLocked publishes a state event while the mutex is held. Every
+// state event is published this way, so a process's events are serialized
+// and from_state is always the previous event's state (ADR-032).
 func (p *Process) publishStateLocked(state State) {
 	p.doPublishState(state, p.pidLocked())
-}
-
-// publishStateUnlocked publishes a state event, acquiring the mutex for PID.
-func (p *Process) publishStateUnlocked(state State) {
-	p.mu.Lock()
-	pid := p.pidLocked()
-	p.mu.Unlock()
-	p.doPublishState(state, pid)
 }
 
 func (p *Process) doPublishState(state State, pid int) {
@@ -825,15 +831,22 @@ func (p *Process) doPublishState(state State, pid int) {
 		return
 	}
 
-	p.bus.Publish(events.Event{
-		Type: eventType,
-		Data: map[string]string{
-			"name":  p.name,
-			"group": p.group,
-			"state": state.String(),
-			"pid":   fmt.Sprintf("%d", pid),
-		},
-	})
+	data := map[string]string{
+		"name":       p.name,
+		"group":      p.group,
+		"state":      state.String(),
+		"from_state": p.lastPublished.String(),
+		"pid":        strconv.Itoa(pid),
+	}
+	if state == Exited {
+		data["expected"] = strconv.FormatBool(p.exitExpected(p.exitCode, p.exitSignal))
+		data["exitstatus"] = strconv.Itoa(p.exitCode)
+		if p.exitSignal != "" {
+			data["exitsignal"] = p.exitSignal
+		}
+	}
+	p.lastPublished = state
+	p.bus.Publish(events.Event{Type: eventType, Data: data})
 }
 
 // ParseSignal converts a signal name, with or without the SIG prefix, to

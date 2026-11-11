@@ -2321,7 +2321,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - **Given** a RUNNING process exits by itself
   **When** PROCESS_STATE_EXITED is emitted
-  **Then** its data also carries `expected` ("true" when the exit code is in exitcodes), `exitstatus`, and `exitsignal` when a signal killed it, named as in `<signal.h>` (`"SIGKILL"`) (#154, #201)
+  **Then** its data also carries `expected` ("true" when the exit code is in exitcodes), `exitstatus`, and `exitsignal` when a signal killed it, named as in `<signal.h>` (`"SIGKILL"`) (ADR-032, #201)
 
 **Error Handling:**
 
@@ -2376,12 +2376,11 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 **Acceptance Criteria:**
 
 - **Given** event system is enabled
-  **When** Kahi finishes startup and enters RUNNING state
-  **Then** SUPERVISOR_STATE_RUNNING event is emitted
+  **When** Kahi finishes startup and enters RUNNING state **Then** SUPERVISOR_STATE_RUNNING event is emitted with data `state` "RUNNING" and `from_state` "STARTING"
 
 - **Given** event system is enabled
   **When** Kahi begins shutdown
-  **Then** SUPERVISOR_STATE_STOPPING event is emitted
+  **Then** SUPERVISOR_STATE_STOPPING event is emitted with data `state` "STOPPING" and `from_state` "RUNNING" (#154)
 
 **Error Handling:**
 
@@ -2391,7 +2390,8 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Edge Cases:**
 
-- These events fire once per state change, not periodically
+- These events fire once per state change, not periodically; a reload or a second shutdown request publishes none
+- SUPERVISOR_STATE_RUNNING is published before any client of the event stream can connect; webhooks and event listeners (#106, v0.3.0) will be able to receive it
 
 **Dependencies:** FUNC-049
 
@@ -2420,7 +2420,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 **Edge Cases:**
 
 - Group events fire after the operation completes, not before: `processes` of an ADDED event are already in status, those of a REMOVED event already gone
-- A group is added when a reload adds a program or a `[groups]` table (one event for the table, listing all its processes), and on `kahi ctl add` (FUNC-011); loading the config at startup is not an add (#154)
+- A group is added when a reload adds a program or a `[groups]` table (one event for the table, listing all its processes), and on `kahi ctl add` (FUNC-011); loading the config at startup is not an add (#212)
 - A group is removed when a reload removes a program or a `[groups]` table, and on `kahi ctl remove`; a reload that restarts a changed program publishes neither event
 
 **Dependencies:** FUNC-049, FUNC-011
