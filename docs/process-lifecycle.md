@@ -24,8 +24,12 @@ the event is a string:
 | `exitsignal` | EXITED only, when a signal killed the process: its name, e.g. `"SIGKILL"` |
 
 A process that runs out of retries goes from STARTING straight to FATAL in one
-event (`from_state` STARTING). Tests: `TestStateEvents_StartRunExit`,
-`TestStateEvents_ExitStatus`, `TestStateEvents_BackoffFatalAndStop`.
+event (`from_state` STARTING). The daemon itself publishes
+`SUPERVISOR_STATE_RUNNING` (from STARTING) once startup completes and
+`SUPERVISOR_STATE_STOPPING` (from RUNNING) once when shutdown begins, with the
+same `state` and `from_state` fields. Tests: `TestStateEvents_StartRunExit`,
+`TestStateEvents_ExitStatus`, `TestStateEvents_BackoffFatalAndStop`,
+`TestStateEvents_SupervisorStopping`.
 
 ```mermaid
 stateDiagram-v2

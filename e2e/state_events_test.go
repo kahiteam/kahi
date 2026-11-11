@@ -186,3 +186,51 @@ startsecs = 0
 	wantState(t, nextWeb(5*time.Second), "STOPPING", "RUNNING")
 	wantState(t, nextWeb(10*time.Second), "STOPPED", "STOPPING")
 }
+
+// SUPERVISOR_STATE_STOPPING arrives once when shutdown begins, naming the
+// state it left; supervisor events are not periodic and a reload sends none
+// (FUNC-052, #154). SUPERVISOR_STATE_RUNNING is published before any client
+// can connect; TestRunPublishesEvents (supervisor) proves it.
+func TestStateEvents_SupervisorStopping(t *testing.T) {
+	client, socket := startDaemon(t, `
+[programs.web]
+command = "/bin/sleep 300"
+startsecs = 0
+`)
+	waitForState(t, client, "web", "RUNNING", 5*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	msgs := streamEvents(t, ctx, socket, "?types=SUPERVISOR_STATE_RUNNING,SUPERVISOR_STATE_STOPPING")
+
+	// A reload and 6 s of running produce no supervisor event.
+	if _, err := client.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case m := <-msgs:
+		t.Fatalf("supervisor event while running: %s %s", m.event, m.data)
+	case <-time.After(6 * time.Second):
+	}
+
+	if err := client.Shutdown(); err != nil {
+		t.Fatal(err)
+	}
+	var stopping []sseMsg
+	timeout := time.After(15 * time.Second)
+	for done := false; !done; {
+		select {
+		case m, ok := <-msgs:
+			if !ok {
+				done = true
+				break
+			}
+			stopping = append(stopping, m)
+		case <-timeout:
+			t.Fatal("event stream still open 15s after shutdown")
+		}
+	}
+	if len(stopping) != 1 || stopping[0].event != "SUPERVISOR_STATE_STOPPING" ||
+		stopping[0].data != `{"from_state":"RUNNING","state":"STOPPING"}` {
+		t.Fatalf("events after shutdown %v, want one SUPERVISOR_STATE_STOPPING from RUNNING", stopping)
+	}
+}

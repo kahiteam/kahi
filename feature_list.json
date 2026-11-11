@@ -1296,13 +1296,14 @@
       "title": "Supervisor State Change Events",
       "description": "Emit events when the supervisor itself changes state: SUPERVISOR_STATE_RUNNING on startup completion and SUPERVISOR_STATE_STOPPING on shutdown.",
       "testing_steps": [
-        "Start Kahi and verify a SUPERVISOR_STATE_RUNNING event is emitted after startup completes",
-        "Initiate shutdown and verify a SUPERVISOR_STATE_STOPPING event is emitted",
-        "Verify these events fire exactly once per state change and not periodically",
-        "Verify SUPERVISOR_STATE_CHANGE event includes both old_state and new_state fields",
-        "Verify no duplicate state change events are emitted for the same transition"
+        "Unit (supervisor): TestRunPublishesEvents -- Run publishes SUPERVISOR_STATE_RUNNING with state RUNNING and from_state STARTING once startup completes (no stream client can connect that early; webhooks/listeners are #106)",
+        "Open /api/v1/events/stream?types=SUPERVISOR_STATE_RUNNING,SUPERVISOR_STATE_STOPPING, run kahi ctl shutdown, and verify exactly one SUPERVISOR_STATE_STOPPING arrives before the stream closes",
+        "With the stream open, run a reload and wait 6 s (longer than the 5 s tick) and verify no supervisor event arrives: they fire once per state change, not periodically",
+        "Verify the events carry the old and new state: SUPERVISOR_STATE_STOPPING data is exactly {\"from_state\":\"RUNNING\",\"state\":\"STOPPING\"}; RUNNING carries from_state STARTING (unit)",
+        "Verify no duplicate event for one transition: a second shutdown request publishes no second STOPPING (unit TestRunPublishesEvents; e2e sees exactly one)"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": ["TestStateEvents_SupervisorStopping"],
       "dependencies": ["event-bus"]
     },
     {

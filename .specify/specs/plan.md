@@ -1042,7 +1042,7 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 **Date:** 2026-10-29
 **Status:** Accepted
 
-**Context:** FUNC-050, FUNC-053, #154. `Process.doPublishState` sends `{name, group, state, pid}`. `PROCESS_GROUP_ADDED` is never sent by the binary (`Manager.AddGroup` has no caller); `PROCESS_GROUP_REMOVED` is sent by `removeProgram` on reload with `{group}` only. Event data is `map[string]string`.
+**Context:** FUNC-050, FUNC-052 (#154, supervisor events), FUNC-053 (#212). `Process.doPublishState` sends `{name, group, state, pid}`. `PROCESS_GROUP_ADDED` is never sent by the binary (`Manager.AddGroup` has no caller); `PROCESS_GROUP_REMOVED` is sent by `removeProgram` on reload with `{group}` only. Event data is `map[string]string`.
 
 **Decision:**
 
@@ -1053,6 +1053,8 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 **Alternatives Considered:**
 
 1. **Typed event structs instead of string maps:** Rejected for v0.2.4 -- every subscriber and the SSE encoder use the map; a typed payload is a 0.3.0 change with listeners and webhooks (#106).
+
+2. SUPERVISOR_STATE_RUNNING and SUPERVISOR_STATE_STOPPING carry `state` and `from_state` (STARTING to RUNNING, RUNNING to STOPPING), the old and new state #154 asks for, in the same shape as process events. Each is published once.
 
 **Consequences:** SSE clients gain fields; existing fields are unchanged.
 
