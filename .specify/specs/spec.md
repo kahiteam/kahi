@@ -3459,8 +3459,8 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
   **Then** the last data from the ring buffer is returned
 
 - **Given** a process that has written 70000 bytes to stdout
-  **When** `GET /api/v1/processes/web/log/stdout?length=1000000` is requested
-  **Then** exactly the last 65536 bytes are returned
+  **When** `GET /api/v1/processes/web/log/stdout?length=65536` is requested
+  **Then** exactly the last 65536 bytes are returned; a longer `length` is refused with 400 "length exceeds maximum of 65536" (api-input-bounds)
 
 - **Given** the ring buffer is full
   **When** new output arrives

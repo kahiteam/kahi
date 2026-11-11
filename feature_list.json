@@ -572,17 +572,20 @@
       "title": "Process stdout/stderr Pipe Capture",
       "description": "Capture child process stdout and stderr via pipes and route output to configured destinations: container stdout as JSON lines, or specified log files.",
       "testing_steps": [
-        "Run the daemon in the foreground with a program that prints 'hello' and verify its stdout carries one JSON line with time, process 'web_0', stream 'stdout' and log 'hello'",
+        "Run the daemon in the foreground with a program 'hello' that prints 'hello' and verify its stdout carries one JSON line with time, process 'hello', stream 'stdout' and log 'hello'",
         "Set stdout_logfile and verify the file contains exactly 'hello\\n' after the program printed hello",
-        "Set redirect_stderr = true, write 'err' to stderr, and verify the JSON line has stream 'stdout' and log 'err', and stdout_logfile contains it",
+        "Set redirect_stderr = true, write 'err' to stderr, and verify the JSON line has stream 'stdout' and log 'err'; with a stdout_logfile, verify the file contains 'err' instead",
         "Point stdout_logfile at a directory that does not exist and verify the process goes to FATAL with 'cannot open log file' in its status description",
-        "Write two lines in one chunk and a third without a newline followed later by its newline, and verify the daemon's stdout carries three JSON lines, the third only after its newline",
+        "Write two lines in one chunk and a third without a newline followed a second later by its newline, and verify the daemon's stdout carries three JSON lines, the third stamped only after its newline",
         "Write a final line without a newline and exit, and verify the daemon's stdout still carries that line",
         "Run a child that writes 10 MB without newlines and verify it exits within 5s",
-        "Regression (SEC-012): point a logfile at a symlink and assert the open fails (O_NOFOLLOW), so a planted symlink cannot redirect log writes"
+        "Regression (SEC-012): point a logfile at a symlink and verify the start fails (FATAL, 'cannot open log file') and the symlink target is untouched"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
+        "TestCapture_LinesAndFiles",
+        "TestCapture_LargeBurstDoesNotBlock",
+        "TestCapture_SymlinkLogfileRefused",
         "TestOutput_PassthroughJSONLines",
         "TestLog_UnwritableLogfileFatal"
       ],
@@ -789,7 +792,7 @@
         "TestLogViewerGapReset (internal/web): in the embedded static/log.js the 'gap' and 'reset' handlers call the pending-line flush before rendering '[{n} bytes not shown]' and '[log restarted]' (index order in the handler source)",
         "Restart the daemon and reconnect with an id from the old daemon: verify 'event: reset' and the replay of the new process's held output"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
         "TestLogStream_IDsAndResume",
         "TestLogStream_Gap",
@@ -1872,13 +1875,18 @@
       "description": "Keep a fixed 64 KB in-memory ring buffer per process per stream (stdout/stderr) for log tailing and streaming without file logging, evicting the oldest data; configurable size is #113 (v0.3.0).",
       "testing_steps": [
         "With default config and no log file, write 'hello' and verify 'kahi ctl tail web' prints it from the ring buffer",
-        "Write 70000 bytes to stdout and verify GET /api/v1/processes/web/log/stdout?length=1000000 returns exactly the last 65536 bytes",
+        "Write 70000 bytes to stdout and verify GET /api/v1/processes/web/log/stdout?length=65536 returns exactly the last 65536 bytes, and ?length=1000000 is refused with 400 'length exceeds maximum of 65536'",
         "Write 65536 bytes of 'a' then 10 bytes of 'b' and verify the buffer ends with the 10 'b' bytes and holds 65536 bytes",
         "Write different text to stdout and stderr and verify each stream's log read returns only its own text",
         "Remove the program by reload and verify GET /api/v1/processes/web/log/stdout returns 404 'no such process: web'",
         "Verify the SSE log stream of a program without a log file replays from the ring buffer (Last-Event-ID resume)"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestLog_TailStdout",
+        "TestRingBuffer_ReadsAndEviction",
+        "TestLogStream_Gap"
+      ],
       "dependencies": ["process-output-capture"]
     },
     {
