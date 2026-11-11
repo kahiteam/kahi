@@ -112,6 +112,7 @@ func TestGroupNames_IncludeRedefinesProgram(t *testing.T) {
 // A [groups] table that names no program, an unknown program, or a program
 // another table already lists is refused at load (FUNC-010).
 func TestGroupNames_TableErrorsRefused(t *testing.T) {
+	t.Parallel()
 	progs := "[programs.web]\ncommand = \"/bin/sleep 300\"\n\n[programs.api]\ncommand = \"/bin/sleep 300\"\n\n"
 	for _, tc := range []struct{ name, groups, want string }{
 		{"unknown", "[groups.services]\nprograms = [\"nope\"]\n", `groups.services: references nonexistent program "nope"`},

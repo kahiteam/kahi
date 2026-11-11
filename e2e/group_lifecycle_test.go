@@ -78,6 +78,7 @@ stopwaitsecs = 2
 `
 
 func TestGroupLifecycle_RemoveAdd(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, twoSleepers)
 	waitForState(t, client, "web", "RUNNING", 5*time.Second)
 	nextEvent := groupEvents(t, socket)
@@ -125,6 +126,7 @@ func TestGroupLifecycle_RemoveAdd(t *testing.T) {
 // Only STOPPED, EXITED and FATAL count as stopped; a removed group's pending
 // backoff retry never spawns.
 func TestGroupLifecycle_RemovableStates(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ready := filepath.Join(dir, "ready")
 	stubborn := writeScript(t, dir, "stubborn.sh", "trap '' TERM\necho ready > "+ready+"\nwhile true; do sleep 0.1; done")
@@ -182,6 +184,7 @@ stopwaitsecs = 3
 // the file no longer defines is forgotten; a changed program restarts
 // without group events.
 func TestGroupLifecycle_ConfigFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	webMarker, extraMarker := filepath.Join(dir, "web"), filepath.Join(dir, "extra")
 	// One script for every rewrite, so only the version argument changes.
@@ -270,6 +273,7 @@ priority = 100
 // remove act on the table, web:* still reaches a member, and reloads split
 // and merge tables (FUNC-010).
 func TestGroupLifecycle_Tables(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, tableMembers)
 	waitForState(t, client, "web_0", "RUNNING", 5*time.Second)
 	waitForState(t, client, "api", "RUNNING", 5*time.Second)
@@ -357,6 +361,7 @@ func TestGroupLifecycle_Tables(t *testing.T) {
 
 // A table starts its members in priority order (api 100 before web 200).
 func TestGroupLifecycle_TableStartOrder(t *testing.T) {
+	t.Parallel()
 	cfg := strings.ReplaceAll(tableMembers, "startsecs = 0\n", "startsecs = 0\nautostart = false\n")
 	_, socket := startDaemon(t, cfg+"\n[groups.services]\nprograms = [\"web\", \"api\"]\n")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -381,6 +386,7 @@ func TestGroupLifecycle_TableStartOrder(t *testing.T) {
 
 // Config errors and warnings on reread, update and reload (FUNC-035).
 func TestConfigOps_ErrorsAndWarnings(t *testing.T) {
+	t.Parallel()
 	_, socket := startDaemon(t, twoSleepers)
 
 	rewriteConfig(t, socket, "[programs.web\n")
