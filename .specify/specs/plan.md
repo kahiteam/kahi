@@ -1104,6 +1104,8 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 1. **Remove by stopping only (today):** Rejected by the user decision (supervisorctl semantics).
 2. **Re-read the config file on add:** Rejected -- supervisorctl adds from the configuration the daemon has; `reread`/`update` exist to load a changed file.
 
+**Implementation notes (#212, 2026-11-11):** the supervisor keeps no `inactive` map: a group is inactive when the loaded config defines it and the Manager has no such active group, so the Manager is the one source of truth. `Manager.PlanReload` computes added/changed/removed against the active groups and backs both `ApplyReload` and `PreviewReload`. `ApplyReload(old, new)` returns a `ReloadOutcome` (the three lists plus the stuck programs and groups); the supervisor restores the old config of stuck programs and of stuck tables. A config the daemon refuses on reload is "config error: {details}", 400 BAD_REQUEST from the reload API.
+
 **Consequences:** `status` no longer lists a removed group; a reload brings it back.
 
 ### ADR-035: kahi ctl Exit Codes and `all`

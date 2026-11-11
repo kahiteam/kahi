@@ -69,7 +69,7 @@ func TestStopGroupStopsBackoffProcess(t *testing.T) {
 	if p.State() != Stopped {
 		t.Fatalf("state after StopGroup = %s, want STOPPED", p.State())
 	}
-	if err := mgr.RemoveGroup("worker"); err != nil {
+	if err := mgr.DeactivateGroup("worker", &config.Config{Programs: map[string]config.ProgramConfig{"worker": backoffConfig()}}); err != nil {
 		t.Fatalf("remove group: %v", err)
 	}
 

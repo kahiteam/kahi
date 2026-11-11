@@ -392,36 +392,26 @@ var ctlUpdateCmd = &cobra.Command{
 
 var ctlAddCmd = &cobra.Command{
 	Use:   "add <group>",
-	Short: "Activate a new group from config",
+	Short: "Activate a group from the loaded config that was removed",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c := newCtlClient()
-		// Reload first to pick up new config.
-		result, err := c.Reload()
-		if err != nil {
+		if err := newCtlClient().AddGroup(args[0]); err != nil {
 			return err
 		}
-		printConfigWarnings(cmd, result)
-		// Start the group.
-		if err := c.StartGroup(args[0]); err != nil {
-			return err
-		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: added and started\n", args[0])
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: added\n", args[0])
 		return nil
 	},
 }
 
 var ctlRemoveCmd = &cobra.Command{
 	Use:   "remove <group>",
-	Short: "Stop and remove a group",
+	Short: "Remove a stopped group from management (its config stays)",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c := newCtlClient()
-		// Stop the group first.
-		if err := c.StopGroup(args[0]); err != nil {
-			return fmt.Errorf("stop %s: %w", args[0], err)
+		if err := newCtlClient().RemoveGroup(args[0]); err != nil {
+			return err
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: stopped and removed\n", args[0])
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: removed\n", args[0])
 		return nil
 	},
 }

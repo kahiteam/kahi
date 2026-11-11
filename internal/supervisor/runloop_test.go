@@ -395,3 +395,20 @@ func TestConfigDiffBasic(t *testing.T) {
 		t.Fatalf("removed = %v, want [worker]", removed)
 	}
 }
+
+// Group add and remove are refused once shutdown has begun (FUNC-011).
+func TestGroupChangeDuringShutdown(t *testing.T) {
+	cfg := &config.Config{
+		Supervisor: config.SupervisorConfig{ShutdownTimeout: 1},
+		Programs:   map[string]config.ProgramConfig{},
+	}
+	s := New(SupervisorConfig{Config: cfg, Logger: discardLogger()})
+	s.mu.Lock()
+	s.shutting = true
+	s.mu.Unlock()
+	for name, change := range map[string]func(string) error{"add": s.AddGroup, "remove": s.RemoveGroup} {
+		if err := change("web"); err == nil || err.Error() != "daemon is shutting down" {
+			t.Errorf("%s during shutdown: %v, want 'daemon is shutting down'", name, err)
+		}
+	}
+}

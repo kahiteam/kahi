@@ -229,6 +229,19 @@ func (c *Client) All(action string) ([]ActionResult, error) {
 	return results, nil
 }
 
+// AddGroup activates a group the daemon's config defines that was removed at
+// runtime (FUNC-011).
+func (c *Client) AddGroup(name string) error {
+	_, err := c.doAction("POST", "/api/v1/groups/"+name+"/add", nil)
+	return err
+}
+
+// RemoveGroup removes a group whose processes are all stopped (FUNC-011).
+func (c *Client) RemoveGroup(name string) error {
+	_, err := c.doAction("POST", "/api/v1/groups/"+name+"/remove", nil)
+	return err
+}
+
 // StartGroup starts all processes in a group.
 func (c *Client) StartGroup(name string) error {
 	_, err := c.doAction("POST", "/api/v1/groups/"+name+"/start", nil)

@@ -135,6 +135,22 @@ func (m *mockConfigManager) PreviewReload() (config.ReloadResult, error) {
 	return config.ReloadResult{Added: []string{"new"}, Warnings: []string{"supervisor.nocleanup is not implemented yet and is ignored"}}, nil
 }
 
+// AddGroup and RemoveGroup know one group, "web": adding it is 409 (already
+// active), anything else 404.
+func (m *mockConfigManager) AddGroup(name string) error {
+	if name == "web" {
+		return fmt.Errorf("group already active: %s", name)
+	}
+	return fmt.Errorf("no such group: %s", name)
+}
+
+func (m *mockConfigManager) RemoveGroup(name string) error {
+	if name == "web" {
+		return nil
+	}
+	return fmt.Errorf("no such group: %s", name)
+}
+
 type mockDaemonInfo struct {
 	shuttingDown bool
 	ready        bool

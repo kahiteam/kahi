@@ -192,6 +192,8 @@ exitcodes = [0]
 		Logger:     discardLogger(),
 	})
 
+	// Groups the Manager has not loaded would be reported as added (ADR-034).
+	s.manager.LoadConfig(cfg)
 	res, err := s.Reload()
 	if err != nil {
 		t.Fatal(err)
