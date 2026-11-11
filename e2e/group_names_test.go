@@ -108,3 +108,24 @@ func TestGroupNames_IncludeRedefinesProgram(t *testing.T) {
 		t.Errorf("exit %d, stderr %q; want 1 and %q", code, stderr, want)
 	}
 }
+
+// A [groups] table that names no program, an unknown program, or a program
+// another table already lists is refused at load (FUNC-010).
+func TestGroupNames_TableErrorsRefused(t *testing.T) {
+	t.Parallel()
+	progs := "[programs.web]\ncommand = \"/bin/sleep 300\"\n\n[programs.api]\ncommand = \"/bin/sleep 300\"\n\n"
+	for _, tc := range []struct{ name, groups, want string }{
+		{"unknown", "[groups.services]\nprograms = [\"nope\"]\n", `groups.services: references nonexistent program "nope"`},
+		{"twice", "[groups.a]\nprograms = [\"web\"]\n\n[groups.b]\nprograms = [\"web\"]\n", `program "web" is in multiple groups: a and b`},
+		{"empty", "[groups.services]\nprograms = []\n", "groups.services: empty group (no programs)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfg := writeConfig(t, dir, progs+tc.groups)
+			_, stderr, code := runKahi(t, dir, "daemon", "-c", cfg)
+			if code != 1 || !strings.Contains(stderr, tc.want) {
+				t.Errorf("exit %d, stderr %q; want 1 and %q", code, stderr, tc.want)
+			}
+		})
+	}
+}

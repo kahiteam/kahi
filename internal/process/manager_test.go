@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/kahiteam/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/events"
 )
 
 func TestManagerShutdownCh(t *testing.T) {
@@ -91,31 +92,29 @@ func TestManagerGroups(t *testing.T) {
 	}
 }
 
-func TestManagerAddGroup(t *testing.T) {
+func TestManagerActivateGroup(t *testing.T) {
 	mgr := NewManager(&MockSpawner{}, testBus(), testLogger())
+	cfg := &config.Config{Programs: map[string]config.ProgramConfig{"web": defaultProgramConfig()}}
+	autostart := false
+	web := cfg.Programs["web"]
+	web.Autostart = &autostart
+	cfg.Programs["web"] = web
+	mgr.LoadConfig(cfg)
 
-	if err := mgr.AddGroup("mygroup", []string{"web", "api"}, 100); err != nil {
+	if err := mgr.ActivateGroup("web", cfg); err == nil || err.Error() != "group already active: web" {
+		t.Fatalf("activate active group: %v", err)
+	}
+	if err := mgr.DeactivateGroup("web", cfg, false); err != nil {
 		t.Fatal(err)
 	}
-
-	groups := mgr.Groups()
-	if groups["mygroup"] == nil {
-		t.Fatal("group not added")
-	}
-	if groups["mygroup"].Priority != 100 {
-		t.Fatalf("priority = %d, want 100", groups["mygroup"].Priority)
-	}
-}
-
-func TestManagerAddGroupDuplicate(t *testing.T) {
-	mgr := NewManager(&MockSpawner{}, testBus(), testLogger())
-
-	if err := mgr.AddGroup("mygroup", []string{"web"}, 100); err != nil {
+	if err := mgr.ActivateGroup("web", cfg); err != nil {
 		t.Fatal(err)
 	}
-	err := mgr.AddGroup("mygroup", []string{"api"}, 200)
-	if err == nil {
-		t.Fatal("expected error for duplicate group")
+	if mgr.Groups()["web"] == nil {
+		t.Fatal("group not active again")
+	}
+	if err := mgr.ActivateGroup("nope", cfg); err == nil || err.Error() != "no such group: nope" {
+		t.Fatalf("activate unknown group: %v", err)
 	}
 }
 
@@ -128,7 +127,8 @@ func TestManagerRemoveGroup(t *testing.T) {
 	})
 
 	// Process is in Stopped state, so removal should succeed.
-	if err := mgr.RemoveGroup("web"); err != nil {
+	cfg := &config.Config{Programs: map[string]config.ProgramConfig{"web": defaultProgramConfig()}}
+	if err := mgr.DeactivateGroup("web", cfg, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -147,7 +147,7 @@ func TestManagerRemoveGroup(t *testing.T) {
 func TestManagerRemoveGroupNonexistent(t *testing.T) {
 	mgr := NewManager(&MockSpawner{}, testBus(), testLogger())
 
-	err := mgr.RemoveGroup("nonexistent")
+	err := mgr.DeactivateGroup("nonexistent", &config.Config{}, false)
 	if err == nil {
 		t.Fatal("expected error for nonexistent group")
 	}
@@ -172,9 +172,10 @@ func TestManagerRemoveGroupRunningProcess(t *testing.T) {
 	}
 	time.Sleep(10 * time.Millisecond)
 
-	err := mgr.RemoveGroup("web")
-	if err == nil {
-		t.Fatal("expected error when removing group with running process")
+	cfg := &config.Config{Programs: map[string]config.ProgramConfig{"web": defaultProgramConfig()}}
+	err := mgr.DeactivateGroup("web", cfg, false)
+	if err == nil || err.Error() != "group web has running processes, stop first" {
+		t.Fatalf("remove group with a running process: %v", err)
 	}
 }
 
@@ -481,5 +482,24 @@ func TestOrderGroupPriorityFirst(t *testing.T) {
 	}
 	if group != "b,c" {
 		t.Errorf("group order %s, want b,c", group)
+	}
+}
+
+// Loading the config at startup activates every group without publishing
+// PROCESS_GROUP_ADDED (FUNC-053).
+func TestLoadConfigPublishesNoGroupEvents(t *testing.T) {
+	bus := events.NewBus(testLogger())
+	var n int
+	bus.Subscribe(events.ProcessGroupAdded, func(events.Event) { n++ })
+	mgr := NewManager(&MockSpawner{}, bus, testLogger())
+	mgr.LoadConfig(&config.Config{
+		Programs: map[string]config.ProgramConfig{"web": defaultProgramConfig(), "api": defaultProgramConfig()},
+		Groups:   map[string]config.GroupConfig{"services": {Programs: []string{"api"}}},
+	})
+	if n != 0 {
+		t.Fatalf("startup published %d PROCESS_GROUP_ADDED events, want 0", n)
+	}
+	if g := mgr.Groups(); g["services"] == nil || g["web"] == nil || g["api"] != nil {
+		t.Fatalf("groups %v, want services and web, and no own group for the member api", g)
 	}
 }

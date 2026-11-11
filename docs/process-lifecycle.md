@@ -170,8 +170,10 @@ Because every child has its own process group, a signal sent to Kahi's group
 
 ## Groups
 
-Every program forms a group of the same name that holds its `numprocs`
-instances. `[groups.<name>]` combines programs into another group:
+Every program that no `[groups]` table lists forms a group of the same name
+that holds its `numprocs` instances. `[groups.<name>]` combines programs into
+one group that owns them: its members have no group of their own, and status,
+the API and state events report the table as their group.
 
 ```toml
 [groups.site]
@@ -181,18 +183,36 @@ programs = ["web", "api"]
 ```mermaid
 flowchart LR
     subgraph site["group site"]
-        subgraph web["group web (program web, numprocs = 2)"]
+        subgraph web["program web, numprocs = 2"]
             web0[web_0]
             web1[web_1]
         end
-        subgraph api["group api (program api)"]
+        subgraph api["program api"]
             api0[api]
         end
     end
 ```
 
 `kahi ctl start site:*`, `stop site:*` and `restart site:*` act on a group;
-the API offers `POST /api/v1/groups/{name}/{start,stop,restart}`.
+the API offers `POST /api/v1/groups/{name}/{start,stop,restart}`. `web:*` still
+reaches the processes of program `web` inside `site`.
+
+`kahi ctl remove site` takes a group out of management once all its processes
+are STOPPED, EXITED or FATAL; its config stays, and `kahi ctl add site` or the
+next reload brings it back from the config the daemon has loaded. `kahi ctl remove
+--stop site` stops the group first and waits for it; `kahi ctl add --reload
+site` loads the config file first, as `kahi ctl update` does. Both act on
+groups only: `kahi ctl remove web` answers "web is in group site; use site".
+The API offers `POST /api/v1/groups/{name}/{add,remove}`, and each change
+publishes `PROCESS_GROUP_ADDED` or `PROCESS_GROUP_REMOVED` with `group` and the
+sorted, comma-separated `processes`.
+
+A reload that drops a table whose programs stay splits it into their own
+groups, one that adds a table over running programs merges them, and one that
+changes a table's member list recreates the table; the affected processes are
+restarted, and autostart applies. Tests: `TestGroupLifecycle_RemoveAdd`,
+`TestGroupLifecycle_RemovableStates`, `TestGroupLifecycle_ConfigFile`,
+`TestGroupLifecycle_Tables`.
 
 ## Order and priority
 

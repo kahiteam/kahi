@@ -254,29 +254,39 @@ func (s *Supervisor) applyReload() (config.ReloadResult, error) {
 	s.logger.Info("reloading config", "path", s.configPath)
 	newCfg, warnings, err := config.LoadWithIncludes(s.configPath)
 	if err != nil {
-		return config.ReloadResult{}, err
+		return config.ReloadResult{}, fmt.Errorf("config error: %w", err)
 	}
 	for _, w := range warnings {
 		s.logger.Warn("config warning", "warning", w)
 	}
 
-	added, changed, removed := process.ConfigDiff(oldCfg, newCfg)
-	s.logger.Info("config diff", "added", added, "changed", changed, "removed", removed)
 	s.warnWebChange(newCfg)
 	s.applyLogChange(oldCfg, newCfg)
 
-	// Programs that did not stop keep their old processes; record their old
-	// config so the next reload sees them as changed or removed again.
-	for _, prog := range s.manager.ApplyReload(oldCfg, newCfg, added, changed, removed) {
+	out := s.manager.ApplyReload(oldCfg, newCfg)
+	s.logger.Info("config reloaded", "added", out.Added, "changed", out.Changed, "removed", out.Removed)
+
+	// Groups and programs that did not stop keep their old processes; record
+	// their old config so the next reload sees them as changed or removed
+	// again.
+	for _, prog := range out.Stuck {
 		if old, ok := oldCfg.Programs[prog]; ok {
 			newCfg.Programs[prog] = old
+		}
+	}
+	for _, name := range out.StuckGroups {
+		if old, ok := oldCfg.Groups[name]; ok {
+			if newCfg.Groups == nil {
+				newCfg.Groups = make(map[string]config.GroupConfig)
+			}
+			newCfg.Groups[name] = old
 		}
 	}
 
 	s.mu.Lock()
 	s.config = newCfg
 	s.mu.Unlock()
-	return config.ReloadResult{Added: added, Changed: changed, Removed: removed, Warnings: warnings}, nil
+	return config.ReloadResult{Added: out.Added, Changed: out.Changed, Removed: out.Removed, Warnings: warnings}, nil
 }
 
 // PreviewReload reports what a reload would change, and the warnings the
@@ -284,13 +294,48 @@ func (s *Supervisor) applyReload() (config.ReloadResult, error) {
 func (s *Supervisor) PreviewReload() (config.ReloadResult, error) {
 	newCfg, warnings, err := config.LoadWithIncludes(s.configPath)
 	if err != nil {
-		return config.ReloadResult{}, err
+		return config.ReloadResult{}, fmt.Errorf("config error: %w", err)
 	}
 	s.mu.Lock()
 	oldCfg := s.config
 	s.mu.Unlock()
-	added, changed, removed := process.ConfigDiff(oldCfg, newCfg)
+	added, changed, removed := s.manager.PlanReload(oldCfg, newCfg)
 	return config.ReloadResult{Added: added, Changed: changed, Removed: removed, Warnings: warnings}, nil
+}
+
+// AddGroup activates a group the loaded config defines that was removed at
+// runtime (kahi ctl add, FUNC-011). It uses the config the daemon last
+// loaded, not the file.
+func (s *Supervisor) AddGroup(name string) error {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	cfg, err := s.configForGroupChange()
+	if err != nil {
+		return err
+	}
+	return s.manager.ActivateGroup(name, cfg)
+}
+
+// RemoveGroup removes a group whose processes are all stopped (kahi ctl
+// remove, FUNC-011); with stop it stops them first (--stop). Its config
+// stays loaded.
+func (s *Supervisor) RemoveGroup(name string, stop bool) error {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	cfg, err := s.configForGroupChange()
+	if err != nil {
+		return err
+	}
+	return s.manager.DeactivateGroup(name, cfg, stop)
+}
+
+func (s *Supervisor) configForGroupChange() (*config.Config, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.shutting {
+		return nil, errors.New("daemon is shutting down")
+	}
+	return s.config, nil
 }
 
 func (s *Supervisor) handleLogReopen() {
