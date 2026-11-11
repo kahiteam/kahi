@@ -236,9 +236,14 @@ func (c *Client) AddGroup(name string) error {
 	return err
 }
 
-// RemoveGroup removes a group whose processes are all stopped (FUNC-011).
-func (c *Client) RemoveGroup(name string) error {
-	_, err := c.doAction("POST", "/api/v1/groups/"+name+"/remove", nil)
+// RemoveGroup removes a group whose processes are all stopped (FUNC-011);
+// with stop, the daemon stops them first.
+func (c *Client) RemoveGroup(name string, stop bool) error {
+	path := "/api/v1/groups/" + name + "/remove"
+	if stop {
+		path += "?stop=true"
+	}
+	_, err := c.doAction("POST", path, nil)
 	return err
 }
 

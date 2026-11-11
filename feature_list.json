@@ -405,14 +405,16 @@
         "Start a crashing program (startretries = 3), stop it while in BACKOFF, remove its group, and verify no spawn occurs within 3s and status does not list it",
         "After 'kahi ctl remove web', verify 'kahi ctl reread' prints 'would apply: added=[web] changed=[] removed=[]'",
         "Unit (supervisor): AddGroup and RemoveGroup during shutdown return 'daemon is shutting down' (409 SHUTTING_DOWN)",
-        "Drop the [groups.services] table and its programs and reload: verify their processes leave status"
+        "Drop the [groups.services] table and its programs and reload: verify their processes leave status",
+        "Run 'kahi ctl remove --stop web' on a running group and verify 'web: removed' and the processes gone; run 'kahi ctl add --reload web' and 'kahi ctl add --reload extra' (newly in the file) and verify 'added' for both and their processes RUNNING; without the flags the two errors end with the hints '(or use kahi ctl remove --stop)' and '(not in the loaded config; run kahi ctl update, or kahi ctl add --reload)'"
       ],
       "passes": true,
       "verified_by": [
         "TestGroupLifecycle_RemoveAdd",
         "TestGroupLifecycle_RemovableStates",
         "TestGroupLifecycle_ConfigFile",
-        "TestGroupLifecycle_Tables"
+        "TestGroupLifecycle_Tables",
+        "TestGroupLifecycle_StopAndReloadFlags"
       ],
       "dependencies": ["homogeneous-groups", "heterogeneous-groups"]
     },

@@ -84,7 +84,7 @@ func TestGroupLifecycle_RemoveAdd(t *testing.T) {
 	nextEvent := groupEvents(t, socket)
 
 	// A running process blocks the removal; nothing changes.
-	wantCtl(t, socket, 1, "", "group web has running processes, stop first\n", "remove", "web")
+	wantCtl(t, socket, 1, "", "group web has running processes, stop first (or use kahi ctl remove --stop)\n", "remove", "web")
 	if _, ok := statusGroups(t, socket)["web"]; !ok {
 		t.Fatal("web left status after a refused remove")
 	}
@@ -94,8 +94,9 @@ func TestGroupLifecycle_RemoveAdd(t *testing.T) {
 	wantCtl(t, socket, 1, "", "group already active: web\n", "add", "web")
 	apiDo(t, socket, "POST", "/api/v1/groups/web/add", "").
 		wantError(t, "add active", http.StatusConflict, "group already active: web", "CONFLICT")
+	wantCtl(t, socket, 1, "", "no such group: nosuch\n", "remove", "nosuch")
+	wantCtl(t, socket, 1, "", "no such group: nosuch (not in the loaded config; run kahi ctl update, or kahi ctl add --reload)\n", "add", "nosuch")
 	for _, cmd := range []string{"remove", "add"} {
-		wantCtl(t, socket, 1, "", "no such group: nosuch\n", cmd, "nosuch")
 		apiDo(t, socket, "POST", "/api/v1/groups/nosuch/"+cmd, "").
 			wantError(t, cmd+" nosuch", http.StatusNotFound, "no such group: nosuch", "NOT_FOUND")
 	}
@@ -158,13 +159,13 @@ stopwaitsecs = 3
 
 	wantCtl(t, socket, 0, "ex: removed\n", "", "remove", "ex")
 	wantCtl(t, socket, 0, "fat: removed\n", "", "remove", "fat")
-	wantCtl(t, socket, 1, "", "group bo has running processes, stop first\n", "remove", "bo")
+	wantCtl(t, socket, 1, "", "group bo has running processes, stop first (or use kahi ctl remove --stop)\n", "remove", "bo")
 
 	if err := client.Stop("stub"); err != nil {
 		t.Fatal(err)
 	}
 	waitForState(t, client, "stub", "STOPPING", 2*time.Second)
-	wantCtl(t, socket, 1, "", "group stub has running processes, stop first\n", "remove", "stub")
+	wantCtl(t, socket, 1, "", "group stub has running processes, stop first (or use kahi ctl remove --stop)\n", "remove", "stub")
 
 	// Stopped during BACKOFF and removed: its pending retry never spawns.
 	if err := client.Stop("bo"); err != nil {
@@ -241,7 +242,7 @@ func TestGroupLifecycle_ConfigFile(t *testing.T) {
 	}
 	rewriteConfig(t, socket, markerProgram(t, "extra", extraMarker, "v2"))
 	wantCtl(t, socket, 0, "updated: added=[] changed=[] removed=[]\n", "", "update")
-	wantCtl(t, socket, 1, "", "no such group: web\n", "add", "web")
+	wantCtl(t, socket, 1, "", "no such group: web (not in the loaded config; run kahi ctl update, or kahi ctl add --reload)\n", "add", "web")
 
 	// A running program the file drops is stopped and removed.
 	rewriteConfig(t, socket, "")
@@ -416,4 +417,23 @@ func TestConfigOps_ErrorsAndWarnings(t *testing.T) {
 			t.Errorf("%s warnings %v, want the bogus key", path, body.Warnings)
 		}
 	}
+}
+
+// remove --stop stops a running group and removes it; add --reload loads the
+// file first, so it also adds a group the file defines newly (#212).
+func TestGroupLifecycle_StopAndReloadFlags(t *testing.T) {
+	t.Parallel()
+	client, socket := startDaemon(t, twoSleepers)
+	waitForState(t, client, "web", "RUNNING", 5*time.Second)
+
+	wantCtl(t, socket, 0, "web: removed\n", "", "remove", "--stop", "web")
+	if _, ok := statusGroups(t, socket)["web"]; ok {
+		t.Fatal("web still listed after remove --stop")
+	}
+	wantCtl(t, socket, 0, "web: added\n", "", "add", "--reload", "web")
+	waitForState(t, client, "web", "RUNNING", 5*time.Second)
+
+	rewriteConfig(t, socket, twoSleepers+"\n[programs.extra]\ncommand = \"/bin/sleep 300\"\nstartsecs = 0\n")
+	wantCtl(t, socket, 0, "extra: added\n", "", "add", "--reload", "extra")
+	waitForState(t, client, "extra", "RUNNING", 5*time.Second)
 }

@@ -406,7 +406,7 @@ func TestGroupChangeDuringShutdown(t *testing.T) {
 	s.mu.Lock()
 	s.shutting = true
 	s.mu.Unlock()
-	for name, change := range map[string]func(string) error{"add": s.AddGroup, "remove": s.RemoveGroup} {
+	for name, change := range map[string]func(string) error{"add": s.AddGroup, "remove": func(n string) error { return s.RemoveGroup(n, true) }} {
 		if err := change("web"); err == nil || err.Error() != "daemon is shutting down" {
 			t.Errorf("%s during shutdown: %v, want 'daemon is shutting down'", name, err)
 		}

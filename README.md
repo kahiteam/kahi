@@ -200,8 +200,8 @@ kahi ctl [command] [flags]
 | `reload`   |                    | Reload daemon configuration                  |
 | `reread`   |                    | Preview config changes without applying      |
 | `update`   |                    | Reload config and apply all changes          |
-| `add`      | `group`            | Add back a group removed at runtime          |
-| `remove`   | `group`            | Remove a stopped group (config stays)        |
+| `add`      | `group`            | Add back a removed group (`--reload`)        |
+| `remove`   | `group`            | Remove a stopped group (`--stop`)            |
 | `attach`   | `process`          | Attach to a process (stdin/stdout)           |
 | `health`   |                    | Check daemon liveness                        |
 | `ready`    |                    | Check daemon readiness (`--process` filter)  |

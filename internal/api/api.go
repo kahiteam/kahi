@@ -93,7 +93,7 @@ type ConfigManager interface {
 	// at runtime; RemoveGroup removes a group whose processes are stopped
 	// (FUNC-011, ADR-034).
 	AddGroup(name string) error
-	RemoveGroup(name string) error
+	RemoveGroup(name string, stop bool) error
 }
 
 // DaemonInfo describes the running daemon.
@@ -690,7 +690,10 @@ func (s *Server) handleGroupChange(add bool) http.HandlerFunc {
 			writeError(w, http.StatusConflict, "daemon is shutting down", "SHUTTING_DOWN")
 			return
 		}
-		change, status := s.config.RemoveGroup, "removed"
+		// ?stop=true stops the group's processes before removing it.
+		stop := r.URL.Query().Get("stop") == "true"
+		change := func(name string) error { return s.config.RemoveGroup(name, stop) }
+		status := "removed"
 		if add {
 			change, status = s.config.AddGroup, "added"
 		}
@@ -953,7 +956,8 @@ func classifyError(err error) int {
 		strings.Contains(msg, "already running"),
 		strings.Contains(msg, "already active"),
 		strings.Contains(msg, "has running processes"),
-		strings.Contains(msg, "is still active"):
+		strings.Contains(msg, "is still active"),
+		strings.Contains(msg, "did not stop"):
 		return http.StatusConflict
 	case strings.Contains(msg, "invalid signal"),
 		strings.Contains(msg, "not running"),

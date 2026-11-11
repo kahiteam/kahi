@@ -531,21 +531,41 @@ func (m *Manager) ActivateGroup(name string, cfg *config.Config) error {
 
 // DeactivateGroup removes an active group whose processes are all STOPPED,
 // EXITED or FATAL and publishes PROCESS_GROUP_REMOVED (FUNC-011, ADR-034).
-// Its config stays; ActivateGroup or a reload brings it back.
-func (m *Manager) DeactivateGroup(name string, cfg *config.Config) error {
+// With stop, it first stops the group's processes and waits up to each
+// one's stopwaitsecs plus stopWaitMargin (kahi ctl remove --stop). Its
+// config stays; ActivateGroup or a reload brings it back.
+func (m *Manager) DeactivateGroup(name string, cfg *config.Config, stop bool) error {
 	m.mu.Lock()
 	g, ok := m.groups[name]
 	if !ok {
 		m.mu.Unlock()
 		return unknownGroup(name, cfg)
 	}
-	procs := m.groupProcessesSorted(g, true)
+	procs := m.groupProcessesSorted(g, false)
 	m.mu.Unlock()
 
 	// Retire first, so a queued autorestart or backoff retry cannot start a
 	// process between the check and the removal; undo it if one is running.
 	for _, p := range procs {
 		p.Retire()
+	}
+	if stop {
+		for _, p := range procs {
+			if stoppable(p.State()) {
+				if err := p.Stop(); err != nil {
+					m.logger.Error("group remove: stop failed", "group", name, "process", p.Name(), "error", err)
+				}
+			}
+		}
+		for _, p := range procs {
+			wait := time.Duration(p.Config().Stopwaitsecs+stopWaitMargin) * time.Second
+			if !m.waitForStopped(p, wait) {
+				for _, q := range procs {
+					q.unretire()
+				}
+				return fmt.Errorf("group %s: process %s did not stop", name, p.Name())
+			}
+		}
 	}
 	for _, p := range procs {
 		if !removable(p.State()) {

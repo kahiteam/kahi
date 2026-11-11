@@ -144,7 +144,7 @@ func (m *mockConfigManager) AddGroup(name string) error {
 	return fmt.Errorf("no such group: %s", name)
 }
 
-func (m *mockConfigManager) RemoveGroup(name string) error {
+func (m *mockConfigManager) RemoveGroup(name string, _ bool) error {
 	if name == "web" {
 		return nil
 	}

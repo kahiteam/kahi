@@ -317,15 +317,16 @@ func (s *Supervisor) AddGroup(name string) error {
 }
 
 // RemoveGroup removes a group whose processes are all stopped (kahi ctl
-// remove, FUNC-011). Its config stays loaded.
-func (s *Supervisor) RemoveGroup(name string) error {
+// remove, FUNC-011); with stop it stops them first (--stop). Its config
+// stays loaded.
+func (s *Supervisor) RemoveGroup(name string, stop bool) error {
 	s.reloadMu.Lock()
 	defer s.reloadMu.Unlock()
 	cfg, err := s.configForGroupChange()
 	if err != nil {
 		return err
 	}
-	return s.manager.DeactivateGroup(name, cfg)
+	return s.manager.DeactivateGroup(name, cfg, stop)
 }
 
 func (s *Supervisor) configForGroupChange() (*config.Config, error) {

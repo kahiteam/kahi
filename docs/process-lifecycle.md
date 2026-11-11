@@ -199,7 +199,9 @@ reaches the processes of program `web` inside `site`.
 
 `kahi ctl remove site` takes a group out of management once all its processes
 are STOPPED, EXITED or FATAL; its config stays, and `kahi ctl add site` or the
-next reload brings it back from the config the daemon has loaded. Both act on
+next reload brings it back from the config the daemon has loaded. `kahi ctl remove
+--stop site` stops the group first and waits for it; `kahi ctl add --reload
+site` loads the config file first, as `kahi ctl update` does. Both act on
 groups only: `kahi ctl remove web` answers "web is in group site; use site".
 The API offers `POST /api/v1/groups/{name}/{add,remove}`, and each change
 publishes `PROCESS_GROUP_ADDED` or `PROCESS_GROUP_REMOVED` with `group` and the

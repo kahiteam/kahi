@@ -104,7 +104,7 @@ func TestManagerActivateGroup(t *testing.T) {
 	if err := mgr.ActivateGroup("web", cfg); err == nil || err.Error() != "group already active: web" {
 		t.Fatalf("activate active group: %v", err)
 	}
-	if err := mgr.DeactivateGroup("web", cfg); err != nil {
+	if err := mgr.DeactivateGroup("web", cfg, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := mgr.ActivateGroup("web", cfg); err != nil {
@@ -128,7 +128,7 @@ func TestManagerRemoveGroup(t *testing.T) {
 
 	// Process is in Stopped state, so removal should succeed.
 	cfg := &config.Config{Programs: map[string]config.ProgramConfig{"web": defaultProgramConfig()}}
-	if err := mgr.DeactivateGroup("web", cfg); err != nil {
+	if err := mgr.DeactivateGroup("web", cfg, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -147,7 +147,7 @@ func TestManagerRemoveGroup(t *testing.T) {
 func TestManagerRemoveGroupNonexistent(t *testing.T) {
 	mgr := NewManager(&MockSpawner{}, testBus(), testLogger())
 
-	err := mgr.DeactivateGroup("nonexistent", &config.Config{})
+	err := mgr.DeactivateGroup("nonexistent", &config.Config{}, false)
 	if err == nil {
 		t.Fatal("expected error for nonexistent group")
 	}
@@ -173,7 +173,7 @@ func TestManagerRemoveGroupRunningProcess(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	cfg := &config.Config{Programs: map[string]config.ProgramConfig{"web": defaultProgramConfig()}}
-	err := mgr.DeactivateGroup("web", cfg)
+	err := mgr.DeactivateGroup("web", cfg, false)
 	if err == nil || err.Error() != "group web has running processes, stop first" {
 		t.Fatalf("remove group with a running process: %v", err)
 	}

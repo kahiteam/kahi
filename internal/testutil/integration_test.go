@@ -55,8 +55,8 @@ func (m *mockConfigManager) PreviewReload() (config.ReloadResult, error) {
 	return config.ReloadResult{}, nil
 }
 
-func (m *mockConfigManager) AddGroup(string) error    { return nil }
-func (m *mockConfigManager) RemoveGroup(string) error { return nil }
+func (m *mockConfigManager) AddGroup(string) error          { return nil }
+func (m *mockConfigManager) RemoveGroup(string, bool) error { return nil }
 
 type mockDaemonInfo struct{}
 
