@@ -89,6 +89,11 @@ type ConfigManager interface {
 	GetConfig() any
 	Reload() (config.ReloadResult, error)
 	PreviewReload() (config.ReloadResult, error)
+	// AddGroup activates a group the loaded config defines that was removed
+	// at runtime; RemoveGroup removes a group whose processes are stopped
+	// (FUNC-011, ADR-034).
+	AddGroup(name string) error
+	RemoveGroup(name string, stop bool) error
 }
 
 // DaemonInfo describes the running daemon.
@@ -237,6 +242,8 @@ func (s *Server) buildMux() *http.ServeMux {
 	mux.HandleFunc("POST /api/v1/groups/{name}/start", s.requireAuth(s.handleStartGroup))
 	mux.HandleFunc("POST /api/v1/groups/{name}/stop", s.requireAuth(s.handleStopGroup))
 	mux.HandleFunc("POST /api/v1/groups/{name}/restart", s.requireAuth(s.handleRestartGroup))
+	mux.HandleFunc("POST /api/v1/groups/{name}/add", s.requireAuth(s.handleGroupChange(true)))
+	mux.HandleFunc("POST /api/v1/groups/{name}/remove", s.requireAuth(s.handleGroupChange(false)))
 
 	mux.HandleFunc("GET /api/v1/config", s.requireAuth(s.handleGetConfig))
 	mux.HandleFunc("POST /api/v1/config/reload", s.requireAuth(s.handleReloadConfig))
@@ -673,6 +680,36 @@ func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.groups.ListGroups())
 }
 
+// handleGroupChange adds or removes a group (FUNC-011): 404 for a name that
+// is not a group of the loaded config, 409 when the group is already active
+// or still has running processes, 409 SHUTTING_DOWN during shutdown.
+func (s *Server) handleGroupChange(add bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if s.daemon != nil && s.daemon.IsShuttingDown() {
+			writeError(w, http.StatusConflict, "daemon is shutting down", "SHUTTING_DOWN")
+			return
+		}
+		// ?stop=true stops the group's processes before removing it.
+		stop := r.URL.Query().Get("stop") == "true"
+		change := func(name string) error { return s.config.RemoveGroup(name, stop) }
+		status := "removed"
+		if add {
+			change, status = s.config.AddGroup, "added"
+		}
+		if err := change(name); err != nil {
+			if strings.Contains(err.Error(), "shutting down") {
+				writeError(w, http.StatusConflict, err.Error(), "SHUTTING_DOWN")
+				return
+			}
+			statusCode := classifyError(err)
+			writeError(w, statusCode, err.Error(), errorCode(statusCode))
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": status, "group": name})
+	}
+}
+
 func (s *Server) handleStartGroup(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if err := s.groups.StartGroup(name); err != nil {
@@ -727,7 +764,17 @@ func (s *Server) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := reload()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error(), "SERVER_ERROR")
+		// A config the daemon refuses is the request's problem, not the
+		// server's (FUNC-035).
+		statusCode := http.StatusInternalServerError
+		switch {
+		case strings.HasPrefix(err.Error(), "config error:"):
+			statusCode = http.StatusBadRequest
+		case strings.Contains(err.Error(), "shutting down"):
+			writeError(w, http.StatusConflict, err.Error(), "SHUTTING_DOWN")
+			return
+		}
+		writeError(w, statusCode, err.Error(), errorCode(statusCode))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -902,10 +949,15 @@ func classifyError(err error) int {
 	msg := err.Error()
 	switch {
 	case strings.Contains(msg, "no such process"),
-		strings.Contains(msg, "no such group"):
+		strings.Contains(msg, "no such group"),
+		strings.Contains(msg, "; use "):
 		return http.StatusNotFound
 	case strings.Contains(msg, "already started"),
-		strings.Contains(msg, "already running"):
+		strings.Contains(msg, "already running"),
+		strings.Contains(msg, "already active"),
+		strings.Contains(msg, "has running processes"),
+		strings.Contains(msg, "is still active"),
+		strings.Contains(msg, "did not stop"):
 		return http.StatusConflict
 	case strings.Contains(msg, "invalid signal"),
 		strings.Contains(msg, "not running"),

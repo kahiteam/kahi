@@ -954,6 +954,7 @@ This feature adds two complementary mechanisms:
 **Edge Cases:**
 
 - Removing a group does not delete its config; it just deactivates it
+- `kahi ctl remove --stop {group}` stops the group, waits up to each process's stopwaitsecs plus margin, then removes it; a process that does not stop fails it with "group {group}: process {name} did not stop" (409). `kahi ctl add --reload {group}` loads the config file first, as `kahi ctl update` does, then adds the group (one the reload added counts as added). Without the flags ctl appends a hint to the two errors: "(or use kahi ctl remove --stop)" and "(not in the loaded config; run kahi ctl update, or kahi ctl add --reload)" (decided 2026-11-11, so scripts written for the old commands have a direct replacement)
 - `kahi ctl add` uses the config the daemon last loaded (at startup or by the last reload); it does not read the config file. Edits not yet reloaded take effect with the next reload or `kahi ctl update` (ADR-034)
 - "Stopped" means every process of the group is STOPPED, EXITED or FATAL; STARTING, RUNNING, BACKOFF and STOPPING count as running
 - A removed group's processes leave status and the API until the group is added again. A reload, `kahi ctl update` or `kahi ctl add` brings it back; a reload reports it under "added"

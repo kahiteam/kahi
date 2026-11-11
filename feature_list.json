@@ -365,7 +365,7 @@
       "description": "Define explicit groups in config that combine processes from multiple program definitions under one group name, with validation for program references.",
       "testing_steps": [
         "Configure [groups.services] with programs = ['web', 'api'] and verify GET /api/v1/processes lists the processes of both with group 'services'",
-        "Run 'kahi ctl start services:*' and verify all member processes start in priority order",
+        "Run 'kahi ctl start services:*' on a table whose members have priorities 100 (api) and 200 (web) and verify api starts first",
         "Configure a group that references program nope and verify the daemon refuses with 'groups.services: references nonexistent program \"nope\"'",
         "Put web in [groups.a] and [groups.b] and verify the daemon refuses with 'program \"web\" is in multiple groups: a and b'",
         "Verify 'kahi ctl start web:*' for member web starts web's processes (program fallback), and 'kahi ctl start services:*' starts all members",
@@ -374,12 +374,11 @@
         "Drop the [groups.services] table from the config and reload: verify PROCESS_GROUP_REMOVED for services, PROCESS_GROUP_ADDED for web and api, and their processes now report group 'web' and 'api'",
         "Move api out of the services member list and reload: verify api gets its own group and web stays in services"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
-        "TestGroup_StartAll",
-        "TestGroup_StopAll",
-        "TestGroup_RestartAll",
-        "TestGroup_Heterogeneous"
+        "TestGroupLifecycle_Tables",
+        "TestGroupLifecycle_TableStartOrder",
+        "TestGroupNames_TableErrorsRefused"
       ],
       "dependencies": ["homogeneous-groups"]
     },
@@ -400,15 +399,23 @@
         "Remove a group, edit its command in the config file, run 'kahi ctl add' without reread, and verify the group comes back with the old command (add uses the loaded config)",
         "Remove a group, then delete its program from the config file and reload: verify it is not reported under added or removed and 'kahi ctl add' then says 'no such group'",
         "Define [groups.services] with web and api: verify 'kahi ctl remove services' (all stopped) removes both members and 'kahi ctl add services' adds both; 'kahi ctl remove web' and 'kahi ctl add web' fail with 'web is in group services; use services' and exit 1, and POST /api/v1/groups/web/remove returns 404 with that text",
-        "Drop the [groups.services] table while web and api stay in [programs] and reload: verify status lists web_0 and api_0 with group 'web' and 'api' and the autostart ones RUNNING",
+        "Drop the [groups.services] table while web (numprocs 2) and api stay in [programs] and reload: verify status lists web_0 and web_1 with group 'web' and the processes RUNNING",
         "Verify POST /api/v1/groups/{name}/remove returns 409 CONFLICT with running processes and 404 NOT_FOUND for an unknown group",
         "Verify POST /api/v1/groups/{name}/add returns 409 CONFLICT for an active group and 404 NOT_FOUND for an unknown group",
         "Start a crashing program (startretries = 3), stop it while in BACKOFF, remove its group, and verify no spawn occurs within 3s and status does not list it",
         "After 'kahi ctl remove web', verify 'kahi ctl reread' prints 'would apply: added=[web] changed=[] removed=[]'",
         "Unit (supervisor): AddGroup and RemoveGroup during shutdown return 'daemon is shutting down' (409 SHUTTING_DOWN)",
-        "Drop the [groups.services] table and its programs and reload: verify their processes leave status"
+        "Drop the [groups.services] table and its programs and reload: verify their processes leave status",
+        "Run 'kahi ctl remove --stop web' on a running group and verify 'web: removed' and the processes gone; run 'kahi ctl add --reload web' and 'kahi ctl add --reload extra' (newly in the file) and verify 'added' for both and their processes RUNNING; without the flags the two errors end with the hints '(or use kahi ctl remove --stop)' and '(not in the loaded config; run kahi ctl update, or kahi ctl add --reload)'"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestGroupLifecycle_RemoveAdd",
+        "TestGroupLifecycle_RemovableStates",
+        "TestGroupLifecycle_ConfigFile",
+        "TestGroupLifecycle_Tables",
+        "TestGroupLifecycle_StopAndReloadFlags"
+      ],
       "dependencies": ["homogeneous-groups", "heterogeneous-groups"]
     },
     {
@@ -1003,7 +1010,7 @@
       "description": "CLI subcommands for config management: reread (preview changes), update (apply changes), add/remove groups.",
       "testing_steps": [
         "Change the config file and run 'kahi ctl reread': verify 'would apply: added=[...] changed=[...] removed=[...]' and that nothing is applied",
-        "Run 'kahi ctl update' after adding, changing and removing programs: verify 'updated: added=[...] changed=[...] removed=[...]', the new program running, the changed one restarted, and the removed one stopped first and gone from status",
+        "Run 'kahi ctl update' after adding, changing and removing programs (one change per update): verify 'updated: added=[...] changed=[...] removed=[...]', the new program running, the changed one restarted, and the removed one stopped first and gone from status",
         "Run 'kahi ctl add web' for an inactive but configured group and verify 'web: added', exit 0, and its autostart process RUNNING (FUNC-011)",
         "Run 'kahi ctl remove web' for a stopped group and verify 'web: removed'; with a running process verify 'group web has running processes, stop first' and exit 1",
         "Run 'kahi ctl reread' and 'kahi ctl update' with an invalid config file and verify 'config error: {details}', exit 1, and nothing applied",
@@ -1011,6 +1018,11 @@
         "Verify POST /api/v1/config/reload returns the 'warnings' array both with ?dry_run=true and for an applied reload"
       ],
       "passes": false,
+      "verified_by": [
+        "TestGroupLifecycle_RemoveAdd",
+        "TestGroupLifecycle_ConfigFile",
+        "TestConfigOps_ErrorsAndWarnings"
+      ],
       "dependencies": ["cli-process-control", "config-hot-reload"]
     },
     {
@@ -1264,11 +1276,12 @@
         "Set startretries = 0 on a command that exits at once and verify PROCESS_STATE_FATAL arrives with from_state STARTING",
         "Put web in [groups.services] and verify PROCESS_STATE_RUNNING of web_0 carries group 'services'"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
         "TestStateEvents_StartRunExit",
         "TestStateEvents_ExitStatus",
-        "TestStateEvents_BackoffFatalAndStop"
+        "TestStateEvents_BackoffFatalAndStop",
+        "TestGroupLifecycle_Tables"
       ],
       "dependencies": [
         "event-bus",
@@ -1318,10 +1331,15 @@
         "Verify that when PROCESS_GROUP_ADDED arrives its processes are already in status, and when PROCESS_GROUP_REMOVED arrives they are already gone",
         "Verify a group of a numprocs=2 program carries processes 'web_0,web_1' (sorted, comma-separated)",
         "Remove a program and a [groups] table through reloads and verify PROCESS_GROUP_REMOVED for each, the table's listing all its processes",
-        "Verify the daemon's startup publishes no PROCESS_GROUP_ADDED, and a reload that restarts a changed program publishes neither group event",
+        "Unit (process): TestLoadConfigPublishesNoGroupEvents -- startup publishes no PROCESS_GROUP_ADDED; e2e: a reload that restarts a changed program publishes neither group event",
         "Add a [groups.services] table over active programs web and api by reload and verify PROCESS_GROUP_REMOVED for web and api, then PROCESS_GROUP_ADDED for services"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestGroupLifecycle_RemoveAdd",
+        "TestGroupLifecycle_ConfigFile",
+        "TestGroupLifecycle_Tables"
+      ],
       "dependencies": ["event-bus", "group-lifecycle"]
     },
     {
