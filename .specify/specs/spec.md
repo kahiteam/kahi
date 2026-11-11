@@ -22,7 +22,7 @@ Kahi is a modern process supervisor for POSIX systems, written in Go. It manages
 
 ### Conventions
 
-- **Signal names follow `<signal.h>`** (decided 2026-10-29): `SIGTERM`, `SIGKILL`, `SIGHUP`. Every output uses this form: `exitsignal` in the API, status and EXITED events, the `signal` field of the signal API response, `kahi ctl` output, log lines and error texts. Inputs (`stopsignal`, `kahi ctl signal`, the signal API body) accept the name with or without the `SIG` prefix (`TERM` or `SIGTERM`) and normalize it to the `SIG` form, so supervisord configs and existing kahi.toml files keep working. The default `stopsignal`, `kahi init` and the docs show the `SIG` form; `kahi migrate` writes it. Release-note item for v0.2.3.
+- **Signal names follow `<signal.h>`** (decided 2026-10-29): `SIGTERM`, `SIGKILL`, `SIGHUP`. Every output uses this form: `exitsignal` in the API, status and EXITED events, the `signal` field of the signal API response, `kahi ctl` output, log lines and error texts. Inputs (`stopsignal`, `kahi ctl signal`, the signal API body) accept the name with or without the `SIG` prefix (`TERM` or `SIGTERM`) and normalize it to the `SIG` form, so supervisord configs and existing kahi.toml files keep working. The default `stopsignal`, `kahi init` and the docs show the `SIG` form; `kahi migrate` writes it. Release-note item for v0.2.4.
 
 ---
 
@@ -1728,6 +1728,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 - `kahi ctl signal` takes one process; on a stopped process it reports "process not running: {name}"
 - `kahi ctl` without a subcommand prints help and exits 0
 - Exit codes for every `kahi` command (decided 2026-10-29): 0 success, 1 runtime failure, 2 usage error. Release-note item
+- start, stop and restart (also `all` and `name:*`) have no overall client time limit: the daemon bounds each process by its stopwaitsecs, so a bulk stop can take the sum of them. `--timeout {duration}` limits the wait; at the limit ctl exits 1 with "daemon still working after {duration}" and the daemon finishes the action. Connecting is bounded by 5 s; queries (status, pid, health, ready, version, tail without -f) by 30 s (#222)
 
 **Dependencies:** FUNC-026, INFRA-004, FUNC-083
 
@@ -1864,7 +1865,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Edge Cases:**
 
-- `kahi ctl avail` and `kahi ctl update <group>` are not in v0.2.3 (#161, v0.3.0)
+- `kahi ctl avail` and `kahi ctl update <group>` are not in v0.2.4 (#161, v0.3.0)
 - `reread`, `update` and `reload` print the new config's warnings (unknown keys, settings that are accepted but ignored) to stderr as `warning: ...`. The reload API returns them in a `warnings` array, for a preview (`?dry_run=true`) as well as an applied reload.
 
 **Dependencies:** FUNC-031, FUNC-014
@@ -2830,7 +2831,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 ### FUNC-066: Graceful Shutdown Orchestration
 
-**Description:** Stop all processes level by level in descending priority during shutdown, waiting for each priority level to stop before signalling the next, so that dependencies (for example a database at priority 100 behind applications at priority 300) outlive their dependents. Pulled into v0.2.3 (#151, decided 2026-10-29).
+**Description:** Stop all processes level by level in descending priority during shutdown, waiting for each priority level to stop before signalling the next, so that dependencies (for example a database at priority 100 behind applications at priority 300) outlive their dependents. Pulled into v0.2.4 (#151, decided 2026-10-29; the milestone was renamed from v0.2.3 on 2026-11-10, when v0.2.3 became a toolchain patch release from v0.2.2).
 
 **Acceptance Criteria:**
 
@@ -3352,7 +3353,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 - The first stream request carries no `Last-Event-ID`, so it streams live output only and the backlog read does not duplicate it (FUNC-027)
 - After a reconnect, `EventSource` sends `Last-Event-ID` and the server replays the output written while disconnected (FUNC-027, #155); no backlog re-read
 - A `gap` event first ends the pending partial line as a line, then shows a line "[{n} bytes not shown]"; a `reset` event does the same with "[log restarted]" and then renders the replay
-- The server closes a stream whose client falls 64 events behind; `EventSource` reconnects and resumes, so a fast writer no longer leaves silent gaps (v0.2.3)
+- The server closes a stream whose client falls 64 events behind; `EventSource` reconnects and resumes, so a fast writer no longer leaves silent gaps (v0.2.4)
 - With `strip_ansi = true` the backlog and the stream are both stripped: the stream publishes the chunk the capture writer stored, which its offsets count (FUNC-027)
 - The ring buffer is a fixed 64 KB by design (FUNC-082); making it configurable is #113 (v0.3.0)
 - The read endpoint ignores its `offset` parameter; the viewer does not use it
