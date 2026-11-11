@@ -12,6 +12,10 @@ vars:
   GORELEASER: go tool -modfile=tools/go.mod goreleaser
   GOVULNCHECK: go tool -modfile=tools/go.mod govulncheck
   GOLANGCI: ./bin/golangci-lint
+  # e2e tests run in parallel, each with its own daemon (#197). The limit
+  # keeps timing assertions stable under -race; override with
+  # `task test-e2e E2E_PARALLEL=n`.
+  E2E_PARALLEL: 4
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev
   COMMIT:
@@ -111,7 +115,7 @@ tasks:
   test-e2e:
     desc: Run end-to-end tests
     cmds:
-      - '{{.GOTESTSUM}} --format testdox --junitfile e2e-results.xml -- -race -count=1 -timeout=15m -tags=e2e ./...'
+      - '{{.GOTESTSUM}} --format testdox --junitfile e2e-results.xml -- -race -count=1 -timeout=15m -parallel={{.E2E_PARALLEL}} -tags=e2e ./...'
 
   e2e-coverage:
     desc: Run end-to-end tests against a coverage build and report per-package coverage of the binary
@@ -119,7 +123,7 @@ tasks:
       KAHI_E2E_COVERDIR: '{{.ROOT_DIR}}/.task/e2e-cover'
     cmds:
       - rm -rf .task/e2e-cover
-      - '{{.GOTESTSUM}} --format testdox --junitfile e2e-results.xml -- -race -count=1 -timeout=15m -tags=e2e ./...'
+      - '{{.GOTESTSUM}} --format testdox --junitfile e2e-results.xml -- -race -count=1 -timeout=15m -parallel={{.E2E_PARALLEL}} -tags=e2e ./...'
       - ./scripts/e2e-coverage.sh .task/e2e-cover
 
   setup:

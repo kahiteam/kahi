@@ -73,6 +73,7 @@ MY_VAR = "configured-value"
 }
 
 func TestEnv_ProgramOverridesGlobal(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "override.sh", "echo SHARED=$SHARED_VAR\nexec sleep 300")
 
@@ -101,6 +102,7 @@ SHARED_VAR = "program-value"
 }
 
 func TestEnv_ProgramNameExpansion(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "expander.sh", "echo NAME=$PROC_NAME NUM=$PROC_NUM\nexec sleep 300")
 
@@ -133,6 +135,7 @@ PROC_NUM = "%(process_num)d"
 }
 
 func TestEnv_HereExpansion(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "here.sh", "echo HERE=$HERE_DIR\nexec sleep 300")
 
@@ -162,6 +165,7 @@ HERE_DIR = "%(here)s"
 // A program defined in an included file gets %(here)s set to that file's
 // directory, so the daemon finds a script that sits next to it (#109).
 func TestEnv_HereExpansionInIncludedFile(t *testing.T) {
+	t.Parallel()
 	dir, err := os.MkdirTemp("", "k-")
 	if err != nil {
 		t.Fatalf("temp dir: %v", err)
@@ -204,6 +208,7 @@ stopwaitsecs = 2
 // With numprocs > 1, %(process_num)d in log paths and arguments is each
 // instance's own number, so instances do not share a log file (#128).
 func TestEnv_ProcessNumPerInstance(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	logDir := filepath.Join(dir, "logs")
 	if err := os.MkdirAll(logDir, 0755); err != nil {

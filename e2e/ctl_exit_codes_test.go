@@ -45,6 +45,7 @@ func wantRun(t *testing.T, what string, stdout, stderr string, code, wantCode in
 }
 
 func TestCtlExit_StartStop(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, ctlPrograms)
 
 	out, errOut, code := runCtl(t, socket, "start", "web")
@@ -64,6 +65,7 @@ func TestCtlExit_StartStop(t *testing.T) {
 
 // One failing target does not stop the others, and the command exits 1.
 func TestCtlExit_PartialFailure(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, ctlPrograms)
 
 	out, errOut, code := runCtl(t, socket, "start", "nonexistent", "web")
@@ -78,6 +80,7 @@ func TestCtlExit_PartialFailure(t *testing.T) {
 }
 
 func TestCtlExit_Groups(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, `
 [programs.web]
 command = "/bin/sleep 300"
@@ -98,6 +101,7 @@ numprocs = 2
 
 // all goes through the ordered bulk API with one line per process.
 func TestCtlExit_All(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, `
 [programs.a]
 command = "/bin/sleep 300"
@@ -150,6 +154,7 @@ priority = 3
 
 // all cannot be mixed with other names; a program named all is all:*.
 func TestCtlExit_AllWithNames(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, `
 [programs.all]
 command = "/bin/sleep 300"
@@ -174,6 +179,7 @@ startsecs = 0
 }
 
 func TestCtlExit_SignalErrors(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, `
 [programs.web]
 command = "/bin/sleep 300"
@@ -192,6 +198,7 @@ startsecs = 0
 }
 
 func TestCtlExit_NoDaemon(t *testing.T) {
+	t.Parallel()
 	socket := filepath.Join(shortTempDir(t), "none.sock")
 	_, errOut, code := runCtl(t, socket, "status")
 	if code != 1 || !strings.Contains(errOut, "connection failed") {
@@ -201,6 +208,7 @@ func TestCtlExit_NoDaemon(t *testing.T) {
 
 // Usage errors exit 2 for every command; kahi ctl alone prints help.
 func TestCtlExit_UsageErrors(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	out, errOut, code := runKahi(t, dir, "ctl")
 	if code != 0 || !strings.Contains(out, "Send commands to a running Kahi daemon") || errOut != "" {

@@ -58,6 +58,7 @@ func socketRefused(t *testing.T, unix, want string) {
 // A path of exactly the platform limit works; one byte more is a config
 // error naming the path.
 func TestUnixSocket_PathLimit(t *testing.T) {
+	t.Parallel()
 	dir := shortTempDir(t)
 	limit := maxSocketPath()
 	pad := limit - len(dir) - 1
@@ -76,6 +77,7 @@ func TestUnixSocket_PathLimit(t *testing.T) {
 // chmod sets the socket's mode; anything group or others could use, and
 // chown, are refused (SEC-022).
 func TestUnixSocket_ModeAndOwnership(t *testing.T) {
+	t.Parallel()
 	dir := shortTempDir(t)
 	sock := filepath.Join(dir, "kahi.sock")
 	socketDaemon(t, dir, fmt.Sprintf("file = %q\nchmod = \"0600\"", sock))
@@ -91,6 +93,7 @@ func TestUnixSocket_ModeAndOwnership(t *testing.T) {
 // removes the socket; a SIGKILLed daemon leaves it, and the next start
 // replaces it.
 func TestUnixSocket_StaleAndCleanup(t *testing.T) {
+	t.Parallel()
 	dir := shortTempDir(t)
 	sock := filepath.Join(dir, "kahi.sock")
 

@@ -9,6 +9,7 @@ import (
 )
 
 func TestState_AutorestartTrue(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.shortlived]
 command = "`+binFalse+`"
@@ -31,6 +32,7 @@ startretries = 3
 }
 
 func TestState_AutorestartFalse(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// Script must survive past startsecs (defaults to 1) to reach RUNNING,
 	// then exit cleanly to test autorestart="false".
@@ -57,6 +59,7 @@ autorestart = "false"
 }
 
 func TestState_AutorestartUnexpected(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.unexpected]
 command = "`+binFalse+`"
@@ -73,6 +76,7 @@ startretries = 3
 }
 
 func TestState_BackoffToFatal(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.failing]
 command = "`+binFalse+`"
@@ -86,6 +90,7 @@ startretries = 2
 }
 
 func TestState_ExpectedExitCode(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// Script must survive past startsecs (defaults to 1) to reach RUNNING.
 	script := writeScript(t, dir, "exit2.sh", "sleep 2\nexit 2")
@@ -111,6 +116,7 @@ exitcodes = [0, 2]
 }
 
 func TestState_UnexpectedExitCode(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.unexp]
 command = "`+binFalse+`"
@@ -126,6 +132,7 @@ startretries = 2
 }
 
 func TestState_KilledDuringBackoff(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.backoff]
 command = "`+binFalse+`"
@@ -144,6 +151,7 @@ startretries = 10
 }
 
 func TestState_ConcurrentStartStop(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.concurrent]
 command = "/bin/sleep 300"
@@ -167,6 +175,7 @@ startsecs = 0
 }
 
 func TestState_NumprocsExpansion(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.worker]
 command = "/bin/sleep 300"
@@ -183,6 +192,7 @@ startsecs = 0
 }
 
 func TestState_Priority(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.low]
 command = "/bin/sleep 300"
@@ -218,6 +228,7 @@ priority = 999
 
 // autorestart accepts the TOML booleans: true restarts, false does not (#181).
 func TestState_AutorestartBool(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	restartRuns := filepath.Join(dir, "restart")
 	onceRuns := filepath.Join(dir, "once")

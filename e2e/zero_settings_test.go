@@ -25,6 +25,7 @@ func countLines(path string) int {
 // startretries = 0: a program that fails to start goes FATAL after its
 // first attempt; the default of 3 would retry it.
 func TestZero_StartretriesNoRetry(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runs := filepath.Join(dir, "runs")
 	script := writeScript(t, dir, "fail.sh", "echo run >> "+runs+"\nexit 1")
@@ -46,6 +47,7 @@ autorestart = "false"
 // exitcodes = []: no exit status is expected, so with autorestart =
 // "unexpected" even exit 0 restarts the program; the default [0] would not.
 func TestZero_EmptyExitcodesRestartOnAnyExit(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runs := filepath.Join(dir, "runs")
 	script := writeScript(t, dir, "once.sh", "echo run >> "+runs+"\nsleep 1\nexit 0")
@@ -69,6 +71,7 @@ exitcodes = []
 // *_logfile_backups = 0: rotation empties the log in place and keeps no
 // backup files.
 func TestZero_LogfileBackupsKeepsNone(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "out.log")
 	script := writeScript(t, dir, "chatty.sh", "while true; do echo 0123456789012345678901234567890123456789; sleep 0.02; done")
@@ -104,6 +107,7 @@ stdout_logfile_backups = 0
 
 // Zero where it is unsafe is a config error: the daemon does not start.
 func TestZero_UnsafeValuesRefused(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, config, want string
 	}{

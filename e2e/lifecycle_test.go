@@ -91,6 +91,7 @@ func postAPI(t *testing.T, socketPath, path string) (int, string) {
 
 // A process is RUNNING only after startsecs: it is STARTING before.
 func TestLifecycle_StartsecsLowerBound(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.slow]
 command = "/bin/sleep 300"
@@ -115,6 +116,7 @@ startsecs = 2
 // FATAL. autorestart does not apply before RUNNING: autorestart = true does
 // not add spawns.
 func TestLifecycle_RetriesToFatal(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runs := filepath.Join(dir, "runs")
 	script := writeScript(t, dir, "fail.sh", "echo run >> "+runs+"\nexit 1")
@@ -141,6 +143,7 @@ startretries = 2
 // fails, one that reaches RUNNING and exits, then two failures is 4 spawns.
 // Without the reset the third spawn would already be FATAL.
 func TestLifecycle_RetryCountResetsAfterRunning(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runs := filepath.Join(dir, "runs")
 	script := writeScript(t, dir, "flaky.sh", fmt.Sprintf(`echo run >> %s
@@ -164,6 +167,7 @@ startretries = 1
 
 // Backoff delays double: 1s, 2s, 4s between attempts.
 func TestLifecycle_BackoffDelaysDouble(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runs := filepath.Join(dir, "runs")
 	script := writeScript(t, dir, "fail.sh", "echo run >> "+runs+"\nexit 1")
@@ -202,6 +206,7 @@ startretries = 3
 // The backoff delay stops doubling at 60s: the seventh delay is 60s, not
 // 64s. The test sits through 1+2+4+8+16+32+60s of backoff.
 func TestLifecycle_BackoffCappedAt60s(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runs := filepath.Join(dir, "runs")
 	script := writeScript(t, dir, "fail.sh", "echo run >> "+runs+"\nexit 1")
@@ -240,6 +245,7 @@ startretries = 7
 // A stop shows STOPPING until the child is gone; a second stop meanwhile is
 // ignored; a stop of a stopped process is an error.
 func TestLifecycle_StoppingVisible(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ready := filepath.Join(dir, "ready")
 	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\necho ready > "+ready+"\nexec sleep 300")
@@ -270,6 +276,7 @@ stopwaitsecs = 3
 // A child that exits on its own while STOPPING ends STOPPED, not EXITED: a
 // stop was requested, so the exit completes it (#177).
 func TestLifecycle_ExitDuringStoppingIsStopped(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ready := filepath.Join(dir, "ready")
 	script := writeScript(t, dir, "late.sh", "trap '' TERM\necho ready > "+ready+"\nsleep 2\nexit 3")
@@ -299,6 +306,7 @@ stopwaitsecs = 20
 
 // The command is exec'd without a shell, in its own process group.
 func TestLifecycle_ExecWithoutShell(t *testing.T) {
+	t.Parallel()
 	client, _ := startDaemon(t, `
 [programs.echo]
 command = "/bin/echo a;b *"
@@ -347,6 +355,7 @@ startsecs = 0
 // Every child gets SUPERVISOR_ENABLED, SUPERVISOR_PROCESS_NAME and
 // SUPERVISOR_GROUP_NAME, also with clean_environment.
 func TestLifecycle_SupervisorEnv(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "env.sh", "echo \"E=$SUPERVISOR_ENABLED P=$SUPERVISOR_PROCESS_NAME G=$SUPERVISOR_GROUP_NAME\"\nexec sleep 300")
 
@@ -362,6 +371,7 @@ clean_environment = true
 
 // A process that cannot be spawned is FATAL and its status says why.
 func TestLifecycle_SpawnErrors(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	notExec := filepath.Join(dir, "notexec")
 	if err := os.WriteFile(notExec, []byte("#!/bin/sh\n"), 0o644); err != nil {
@@ -404,6 +414,7 @@ startretries = 0
 
 // Starting a started process is a 409 with the documented message.
 func TestLifecycle_StartErrorText(t *testing.T) {
+	t.Parallel()
 	client, socketPath := startDaemon(t, `
 [programs.sleeper]
 command = "/bin/sleep 300"
@@ -423,6 +434,7 @@ startsecs = 0
 // The stop signal is delivered to the child: TERM by default, stopsignal
 // otherwise.
 func TestLifecycle_StopSignalDelivered(t *testing.T) {
+	t.Parallel()
 	for _, sig := range []string{"TERM", "INT", "USR1"} {
 		t.Run(sig, func(t *testing.T) {
 			dir := t.TempDir()
@@ -455,6 +467,7 @@ stopwaitsecs = 10
 // stopasgroup signals the whole process group, killasgroup SIGKILLs it on
 // escalation; without them a grandchild outlives the stop.
 func TestLifecycle_StopAsGroup(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, trap, settings string
 		grandchildDies       bool
@@ -496,6 +509,7 @@ startsecs = 0
 // autorestart after RUNNING: true restarts on any exit, unexpected only on
 // an exit code not in exitcodes, false never.
 func TestLifecycle_AutorestartAfterRunning(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, autorestart string
 		exit              int
@@ -536,6 +550,7 @@ exitcodes = [0, 2]
 
 // A stopped process is never autorestarted.
 func TestLifecycle_NoRespawnAfterStop(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runs := filepath.Join(dir, "runs")
 	script := writeScript(t, dir, "run.sh", "echo run >> "+runs+"\nexec sleep 300")
@@ -563,6 +578,7 @@ autorestart = "true"
 
 // Daemon shutdown does not autorestart a child that exits on SIGTERM.
 func TestLifecycle_NoRespawnDuringShutdown(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runs := filepath.Join(dir, "runs")
 	script := writeScript(t, dir, "run.sh", "echo run >> "+runs+"\ntrap 'exit 1' TERM\nwhile true; do sleep 0.1; done")
@@ -591,6 +607,7 @@ autorestart = "true"
 
 // Invalid lifecycle settings are config errors.
 func TestLifecycle_ConfigErrors(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, config, want string
 	}{
@@ -626,6 +643,7 @@ func TestLifecycle_ConfigErrors(t *testing.T) {
 // Children that exit at the same moment are each reaped with their own exit
 // status.
 func TestLifecycle_SimultaneousExits(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	var cfg strings.Builder
 	for i := 1; i <= 5; i++ {

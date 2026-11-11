@@ -32,6 +32,7 @@ func stubbornPrograms(t *testing.T, n, stopwaitsecs int) (string, []string) {
 
 // Two stops of 16 s each take longer than the old 30 s client limit.
 func TestCtlTimeout_StopAllOutlasts30s(t *testing.T) {
+	t.Parallel()
 	cfg, ready := stubbornPrograms(t, 2, 16)
 	client, socket := startDaemon(t, cfg)
 	for i, marker := range ready {
@@ -52,6 +53,7 @@ func TestCtlTimeout_StopAllOutlasts30s(t *testing.T) {
 
 // --timeout bounds the wait; the daemon keeps working on the action.
 func TestCtlTimeout_Flag(t *testing.T) {
+	t.Parallel()
 	cfg, ready := stubbornPrograms(t, 1, 5)
 	client, socket := startDaemon(t, cfg)
 	waitForState(t, client, "s0", "RUNNING", 5*time.Second)

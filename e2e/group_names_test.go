@@ -32,6 +32,7 @@ func groupMembers(t *testing.T, socket, group string) []string {
 }
 
 func TestGroupNames_ProgramIsGroup(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, `
 [programs.web]
 command = "/bin/sleep 300"
@@ -65,6 +66,7 @@ func writeConfig(t *testing.T, dir, body string) string {
 }
 
 func TestGroupNames_CollisionRefused(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	cfg := writeConfig(t, dir, `
 [programs.web]
@@ -83,6 +85,7 @@ programs = ["api"]
 }
 
 func TestGroupNames_IncludeRedefinesProgram(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "conf.d"), 0o755); err != nil {
 		t.Fatal(err)

@@ -103,6 +103,7 @@ startsecs = 0
 `
 
 func TestCLI_HealthOK(t *testing.T) {
+	t.Parallel()
 	client, socketPath := startDaemon(t, stableProgram)
 	waitForState(t, client, "web", "RUNNING", 5*time.Second)
 
@@ -115,6 +116,7 @@ func TestCLI_HealthOK(t *testing.T) {
 // A socket that accepts and drops connections stands in for a daemon that
 // does not respond.
 func TestCLI_HealthNotResponsive(t *testing.T) {
+	t.Parallel()
 	dir, err := os.MkdirTemp("", "k-")
 	if err != nil {
 		t.Fatal(err)
@@ -143,6 +145,7 @@ func TestCLI_HealthNotResponsive(t *testing.T) {
 }
 
 func TestCLI_HealthCannotConnect(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	_, stderr, code := runKahi(t, dir, "ctl", "-s", filepath.Join(dir, "missing.sock"), "health")
 	if code != 1 || !strings.Contains(stderr, "connection failed") {
@@ -151,6 +154,7 @@ func TestCLI_HealthCannotConnect(t *testing.T) {
 }
 
 func TestCLI_Ready(t *testing.T) {
+	t.Parallel()
 	client, socketPath := startDaemon(t, stableProgram)
 	waitForState(t, client, "web", "RUNNING", 5*time.Second)
 	waitForState(t, client, "api", "RUNNING", 5*time.Second)
@@ -167,6 +171,7 @@ func TestCLI_Ready(t *testing.T) {
 }
 
 func TestCLI_ReadyPending(t *testing.T) {
+	t.Parallel()
 	client, socketPath := startDaemon(t, `
 [programs.slow]
 command = "/bin/sleep 300"
@@ -225,6 +230,7 @@ func checkAligned(t *testing.T, out string) {
 }
 
 func TestCLI_StatusPipedHasNoColour(t *testing.T) {
+	t.Parallel()
 	socketPath := statusDaemon(t)
 
 	out, _, code := runKahi(t, t.TempDir(), "ctl", "-s", socketPath, "status")
@@ -238,6 +244,7 @@ func TestCLI_StatusPipedHasNoColour(t *testing.T) {
 }
 
 func TestCLI_StatusTerminalColours(t *testing.T) {
+	t.Parallel()
 	socketPath := statusDaemon(t)
 
 	out := runKahiTTY(t, "ctl", "-s", socketPath, "status")
@@ -255,6 +262,7 @@ func TestCLI_StatusTerminalColours(t *testing.T) {
 }
 
 func TestCLI_StatusJSON(t *testing.T) {
+	t.Parallel()
 	socketPath := statusDaemon(t)
 
 	out, _, code := runKahi(t, t.TempDir(), "ctl", "-s", socketPath, "status", "--json")
@@ -265,6 +273,7 @@ func TestCLI_StatusJSON(t *testing.T) {
 }
 
 func TestCLI_SendWritesLineToStdin(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	script := writeScript(t, dir, "cat.sh", "while IFS= read -r line; do printf 'got:%s\\n' \"$line\"; done")
 	client, socketPath := startDaemon(t, `
@@ -311,6 +320,7 @@ stderr_events_enabled=true
 `
 
 func TestCLI_MigrateToStdout(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "supervisord.conf"), []byte(supervisordConf), 0644); err != nil {
 		t.Fatal(err)
@@ -349,6 +359,7 @@ func TestCLI_MigrateToStdout(t *testing.T) {
 }
 
 func TestCLI_MigrateOutputFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "supervisord.conf"), []byte(supervisordConf), 0644); err != nil {
 		t.Fatal(err)
@@ -368,6 +379,7 @@ func TestCLI_MigrateOutputFile(t *testing.T) {
 }
 
 func TestCLI_MigrateErrors(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "bad.conf"), []byte("this is not ini\n"), 0644); err != nil {
 		t.Fatal(err)

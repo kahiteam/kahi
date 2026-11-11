@@ -62,6 +62,7 @@ func TestUnprivileged_DefaultSocketDir(t *testing.T) {
 
 // A socket path the user cannot write to stops the daemon with the reason.
 func TestUnprivileged_UnwritableSocketPathRefused(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root can write anywhere")
 	}

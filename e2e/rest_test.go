@@ -80,6 +80,7 @@ func (r apiResponse) wantError(t *testing.T, what string, status int, msg, code 
 }
 
 func TestREST_ProcessEndpoints(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "hup")
 	ready := filepath.Join(dir, "ready")
@@ -170,6 +171,7 @@ stopwaitsecs = 2
 
 // POST /api/v1/config/reload re-reads the file and returns the diff.
 func TestREST_Reload(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, `
 [programs.old]
 command = "/bin/sleep 300"
@@ -196,6 +198,7 @@ startsecs = 0
 
 // POST /api/v1/shutdown starts a graceful shutdown.
 func TestREST_Shutdown(t *testing.T) {
+	t.Parallel()
 	_, _, done, _, socket := shutdownDaemon(t, 10, `
 [programs.worker]
 command = "/bin/sleep 300"
@@ -228,6 +231,7 @@ func getReadyz(t *testing.T, socket, query string, status int) readyz {
 }
 
 func TestReadyz_States(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	client, socket := startDaemon(t, `
 [programs.web]
@@ -297,6 +301,7 @@ startretries = 0
 
 // An autostart program that went FATAL keeps the daemon not ready.
 func TestReadyz_FatalAutostartNotReady(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	client, socket := startDaemon(t, `
 [programs.web]
@@ -318,6 +323,7 @@ startretries = 0
 
 // /readyz needs no credentials on the TCP listener.
 func TestReadyz_NoAuthOnTCP(t *testing.T) {
+	t.Parallel()
 	d := startWebUIDaemon(t, false)
 	resp, body := webRequest(t, webClient, http.MethodGet, d.base+"/readyz", false)
 	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"status":"ready"`) {

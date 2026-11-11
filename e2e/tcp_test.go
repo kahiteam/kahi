@@ -40,6 +40,7 @@ func expectRefused(t *testing.T, configTOML string, want ...string) string {
 // valid Basic auth is processed, a missing or wrong one is 401 with a JSON
 // body and a Basic challenge. The Unix socket needs no credentials.
 func TestTCP_ServesAPIWithCreds(t *testing.T) {
+	t.Parallel()
 	d := startWebUIDaemon(t, false)
 
 	resp, body := webRequest(t, webClient, http.MethodGet, d.base+"/api/v1/processes", true)
@@ -110,6 +111,7 @@ func TestTCP_PlaintextPasswordRefused(t *testing.T) {
 
 // A malformed listen address is a config error (#176).
 func TestTCP_InvalidListenAddress(t *testing.T) {
+	t.Parallel()
 	hash := hashPassword(t, "secret")
 	for _, listen := range []string{"notanaddr", "127.0.0.1:99999"} {
 		t.Run(listen, func(t *testing.T) {
@@ -121,6 +123,7 @@ func TestTCP_InvalidListenAddress(t *testing.T) {
 
 // A port that is already in use stops the daemon with the bind error.
 func TestTCP_PortInUse(t *testing.T) {
+	t.Parallel()
 	addr := fmt.Sprintf("127.0.0.1:%d", testutil.FreeTCPPort(t))
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {

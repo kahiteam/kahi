@@ -53,6 +53,7 @@ func bulkByName(rs []bulkResult) map[string]bulkResult {
 // exit before signalling the next; restart reports one entry per process in
 // start order. autostart = false programs are included.
 func TestBulk_Order(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	events := filepath.Join(dir, "events")
 	var cfg strings.Builder
@@ -108,6 +109,7 @@ func TestBulk_Order(t *testing.T) {
 // all/start skips what is already up, refuses a stopping process, starts
 // stopped, exited and fatal ones, and goes on after an error.
 func TestBulk_StartPerState(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	stubborn := writeScript(t, dir, "stubborn.sh", "trap '' TERM\necho ready > "+filepath.Join(dir, "ready")+"\nexec sleep 300")
 	exits := writeScript(t, dir, "exits.sh", "exit 0")
@@ -193,6 +195,7 @@ autostart = false
 // that ignores TERM within stopwaitsecs. slowstop has the highest priority, so
 // the descending stop reaches it first, while it is still STOPPING.
 func TestBulk_StopPerState(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	terms := filepath.Join(dir, "terms")
 	slowStop := writeScript(t, dir, "slow.sh",
@@ -275,6 +278,7 @@ stopwaitsecs = 1
 // One bulk action at a time: a second one gets 409 CONFLICT. A client that
 // disconnects does not leave the bulk lock held.
 func TestBulk_ConflictAndDisconnect(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ignoresTerm := writeScript(t, dir, "ignores.sh", "trap '' TERM\necho ready > "+filepath.Join(dir, "ready")+"\nexec sleep 300")
 	client, socket := startDaemon(t, `
@@ -325,6 +329,7 @@ stopwaitsecs = 3
 // During shutdown a bulk call is 409 SHUTTING_DOWN, also while another bulk
 // call holds the lock.
 func TestBulk_ShuttingDown(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ignoresTerm := writeScript(t, dir, "ignores.sh", "trap '' TERM\necho ready > "+filepath.Join(dir, "ready")+"\nexec sleep 300")
 	_, _, done, client, socket := shutdownDaemon(t, 10, `
@@ -362,6 +367,7 @@ stopwaitsecs = 3
 // With no programs every bulk action returns an empty list; unknown actions
 // are 404 and other methods 405.
 func TestBulk_EmptyAndRoutes(t *testing.T) {
+	t.Parallel()
 	_, socket := startDaemon(t, "")
 	for _, action := range []string{"start", "stop", "restart"} {
 		r := apiDo(t, socket, "POST", "/api/v1/all/"+action, "")
@@ -378,6 +384,7 @@ func TestBulk_EmptyAndRoutes(t *testing.T) {
 // Over TCP a bulk call needs credentials, and a cross-site request is refused
 // before it runs.
 func TestBulk_AuthAndCrossOrigin(t *testing.T) {
+	t.Parallel()
 	d := startWebUIDaemon(t, false)
 	resp, body := webRequest(t, webClient, http.MethodPost, d.base+"/api/v1/all/stop", false)
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -405,6 +412,7 @@ func TestBulk_AuthAndCrossOrigin(t *testing.T) {
 
 // A program named "all" is a process, not the bulk route.
 func TestBulk_ProcessNamedAll(t *testing.T) {
+	t.Parallel()
 	client, socket := startDaemon(t, `
 [programs.all]
 command = "/bin/sleep 300"
