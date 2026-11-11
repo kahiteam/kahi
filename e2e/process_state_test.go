@@ -3,31 +3,38 @@
 package e2e
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestState_AutorestartTrue(t *testing.T) {
 	t.Parallel()
-	client, _ := startDaemon(t, `
+	// The program exits at once with status 1; autorestart=true keeps
+	// restarting it. A single state sample can land between an exit and its
+	// restart, so count the starts instead: each run appends to a file.
+	dir := t.TempDir()
+	starts := filepath.Join(dir, "starts")
+	script := writeScript(t, dir, "fail.sh", "echo start >> "+starts+"\nexit 1")
+	startDaemon(t, `
 [programs.shortlived]
-command = "`+binFalse+`"
+command = "`+script+`"
 autostart = true
 autorestart = "true"
 startsecs = 0
 startretries = 3
 `)
-	// Process exits immediately, should be restarted because autorestart=true.
-	// Wait a bit for at least one restart cycle.
-	time.Sleep(2 * time.Second)
-	info, err := getProcessInfo(client, "shortlived")
-	if err != nil {
-		t.Fatalf("get info: %v", err)
-	}
-	// Should be in STARTING, RUNNING, or BACKOFF (actively restarting).
-	if info.State == "STOPPED" || info.State == "EXITED" {
-		t.Fatalf("state = %s, want active restart cycle (autorestart=true)", info.State)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		b, _ := os.ReadFile(starts)
+		if n := strings.Count(string(b), "start"); n >= 3 {
+			return
+		} else if time.Now().After(deadline) {
+			t.Fatalf("started %d times in 5s, want at least 3 (autorestart=true)", n)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
