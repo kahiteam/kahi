@@ -1017,7 +1017,7 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 **Date:** 2026-10-29
 **Status:** Accepted
 
-**Context:** FUNC-066, #151, pulled into v0.2.3 on 2026-10-29. `Manager.StopAll` closes `shutdownCh` and signals every stoppable process back to back; `Supervisor.waitForShutdown` then waits for the whole set up to `shutdown_timeout`, reaping on SIGCHLD and on a 100 ms tick, and SIGKILLs everything on timeout or a second signal (#91). Reaping happens only in the supervisor's goroutine, so waiting for a level must happen there too.
+**Context:** FUNC-066, #151, pulled into v0.2.3 on 2026-10-29 (that milestone is v0.2.4 since 2026-11-10). `Manager.StopAll` closes `shutdownCh` and signals every stoppable process back to back; `Supervisor.waitForShutdown` then waits for the whole set up to `shutdown_timeout`, reaping on SIGCHLD and on a 100 ms tick, and SIGKILLs everything on timeout or a second signal (#91). Reaping happens only in the supervisor's goroutine, so waiting for a level must happen there too.
 
 **Decision:**
 
@@ -1052,7 +1052,7 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 
 **Alternatives Considered:**
 
-1. **Typed event structs instead of string maps:** Rejected for v0.2.3 -- every subscriber and the SSE encoder use the map; a typed payload is a 0.3.0 change with listeners and webhooks (#106).
+1. **Typed event structs instead of string maps:** Rejected for v0.2.4 -- every subscriber and the SSE encoder use the map; a typed payload is a 0.3.0 change with listeners and webhooks (#106).
 
 **Consequences:** SSE clients gain fields; existing fields are unchanged.
 
@@ -1115,6 +1115,8 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 
 **Alternatives Considered:** A `--keep-going` flag -- rejected; every target is attempted already, only the exit code changes.
 
+**Timeouts (#222, 2026-11-10):** the ctl HTTP client has no overall timeout. Every connection is bounded by a 5 s dial timeout; queries run under a 30 s request context; start/stop/restart (also `all` and groups) run under no context deadline unless `--timeout` sets one, and its expiry is reported as "daemon still working after {timeout}". The daemon already bounds each wait (stopwaitsecs, SIGKILL, then an error result), so a fixed client limit only cut off bulk actions that were still progressing. A progress stream with an inactivity limit is the v0.3.0 alternative (it changes the FUNC-083 response).
+
 **Consequences:** Scripts that ignored errors now see exit 1. Release-note item.
 
 ### ADR-036: Group Name Collision Check
@@ -1158,7 +1160,7 @@ Only after step 6 passes are the Web UI feature_list entries marked `passes: tru
 
 ---
 
-### Implementation Sequencing (v0.2.3: #149 and #162 in full)
+### Implementation Sequencing (v0.2.4: #149 and #162 in full)
 
 Each step is one PR, tested red first, with e2e proof against the binary and the feature_list entries it completes; `GOOS=linux go vet -tags=e2e ./e2e/` before pushing.
 
@@ -1174,7 +1176,7 @@ Each step is one PR, tested red first, with e2e proof against the binary and the
 10. **E2E only:** config-search-paths, daemon-config-search-excludes-cwd, config-migration-tool and migration-validation, and the security entries (config-api-secret-redaction, log-open-symlink-hardening, control-socket-owner-only-lockdown, unix-socket-owner-only-at-bind, socket-dir-probe-no-follow, api-cross-origin-protection, web-ui-auth-output-encoding); child-process-isolation.
 11. **Root steps in a container** (ADR-037, the shared helper is part of root-detection-warning): root-detection-warning, spawn-rlimit-umask-application, clean-env-privilege-differentiated-children.
 
-**Dependencies on entries outside these steps.** v0.2.3 also needs the #136 re-check (heterogeneous-groups is scheduled above; config-hot-reload, signal-sighup-reload, log-reopen-sigusr2, signal-sigusr2-log-reopen, http-basic-auth and config-include-system stay with #136) and the root entries' own dependencies, which step 11 proves together with them in the container: privilege-dropping (root-detection-warning), resource-limits and process-umask (spawn-rlimit-umask-application), per-process-user-switching (clean-env-privilege-differentiated-children). Passing entries that depend on failing ones (25 pairs at this change), by the step that resolves the failing side:
+**Dependencies on entries outside these steps.** v0.2.4 also needs the #136 re-check (heterogeneous-groups is scheduled above; config-hot-reload, signal-sighup-reload, log-reopen-sigusr2, signal-sigusr2-log-reopen, http-basic-auth and config-include-system stay with #136) and the root entries' own dependencies, which step 11 proves together with them in the container: privilege-dropping (root-detection-warning), resource-limits and process-umask (spawn-rlimit-umask-application), per-process-user-switching (clean-env-privilege-differentiated-children). Passing entries that depend on failing ones (25 pairs at this change), by the step that resolves the failing side:
 
 - step 3 (cli-process-control): cli-status-display, cli-log-tailing, cli-daemon-operations, cli-health-check
 - step 5 (event-bus): tick-events
@@ -1187,4 +1189,4 @@ Each step is one PR, tested red first, with e2e proof against the binary and the
 - group-lifecycle uses `kahi ctl update`, but config-hot-reload depends on group-lifecycle, so no reverse dependency is recorded; step 6 covers the reload steps it needs
 - accepted, infrastructure on infrastructure: e2e-test-infrastructure -> integration-test-infrastructure, release-pipeline-hardening -> semver-alpha-releases
 
-v0.2.3 is tagged only when every pair outside the accepted line is resolved.
+v0.2.4 is tagged only when every pair outside the accepted line is resolved.

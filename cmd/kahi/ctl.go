@@ -23,6 +23,7 @@ var (
 	ctlNoColor         bool
 	ctlJSON            bool
 	ctlShutdownTimeout time.Duration
+	ctlActionTimeout   time.Duration
 )
 
 var ctlCmd = &cobra.Command{
@@ -103,6 +104,7 @@ func runAction(cmd *cobra.Command, args []string, action, done string, one, grou
 		}
 	}
 	c := newCtlClient()
+	c.SetActionTimeout(ctlActionTimeout)
 	if len(args) == 1 && args[0] == "all" {
 		return runAll(cmd, c, action)
 	}
@@ -443,6 +445,9 @@ func init() {
 	ctlCmd.PersistentFlags().StringVarP(&ctlUser, "username", "u", "", "HTTP Basic Auth username")
 	ctlCmd.PersistentFlags().StringVarP(&ctlPass, "password", "p", "", "HTTP Basic Auth password")
 
+	for _, cmd := range []*cobra.Command{ctlStartCmd, ctlStopCmd, ctlRestartCmd} {
+		cmd.Flags().DurationVar(&ctlActionTimeout, "timeout", 0, "how long to wait for the daemon to finish (0: as long as it works)")
+	}
 	ctlStatusCmd.Flags().BoolVar(&ctlNoColor, "no-color", false, "Disable color output")
 	ctlShutdownCmd.Flags().DurationVar(&ctlShutdownTimeout, "timeout", 60*time.Second, "how long to wait for the daemon to exit (0: do not wait)")
 	ctlStatusCmd.Flags().BoolVar(&ctlJSON, "json", false, "Output JSON")
