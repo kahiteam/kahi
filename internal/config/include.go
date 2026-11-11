@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -158,32 +159,47 @@ func LoadWithIncludes(path string) (*Config, []string, error) {
 			strings.Join(msgs, "\n  "))
 	}
 
-	warnings = append(warnings, stopWaitWarnings(cfg)...)
+	warnings = append(warnings, shutdownWarnings(cfg)...)
 	warnings = append(warnings, ignoredSettingWarnings(cfg)...)
 
 	return cfg, warnings, nil
 }
 
-// stopWaitWarnings flags programs whose stopwaitsecs exceeds
-// shutdown_timeout: daemon shutdown SIGKILLs them before their own stop
-// window ends. It runs after includes so included programs are covered.
-func stopWaitWarnings(cfg *Config) []string {
-	limit := cfg.Supervisor.ShutdownTimeout
-	var names []string
-	for name, p := range cfg.Programs {
-		if p.Stopwaitsecs > limit {
-			names = append(names, name)
+// OrderKey is a program's ordering key without the name (FUNC-008): the
+// priority of the [groups] table that lists it, else its own priority, then
+// its own priority. Programs with the same key form one shutdown level.
+func OrderKey(cfg *Config, prog string) (group, own int) {
+	own = cfg.Programs[prog].Priority
+	for _, g := range cfg.Groups {
+		if slices.Contains(g.Programs, prog) {
+			return g.Priority, own
 		}
 	}
-	sort.Strings(names)
+	return own, own
+}
 
-	var warnings []string
-	for _, name := range names {
-		warnings = append(warnings, fmt.Sprintf(
-			"program %q: stopwaitsecs (%d) exceeds supervisor.shutdown_timeout (%d); daemon shutdown will SIGKILL it after %ds",
-			name, cfg.Programs[name].Stopwaitsecs, limit, limit))
+// shutdownWarnings flags a config whose ordered shutdown can outlast
+// shutdown_timeout: levels stop one after another, each for up to its
+// largest stopwaitsecs (FUNC-066, ADR-031). It runs after includes so
+// included programs are covered.
+func shutdownWarnings(cfg *Config) []string {
+	type key struct{ group, own int }
+	largest := make(map[key]int)
+	for name, p := range cfg.Programs {
+		g, o := OrderKey(cfg, name)
+		k := key{g, o}
+		largest[k] = max(largest[k], p.Stopwaitsecs)
 	}
-	return warnings
+	sum := 0
+	for _, w := range largest {
+		sum += w
+	}
+	limit := cfg.Supervisor.ShutdownTimeout
+	if sum <= limit {
+		return nil
+	}
+	return []string{fmt.Sprintf("ordered shutdown can take up to %ds (largest stopwaitsecs per priority level, summed), "+
+		"more than supervisor.shutdown_timeout (%ds); processes still running then are SIGKILLed", sum, limit)}
 }
 
 func validateGroupReferences(cfg *Config) []error {

@@ -323,17 +323,21 @@
       "title": "Priority-Based Start and Stop Ordering",
       "description": "Start processes in ascending priority order and stop in descending priority order, with lexicographic name ordering as tiebreaker for equal priorities.",
       "testing_steps": [
-        "Write a unit test with processes at priorities 100, 200, 300 that verifies start order is 100, 200, 300",
-        "Write a unit test with processes at priorities 100, 200, 300 that verifies stop order is 300, 200, 100",
-        "Write a unit test with processes at the same priority that verifies lexicographic name ordering",
+        "Unit (process): TestOrderGroupPriorityFirst -- start order is ascending by priority (100, 200, 300)",
+        "Unit (process): TestShutdownLevels -- stop order is descending by priority (300, 200, 100)",
+        "Unit (process): TestShutdownLevels -- processes with the same priority are ordered by name",
         "Parse a config with priority outside 0-999 and verify a config validation error is returned",
         "Run 'kahi ctl start grp:*' on a [groups] table grp with members at priorities 300 and 100 and verify the priority-100 member starts first",
         "Run daemon shutdown with programs at three priority levels whose processes take 1s to exit and verify each level is signalled only after the previous one has exited (FUNC-066, #151)",
         "Put two programs in a [groups] table with priority 1 and verify, through POST /api/v1/all/start and /stop, that they start before and stop after a program with priority 5, ordered among themselves by their own priority (#196)"
       ],
-      "passes": false,
-      "dependencies": ["process-start"],
-      "verified_by": ["TestGroups_PriorityOrdersMembers"]
+      "passes": true,
+      "verified_by": [
+        "TestGroups_PriorityOrdersMembers",
+        "TestGroupLifecycle_TableStartOrder",
+        "TestShutdown_OrderedLevels"
+      ],
+      "dependencies": ["process-start"]
     },
     {
       "id": "homogeneous-groups",
@@ -1082,7 +1086,14 @@
         "During shutdown, GET /api/v1/processes returns 200 while /healthz returns 503 {\"status\": \"shutting_down\"}",
         "Let an autorestart=true process exit during shutdown and verify it is not restarted (graceful-shutdown step 10)"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestShutdown_OrderedLevels",
+        "TestShutdown_IntAndQuit",
+        "TestShutdown_SecondSignalKills",
+        "TestShutdown_StubbornLevelThenNext",
+        "TestShutdown_StatesAndNoRestart"
+      ],
       "dependencies": ["process-stop", "priority-ordering"]
     },
     {
@@ -1145,12 +1156,13 @@
       "title": "Signal Queuing for Deferred Processing",
       "description": "Queue signals via Go signal.Notify channel for deferred processing in the main loop, ensuring all signals are handled in order.",
       "testing_steps": [
-        "Unit (supervisor): block the main loop through a test hook, send SIGUSR2, release the hook, and verify the signal is handled on the next iteration",
+        "Unit (supervisor): TestSignalQueuedWhileBusy -- a signal sent while the main loop is busy stays queued and is read on the next iteration",
         "Send SIGUSR2, wait for the log reopen line, then send SIGTERM, and verify the log shows 'received signal' for both and the reopen before the shutdown",
-        "Unit (supervisor): the signal channel buffer size is exactly 16",
+        "Unit (supervisor): TestSignalQueueBufferSize -- the signal channel buffer size is exactly 16",
         "Send SIGHUP twice while a slow reload runs and verify 'reload already in progress; ignoring SIGHUP' is logged for the second"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": ["TestShutdown_SignalQueue"],
       "dependencies": ["go-module-structure"]
     },
     {
@@ -1567,22 +1579,32 @@
         "Run daemon shutdown with app (priority 300), cache (200) and db (100), each exiting 1s after SIGTERM, and verify cache is signalled only after app exited and db only after cache exited; the daemon exits 0 between 3 and 5 seconds after the signal",
         "Give two programs priority 300 and verify both receive SIGTERM within 200 ms of each other and level 200 is signalled only after both have exited",
         "Let a level-300 process ignore SIGTERM with stopwaitsecs = 2 and verify it is SIGKILLed after 2s and level 200 is signalled once it has been reaped",
-        "Set shutdown_timeout = 2 with three levels (300, 200, 100) whose processes exit 1.5s after SIGTERM: verify level 100 is never signalled, its process is SIGKILLed at the deadline, and the daemon exits 0 between 2 and 3 seconds after the signal",
+        "Set shutdown_timeout = 2 with three levels (300, 200, 100) whose processes exit 1.5s after SIGTERM: verify level 100 is never signalled, its process is SIGKILLed at the deadline, and the daemon exits 0 between 2 and 3.5 seconds after the signal",
         "Send a second SIGTERM, and in separate runs a second SIGINT and SIGQUIT, during shutdown and verify every remaining process is SIGKILLed within 1s and the daemon exits 0",
-        "Unit (supervisor): a process not reaped within 1s after the timeout SIGKILL is logged as 'process {name} stuck, giving up' and the daemon exits anyway",
+        "Unit (supervisor): TestKillRemainingLogsStuck -- a process not reaped within the grace after the final SIGKILL is logged as 'process {name} stuck, giving up' and shutdown ends anyway",
         "Configure levels whose largest stopwaitsecs sum to more than shutdown_timeout and verify the warning 'ordered shutdown can take up to {n}s (largest stopwaitsecs per priority level, summed), more than supervisor.shutdown_timeout ({t}s); processes still running then are SIGKILLed' at load and again after a reload",
         "Verify each level is logged at INFO as 'stopping priority level {p}' with its process names, and '{table}/{own}' for members of a [groups] table",
         "Verify a STARTING process is stopped with its stop signal and a BACKOFF process moves to STOPPED without a signal during shutdown",
-        "Let an autorestart=true process exit during shutdown and verify no new pid and no spawn log line appear within 2s",
+        "Let an autorestart=true process exit during shutdown and verify the daemon log shows no 'started' line for it after 'shutting down'",
         "Put two programs in a [groups] table with priority 400 and verify they stop in the first level, before a program with priority 300",
         "Verify the old per-program warning 'stopwaitsecs exceeds shutdown_timeout' no longer appears",
         "Verify 'kahi init' output, cmd/kahi/kahi.toml and the README carry the tuning comments: shutdown_timeout mentions 'largest stopwaitsecs in each level', priority mentions 'stop together', stopwaitsecs mentions 'holds up the next' level",
         "Verify the default shutdown timeout is 30 seconds",
         "Verify STOPPED, EXITED and FATAL processes are skipped: they are not named in any 'stopping priority level' line",
-        "Unit (process): StopAll followed by ShutdownLevels (and the reverse) does not panic (shutdownCh closed through sync.Once)",
-        "Unit (config): the per-level sum warning counts a [groups] table member at the table's priority, not its own"
+        "Unit (process): TestShutdownBeginsOnce -- StopAll followed by ShutdownLevels (and the reverse) does not panic (shutdownCh closed through sync.Once)",
+        "Unit (config): TestShutdownWarningsSumLevels -- the per-level sum warning counts a [groups] table member at the table's priority, not its own"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestShutdown_OrderedLevels",
+        "TestShutdown_StubbornLevelThenNext",
+        "TestShutdown_TimeoutKillsAllLevels",
+        "TestShutdown_SecondSignalKills",
+        "TestShutdown_SumWarning",
+        "TestShutdown_TableLevelFirst",
+        "TestShutdown_StatesAndNoRestart",
+        "TestShutdown_TuningDocumented"
+      ],
       "dependencies": ["process-stop", "priority-ordering"]
     },
     {

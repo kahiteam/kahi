@@ -289,19 +289,17 @@ stopwaitsecs = 120
 		t.Fatal(err)
 	}
 
+	// web and db share the default priority, so they form one level: the
+	// largest stopwaitsecs, 120, is over the 30 s limit.
 	var found []string
 	for _, w := range warnings {
-		if strings.Contains(w, "stopwaitsecs") {
+		if strings.Contains(w, "ordered shutdown") {
 			found = append(found, w)
 		}
 	}
-	if len(found) != 1 {
-		t.Fatalf("stopwaitsecs warnings = %q, want exactly one, for db", found)
-	}
-	for _, want := range []string{`"db"`, "120", "30"} {
-		if !strings.Contains(found[0], want) {
-			t.Fatalf("warning %q does not mention %s", found[0], want)
-		}
+	want := "ordered shutdown can take up to 120s (largest stopwaitsecs per priority level, summed), more than supervisor.shutdown_timeout (30s); processes still running then are SIGKILLed"
+	if len(found) != 1 || found[0] != want {
+		t.Fatalf("shutdown warnings = %q, want exactly %q", found, want)
 	}
 }
 
@@ -368,5 +366,32 @@ func TestLoadWithIncludesCycle(t *testing.T) {
 	_, _, err := LoadWithIncludes(filepath.Join(dir, "kahi.toml"))
 	if err == nil || !strings.Contains(err.Error(), "circular include") {
 		t.Fatalf("err = %v, want a circular include error", err)
+	}
+}
+
+// Levels add up: two levels of 20 s exceed 30 s, one level of 20 s does
+// not; a [groups] member counts at its table's priority (ADR-031).
+func TestShutdownWarningsSumLevels(t *testing.T) {
+	cfg := func(dbPriority int, groups map[string]GroupConfig) *Config {
+		return &Config{
+			Supervisor: SupervisorConfig{ShutdownTimeout: 30},
+			Programs: map[string]ProgramConfig{
+				"web": {Priority: 100, Stopwaitsecs: 20},
+				"db":  {Priority: dbPriority, Stopwaitsecs: 20},
+			},
+			Groups: groups,
+		}
+	}
+	if w := shutdownWarnings(cfg(200, nil)); len(w) != 1 || !strings.Contains(w[0], "up to 40s") {
+		t.Errorf("two levels: %q, want a warning for 40s", w)
+	}
+	if w := shutdownWarnings(cfg(100, nil)); len(w) != 0 {
+		t.Errorf("one level: %q, want none", w)
+	}
+	// db in a table of priority 100 shares web's level key only if its own
+	// priority matches too; with own 200 it is the level (100, 200).
+	g := map[string]GroupConfig{"t": {Programs: []string{"db"}, Priority: 100}}
+	if gk, own := OrderKey(cfg(200, g), "db"); gk != 100 || own != 200 {
+		t.Errorf("OrderKey(db) = %d, %d, want the table priority 100 and own 200", gk, own)
 	}
 }

@@ -1,6 +1,7 @@
 package process
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -145,5 +146,49 @@ func TestAutorestartSkippedAfterShutdown(t *testing.T) {
 	}
 	if p.State() != Exited {
 		t.Fatalf("state = %s, want EXITED", p.State())
+	}
+}
+
+// ShutdownLevels groups processes by the ordering key, highest first, and
+// names a [groups] member's level "{table}/{own}" (ADR-031).
+func TestShutdownLevels(t *testing.T) {
+	prog := func(priority int) config.ProgramConfig {
+		c := defaultProgramConfig()
+		c.Priority = priority
+		return c
+	}
+	mgr := NewManager(&MockSpawner{}, testBus(), testLogger())
+	mgr.LoadConfig(&config.Config{
+		Programs: map[string]config.ProgramConfig{
+			"app": prog(300), "app2": prog(300), "cache": prog(200), "db": prog(100),
+			"t1": prog(999), "t2": prog(999),
+		},
+		Groups: map[string]config.GroupConfig{"tbl": {Programs: []string{"t1", "t2"}, Priority: 400}},
+	})
+	var got []string
+	for _, l := range mgr.ShutdownLevels() {
+		got = append(got, l.Key+":"+strings.Join(l.Names, ","))
+	}
+	want := []string{"400/999:t2,t1", "300:app2,app", "200:cache", "100:db"}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("levels %v, want %v", got, want)
+	}
+}
+
+// StopAll and ShutdownLevels both begin shutdown; calling both, in either
+// order, must not close shutdownCh twice.
+func TestShutdownBeginsOnce(t *testing.T) {
+	for _, first := range []string{"StopAll", "ShutdownLevels"} {
+		mgr := NewManager(&MockSpawner{}, testBus(), testLogger())
+		if first == "StopAll" {
+			mgr.StopAll()
+			mgr.ShutdownLevels()
+		} else {
+			mgr.ShutdownLevels()
+			mgr.StopAll()
+		}
+		if !mgr.ShuttingDown() {
+			t.Fatalf("%s first: not shutting down", first)
+		}
 	}
 }

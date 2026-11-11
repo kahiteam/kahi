@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -176,11 +177,8 @@ shutdown:
 		Data: map[string]string{"state": "STOPPING", "from_state": "RUNNING"},
 	})
 
-	// Stop all processes in reverse priority order.
-	s.manager.StopAll()
-
-	// Wait for processes to exit with timeout.
-	s.waitForShutdown()
+	// Stop one priority level at a time, under one shutdown_timeout.
+	s.shutdownProcesses()
 
 	// Close capture writers.
 	s.manager.CloseLogs()
@@ -391,9 +389,54 @@ var reapChild = func() (int, syscall.WaitStatus, error) {
 	return pid, ws, nil
 }
 
+// shutdownProcesses stops the processes one priority level at a time,
+// highest first, waiting for each level to stop before the next is
+// signalled. One deadline, shutdown_timeout from now, covers all levels; when
+// it passes, or a second SIGTERM, SIGINT or SIGQUIT arrives, every remaining
+// process is SIGKILLed (FUNC-066, ADR-031).
+func (s *Supervisor) shutdownProcesses() {
+	deadline := time.Now().Add(time.Duration(s.config.Supervisor.ShutdownTimeout) * time.Second)
+	for _, level := range s.manager.ShutdownLevels() {
+		var procs []*process.Process
+		var names []string
+		for _, name := range level.Names {
+			p, err := s.manager.GetProcess(name)
+			if err != nil {
+				continue
+			}
+			// STOPPED, EXITED and FATAL processes are skipped.
+			if st := p.State(); active(st) || st == process.Backoff {
+				procs = append(procs, p)
+				names = append(names, name)
+			}
+		}
+		if len(procs) == 0 {
+			continue
+		}
+		s.logger.Info("stopping priority level "+level.Key, "processes", strings.Join(names, ","))
+		for _, p := range procs {
+			// A BACKOFF process goes to STOPPED without a signal.
+			if err := p.Stop(); err != nil {
+				s.logger.Error("stop failed", "process", p.Name(), "error", err)
+			}
+		}
+		if !s.waitUntil(deadline, func() bool { return noneActive(procs) }) {
+			return
+		}
+	}
+}
+
+// waitForShutdown waits up to shutdown_timeout for every process to stop.
 func (s *Supervisor) waitForShutdown() {
 	timeout := time.Duration(s.config.Supervisor.ShutdownTimeout) * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	s.waitUntil(time.Now().Add(timeout), s.allStopped)
+}
+
+// waitUntil reaps children until done reports true and returns true. When
+// deadline passes or a second SIGTERM, SIGINT or SIGQUIT arrives it SIGKILLs
+// every remaining process and returns false.
+func (s *Supervisor) waitUntil(deadline time.Time, done func() bool) bool {
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -406,33 +449,45 @@ func (s *Supervisor) waitForShutdown() {
 		sigC = s.signals.C
 	}
 
+	if done() {
+		return true
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			s.logger.Warn("shutdown timeout exceeded, killing remaining processes")
 			s.killRemaining()
-			return
+			return false
 		case sig := <-sigC:
 			switch sig {
 			case syscall.SIGCHLD:
 				s.handleSigchld()
-				if s.allStopped() {
-					return
+				if done() {
+					return true
 				}
 			case syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT:
 				s.logger.Warn("signal received during shutdown, killing remaining processes", "signal", signalName(sig))
 				s.killRemaining()
-				return
+				return false
 			}
 		case <-ticker.C:
 			// Reap on every tick too: coalesced or dropped SIGCHLDs must
 			// not stall shutdown.
 			s.handleSigchld()
-			if s.allStopped() {
-				return
+			if done() {
+				return true
 			}
 		}
 	}
+}
+
+func noneActive(procs []*process.Process) bool {
+	for _, p := range procs {
+		if active(p.State()) {
+			return false
+		}
+	}
+	return true
 }
 
 // killReapGrace bounds how long killRemaining waits to reap SIGKILLed
@@ -450,7 +505,15 @@ func (s *Supervisor) killRemaining() {
 	deadline := time.Now().Add(killReapGrace)
 	for {
 		s.handleSigchld()
-		if s.allStopped() || time.Now().After(deadline) {
+		if s.allStopped() {
+			return
+		}
+		if time.Now().After(deadline) {
+			for _, p := range s.manager.Processes() {
+				if active(p.State()) {
+					s.logger.Error(fmt.Sprintf("process %s stuck, giving up", p.Name()))
+				}
+			}
 			return
 		}
 		time.Sleep(10 * time.Millisecond)

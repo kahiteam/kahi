@@ -242,18 +242,35 @@ priority = 1
 
 starts `m2`, `m1`, `solo` and stops `solo`, `m1`, `m2`.
 
-| Action                                      | Order                                 | Waits between processes                                                 |
-| ------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------- |
-| Daemon start (`autostart = true` programs)  | ascending                             | No: spawns one after the other without waiting for RUNNING              |
-| `ctl start <group>:*`, group start          | ascending                             | No                                                                      |
-| `ctl stop <group>:*`, group stop            | descending                            | No: signals one after the other                                         |
-| Daemon shutdown                             | descending                            | No: signals all, then waits up to `shutdown_timeout` and KILLs the rest |
-| `POST /api/v1/all/start` (Web UI Start All) | ascending                             | No; includes `autostart = false` programs                               |
-| `POST /api/v1/all/stop` (Web UI Stop All)   | descending                            | Yes: each is stopped (up to `stopwaitsecs` + 5s) before the next        |
-| `POST /api/v1/all/restart`                  | stop descending, then start ascending | As stop, then start; a process whose stop failed is not started         |
+| Action                                      | Order                                 | Waits between processes                                          |
+| ------------------------------------------- | ------------------------------------- | ---------------------------------------------------------------- |
+| Daemon start (`autostart = true` programs)  | ascending                             | No: spawns one after the other without waiting for RUNNING       |
+| `ctl start <group>:*`, group start          | ascending                             | No                                                               |
+| `ctl stop <group>:*`, group stop            | descending                            | No: signals one after the other                                  |
+| Daemon shutdown                             | descending, one level at a time       | Yes: each priority level stops before the next is signalled      |
+| `POST /api/v1/all/start` (Web UI Start All) | ascending                             | No; includes `autostart = false` programs                        |
+| `POST /api/v1/all/stop` (Web UI Stop All)   | descending                            | Yes: each is stopped (up to `stopwaitsecs` + 5s) before the next |
+| `POST /api/v1/all/restart`                  | stop descending, then start ascending | As stop, then start; a process whose stop failed is not started  |
 
-Waiting for each priority level during daemon shutdown is planned for 0.3.0
-([#151](https://github.com/kahiteam/kahi/issues/151)).
+Daemon shutdown (SIGTERM, SIGINT, SIGQUIT or `kahi ctl shutdown`) stops one
+priority level at a time: the processes that share the ordering key (all of
+it but the name) get their stop signal together, and the next level is
+signalled only when every process of this one has stopped, each within its
+own `stopwaitsecs` before SIGKILL. The daemon logs each level as `stopping
+priority level {p}`, with `{table}/{own}` for members of a `[groups]` table.
+STARTING processes are stopped like RUNNING ones; BACKOFF processes go to
+STOPPED without a signal; STOPPED, EXITED and FATAL ones are skipped; nothing
+is started or restarted once shutdown began.
+
+One deadline, `shutdown_timeout` from the start of shutdown, covers all
+levels. When it passes, or a second SIGTERM, SIGINT or SIGQUIT arrives, every
+process still running is SIGKILLed at once, including levels not yet
+signalled; one not reaped within a second is logged as `process {name}
+stuck, giving up`, and the daemon exits 0. A config whose levels can together
+take longer warns at load and on reload: "ordered shutdown can take up to
+{n}s (largest stopwaitsecs per priority level, summed), more than
+supervisor.shutdown_timeout ({t}s); ...". Programs that do not depend on each
+other can share a priority to shorten shutdown. Tests: `TestShutdown_*`.
 
 The bulk actions skip what needs nothing: a start skips STARTING, RUNNING and
 BACKOFF processes and reports STOPPING ones as an error; a stop skips STOPPED,

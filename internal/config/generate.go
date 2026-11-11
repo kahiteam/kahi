@@ -13,7 +13,9 @@ const DefaultConfigTOML = `# Kahi configuration file
 # minfds = 1024                 # minimum file descriptors (not implemented yet)
 # minprocs = 200                # minimum process count (not implemented yet)
 # nocleanup = false             # preserve stale log files on startup (not implemented yet)
-# shutdown_timeout = 30         # seconds to wait for graceful shutdown, then SIGKILL (keep >= every stopwaitsecs)
+# shutdown_timeout = 30         # total seconds for an ordered shutdown, then SIGKILL; levels stop one after
+#                               # another, so keep it >= the sum of the largest stopwaitsecs in each level,
+#                               # and below your service manager's stop timeout (TimeoutStopSec, docker stop -t)
 
 [server.unix]
 # file = "/var/run/kahi.sock"   # Unix socket path. Default: this as root; else
@@ -36,14 +38,15 @@ const DefaultConfigTOML = `# Kahi configuration file
 # process_name = "example"     # name template (supports %(process_num)d)
 # numprocs = 1                 # number of instances
 # numprocs_start = 0           # starting instance number
-# priority = 999               # start order (0=first, 999=last)
+# priority = 999               # start order (0=first, 999=last); shutdown runs in reverse, and programs with
+#                               # the same priority stop together, so sharing one shortens shutdown
 # autostart = true             # start on daemon startup
 # autorestart = "unexpected"   # true, false, unexpected
 # startsecs = 1                # seconds before considered started
 # startretries = 3             # max retries before FATAL
 # exitcodes = [0]              # expected exit codes
 # stopsignal = "SIGTERM"       # stop signal (SIGTERM, SIGHUP, SIGINT, SIGQUIT, SIGKILL, SIGUSR1, SIGUSR2)
-# stopwaitsecs = 10            # seconds to wait before SIGKILL
+# stopwaitsecs = 10            # seconds to wait before SIGKILL; a slow stop holds up the next priority level
 # stopasgroup = false          # send stop signal to process group
 # killasgroup = false          # send SIGKILL to process group
 # user = ""                    # run as user
