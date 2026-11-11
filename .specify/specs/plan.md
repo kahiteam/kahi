@@ -177,7 +177,7 @@ Interfaces at OS boundaries enable testable code without real processes:
 
 ```dockerfile
 # Build stage
-FROM golang:1.27.3 AS builder   # abbreviated; the Dockerfile in the repository root is authoritative
+FROM golang:1.27.4 AS builder   # abbreviated; the Dockerfile in the repository root is authoritative
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

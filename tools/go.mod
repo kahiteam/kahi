@@ -12,7 +12,7 @@
 // against golangci-lint.sha256 by scripts/install-golangci-lint.sh.
 module github.com/kahiteam/kahi/tools
 
-go 1.27.3
+go 1.27.4
 
 tool (
 	github.com/goreleaser/goreleaser/v2
