@@ -9,7 +9,23 @@ read the exact behaviour.
 
 A process is always in one of seven states. `kahi ctl status` and
 `GET /api/v1/processes` show it; each change is published as a
-`PROCESS_STATE_<STATE>` event.
+`PROCESS_STATE_<STATE>` event on `GET /api/v1/events/stream`. Every value in
+the event is a string:
+
+| Field        | Meaning                                                                   |
+| ------------ | ------------------------------------------------------------------------- |
+| `name`       | process name                                                              |
+| `group`      | group of the process                                                      |
+| `state`      | the new state                                                             |
+| `from_state` | the state of the process's previous event                                 |
+| `pid`        | process ID; `"0"` for STARTING, which is published before the spawn       |
+| `expected`   | EXITED only: `"true"` when the exit code is in `exitcodes`                |
+| `exitstatus` | EXITED only: the exit code, `"-1"` when a signal killed the process       |
+| `exitsignal` | EXITED only, when a signal killed the process: its name, e.g. `"SIGKILL"` |
+
+A process that runs out of retries goes from STARTING straight to FATAL in one
+event (`from_state` STARTING). Tests: `TestStateEvents_StartRunExit`,
+`TestStateEvents_ExitStatus`, `TestStateEvents_BackoffFatalAndStop`.
 
 ```mermaid
 stateDiagram-v2

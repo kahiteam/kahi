@@ -1237,16 +1237,17 @@
         "Write a unit test that registers a subscriber for PROCESS_STATE_RUNNING and verifies the callback is called when the event fires",
         "Write a unit test with multiple subscribers for the same event type and verify all are notified",
         "Write a unit test that unsubscribes and verifies the callback is not called on subsequent events",
-        "Write a unit test where a subscriber callback panics and verify the panic is recovered, 'event handler panicked' is logged with the event type and panic value, and other subscribers are still notified",
-        "Unit: every subscriber callback has run when Publish returns",
+        "Unit (events): TestPanicRecovery and TestPanicRecoveryLogged -- a panicking callback is recovered, 'event handler panicked' is logged with event=<type> and panic=<value>, and the other subscribers are still notified",
+        "Unit (events): TestPublishSynchronous -- every subscriber callback has run when Publish returns",
         "Verify subscriber registration/unregistration is safe from any goroutine (race detector)",
-        "Unit: Publish with no subscribers has testing.AllocsPerRun == 0",
+        "Unit (events): TestNoSubscribersNoAlloc -- Publish with no subscribers has testing.AllocsPerRun == 0",
         "Write a unit test that subscribes to multiple different event types and verifies each type triggers the correct callback",
-        "Write a unit test that publishes 1000 events from one goroutine and verifies every subscriber receives all of them in publish order",
+        "Unit (events): TestPublishOrderPerSubscriber -- 1000 events published from one goroutine reach every subscriber, all of them, in publish order",
         "Write a unit test that registers and unregisters subscribers concurrently from multiple goroutines and verifies no race conditions",
         "Open /api/v1/events/stream against the daemon, start a process, and verify its state events arrive on the stream"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": ["TestStateEvents_StartRunExit"],
       "dependencies": ["go-module-structure"]
     },
     {
@@ -1258,12 +1259,17 @@
         "Start a process and verify PROCESS_STATE_STARTING and PROCESS_STATE_RUNNING arrive on /api/v1/events/stream with name, group, state, from_state (STOPPED, then STARTING) and pid, every value a JSON string",
         "Let a RUNNING process exit 3 with exitcodes = [0] and verify PROCESS_STATE_EXITED carries expected 'false' and exitstatus '3'; exit 0 gives expected 'true'; a process killed by SIGKILL carries exitsignal 'SIGKILL'",
         "Verify the RUNNING event's pid equals the process pid and STARTING's is '0' (published before the spawn)",
-        "Unit (process): a subscriber that queries the process state from its callback sees the state of the event",
+        "Unit (process): TestStateEventsPayload -- a subscriber that queries the process state from its callback sees the state of the event; TestStaleStartWatcherIgnored -- the startsecs watcher of an exited child publishes nothing for a later spawn",
         "Run a program with startsecs = 1, startretries = 1 and a command that exits 1 at once, start it, and verify the stream carries STARTING, BACKOFF, STARTING, FATAL in that order, each from_state equal to the previous state; then a normal program covers RUNNING, STOPPING, STOPPED and EXITED",
         "Set startretries = 0 on a command that exits at once and verify PROCESS_STATE_FATAL arrives with from_state STARTING",
         "Put web in [groups.services] and verify PROCESS_STATE_RUNNING of web_0 carries group 'services'"
       ],
       "passes": false,
+      "verified_by": [
+        "TestStateEvents_StartRunExit",
+        "TestStateEvents_ExitStatus",
+        "TestStateEvents_BackoffFatalAndStop"
+      ],
       "dependencies": [
         "event-bus",
         "process-state-machine",

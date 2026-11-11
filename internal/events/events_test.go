@@ -1,9 +1,11 @@
 package events
 
 import (
+	"bytes"
 	"io"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -92,13 +94,67 @@ func TestPanicRecovery(t *testing.T) {
 	}
 }
 
+// The panic is logged with the event type and the panic value.
+func TestPanicRecoveryLogged(t *testing.T) {
+	var buf bytes.Buffer
+	bus := NewBus(slog.New(slog.NewTextHandler(&buf, nil)))
+	bus.Subscribe(ProcessStateFatal, func(e Event) { panic("boom") })
+	bus.Publish(Event{Type: ProcessStateFatal})
+	out := buf.String()
+	for _, want := range []string{`msg="event handler panicked"`, "event=PROCESS_STATE_FATAL", "panic=boom"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log %q lacks %q", out, want)
+		}
+	}
+}
+
 func TestNoSubscribersNoAlloc(t *testing.T) {
 	bus := NewBus(testLogger())
+	ev := Event{Type: ProcessStateRunning, Timestamp: time.Now()}
+	if n := testing.AllocsPerRun(1000, func() { bus.Publish(ev) }); n != 0 {
+		t.Fatalf("Publish without subscribers allocates %v times per call, want 0", n)
+	}
+}
 
-	// Publish to an event type with no subscribers.
-	// Should return immediately without allocating.
+// Publish is synchronous: every callback has run when it returns (FUNC-049).
+func TestPublishSynchronous(t *testing.T) {
+	bus := NewBus(testLogger())
+	var calls int
+	for range 3 {
+		bus.Subscribe(ProcessStateRunning, func(e Event) {
+			time.Sleep(10 * time.Millisecond)
+			calls++
+		})
+	}
 	bus.Publish(Event{Type: ProcessStateRunning})
-	// If we get here without panic, the test passes.
+	if calls != 3 {
+		t.Fatalf("%d of 3 callbacks had run when Publish returned", calls)
+	}
+}
+
+// Every subscriber receives the events of one publisher in publish order.
+func TestPublishOrderPerSubscriber(t *testing.T) {
+	bus := NewBus(testLogger())
+	got := make([][]int, 3)
+	for i := range got {
+		bus.Subscribe(ProcessStateRunning, func(e Event) {
+			n, _ := strconv.Atoi(e.Data["n"])
+			got[i] = append(got[i], n)
+		})
+	}
+	for n := range 1000 {
+		bus.Publish(Event{Type: ProcessStateRunning, Data: map[string]string{"n": strconv.Itoa(n)}})
+	}
+	for i, seq := range got {
+		if len(seq) != 1000 {
+			t.Fatalf("subscriber %d got %d events, want 1000", i, len(seq))
+		}
+		for n, v := range seq {
+			if v != n {
+				t.Fatalf("subscriber %d: event %d out of order (got %d)", i, n, v)
+			}
+		}
+	}
 }
 
 func TestDifferentEventTypes(t *testing.T) {
