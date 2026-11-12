@@ -351,7 +351,7 @@ func TestGroupLifecycle_Tables(t *testing.T) {
 	waitForState(t, client, "web_0", "RUNNING", 5*time.Second)
 
 	// Dropping a table and its programs removes the processes.
-	rewriteConfig(t, socket, tableMembers+"\n[programs.solo]\ncommand = \"/bin/sleep 300\"\nstartsecs = 0\n\n[groups.svc]\nprograms = [\"solo\"]\n")
+	rewriteConfig(t, socket, tableMembers+"\n[programs.solo]\ncommand = \"/bin/sleep 300\"\nstartsecs = 0\nstopwaitsecs = 2\n\n[groups.svc]\nprograms = [\"solo\"]\n")
 	wantCtl(t, socket, 0, "updated: added=[svc] changed=[] removed=[]\n", "", "update")
 	rewriteConfig(t, socket, tableMembers)
 	wantCtl(t, socket, 0, "updated: added=[] changed=[] removed=[svc]\n", "", "update")

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,8 @@ type Manager struct {
 	logger     *slog.Logger
 	spawner    ProcessSpawner
 	shutdownCh chan struct{}
+	// shutdownOnce closes shutdownCh, from StopAll or ShutdownLevels.
+	shutdownOnce sync.Once
 
 	// groupPriority maps a program to the priority of the [groups] table it
 	// belongs to; ordering puts it first (#196). Rebuilt whenever a group is
@@ -372,9 +375,9 @@ func (m *Manager) AutostartAll() {
 	}
 }
 
-// StopAll stops all processes in reverse priority order.
+// StopAll stops all processes in reverse priority order, all at once.
 func (m *Manager) StopAll() {
-	close(m.shutdownCh)
+	m.beginShutdown()
 
 	m.mu.RLock()
 	procs := m.sortedProcesses(false)
@@ -387,6 +390,48 @@ func (m *Manager) StopAll() {
 			}
 		}
 	}
+}
+
+// beginShutdown closes shutdownCh once: nothing starts, restarts or retries
+// afterwards (#92).
+func (m *Manager) beginShutdown() {
+	m.shutdownOnce.Do(func() { close(m.shutdownCh) })
+}
+
+// ShutdownLevel is one priority level of an ordered shutdown: the processes
+// that share an ordering key, which stop together (FUNC-066).
+type ShutdownLevel struct {
+	// Key is the program's priority, or "{table priority}/{own priority}"
+	// for a member of a [groups] table.
+	Key   string
+	Names []string
+}
+
+// ShutdownLevels begins shutdown and returns the processes grouped by their
+// ordering key (sortByPriority without the name), highest first, names
+// within a level in descending order (ADR-031).
+func (m *Manager) ShutdownLevels() []ShutdownLevel {
+	m.beginShutdown()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var levels []ShutdownLevel
+	type key struct{ group, own int }
+	var last *key
+	for _, p := range m.sortedProcesses(false) {
+		own := p.Config().Priority
+		k := key{own, own}
+		label := strconv.Itoa(own)
+		if gp, ok := m.groupPriority[p.Program()]; ok {
+			k.group = gp
+			label = strconv.Itoa(gp) + "/" + strconv.Itoa(own)
+		}
+		if last == nil || *last != k {
+			levels = append(levels, ShutdownLevel{Key: label})
+			last = &k
+		}
+		levels[len(levels)-1].Names = append(levels[len(levels)-1].Names, p.Name())
+	}
+	return levels
 }
 
 // sortedProcesses returns processes in priority order (sortByPriority).

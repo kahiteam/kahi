@@ -2,7 +2,9 @@ package supervisor
 
 import (
 	"io"
+	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -17,6 +19,9 @@ import (
 type fakeChild struct {
 	pid      int
 	ignoreTE bool
+	// unreapable children never show up in waitpid, as a process stuck in
+	// uninterruptible sleep would not.
+	unreapable bool
 
 	mu      sync.Mutex
 	signals []os.Signal
@@ -55,7 +60,7 @@ func (c *fakeChild) gotKill() bool {
 func (c *fakeChild) reap() (int, syscall.WaitStatus, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.exited && !c.reaped {
+	if c.exited && !c.reaped && !c.unreapable {
 		c.reaped = true
 		return c.pid, 0, nil
 	}
@@ -173,5 +178,63 @@ func TestWaitForShutdownTimeoutKillsRemaining(t *testing.T) {
 	}
 	if p.State() != process.Stopped {
 		t.Fatalf("state = %v, want STOPPED", p.State())
+	}
+}
+
+// A process not reaped within the grace after the final SIGKILL is logged as
+// stuck, and shutdown ends anyway (FUNC-066).
+func TestKillRemainingLogsStuck(t *testing.T) {
+	child := &fakeChild{pid: 4250, ignoreTE: true, unreapable: true}
+	s, _ := shutdownFixture(t, child, 1)
+	var buf lockedLog
+	s.logger = slog.New(slog.NewTextHandler(&buf, nil))
+	orig := killReapGrace
+	killReapGrace = 100 * time.Millisecond
+	t.Cleanup(func() { killReapGrace = orig })
+
+	start := time.Now()
+	s.killRemaining()
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("killRemaining took %v, want about the 100ms grace", elapsed)
+	}
+	if !strings.Contains(buf.String(), "process worker stuck, giving up") {
+		t.Fatalf("log %q lacks the stuck line", buf.String())
+	}
+}
+
+// lockedLog is a log sink safe for concurrent writers.
+type lockedLog struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// A signal that arrives while the main loop is busy stays queued and is read
+// on the next iteration (signal-queuing).
+func TestSignalQueuedWhileBusy(t *testing.T) {
+	sq := NewSignalQueue(discardLogger())
+	defer sq.Stop()
+	if err := syscall.Kill(os.Getpid(), syscall.SIGUSR2); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(200 * time.Millisecond) // the loop is busy elsewhere
+	select {
+	case sig := <-sq.C:
+		if sig != syscall.SIGUSR2 {
+			t.Fatalf("got %v, want SIGUSR2", sig)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SIGUSR2 was not queued")
 	}
 }
