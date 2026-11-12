@@ -51,7 +51,8 @@ func startOrderedDaemon(t *testing.T, timeout int, programs string) *orderedDaem
 	d.exit = make(chan error, 1)
 	go func() { d.exit <- d.cmd.Wait() }()
 	// A daemon the test left running is shut down, not SIGKILLed, so its
-	// programs are stopped instead of looping on as orphans.
+	// programs are stopped instead of looping on as orphans. 35 s outlasts any
+	// shutdown_timeout these tests use.
 	t.Cleanup(func() {
 		select {
 		case err := <-d.exit:
@@ -62,7 +63,7 @@ func startOrderedDaemon(t *testing.T, timeout int, programs string) *orderedDaem
 		_ = ctl.NewUnixClient(d.socket).Shutdown()
 		select {
 		case <-d.exit:
-		case <-time.After(10 * time.Second):
+		case <-time.After(35 * time.Second):
 			_ = d.cmd.Process.Kill()
 			<-d.exit
 		}

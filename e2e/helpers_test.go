@@ -84,7 +84,12 @@ func TestMain(m *testing.M) {
 		}
 	}()
 
-	os.Exit(m.Run())
+	start := time.Now()
+	code := m.Run()
+	if checkLeaks(start) != 0 && code == 0 {
+		code = 1
+	}
+	os.Exit(code)
 }
 
 // processInfo mirrors the API response for a process.
@@ -138,10 +143,13 @@ func startDaemon(t *testing.T, configTOML string) (*ctl.Client, string) {
 		c := ctl.NewUnixClient(socketPath)
 		_ = c.Shutdown()
 
+		// Wait past the config's shutdown_timeout (10 s): the daemon then
+		// SIGKILLs a program that ignores TERM itself. Killing the daemon
+		// sooner would leave such a program running as an orphan.
 		done := make(chan error, 1)
 		go func() { done <- cmd.Wait() }()
 		select {
-		case <-time.After(5 * time.Second):
+		case <-time.After(15 * time.Second):
 			_ = cmd.Process.Kill()
 			<-done
 		case <-done:
@@ -186,8 +194,9 @@ func daemonOutput(t *testing.T) *os.File {
 
 // stopDaemon shuts the daemon behind socket down through the API and waits
 // for cmd to exit, so its programs are stopped too. Only if that takes over
-// 10s is the daemon SIGKILLed: its programs run in their own process groups,
-// so a killed daemon leaves them running as orphans.
+// 35 s, longer than any shutdown_timeout in the suite, is the daemon
+// SIGKILLed: its programs run in their own process groups, so a killed
+// daemon leaves them running as orphans.
 func stopDaemon(t *testing.T, cmd *exec.Cmd, socket string) {
 	t.Helper()
 	_ = ctl.NewUnixClient(socket).Shutdown()
@@ -195,8 +204,8 @@ func stopDaemon(t *testing.T, cmd *exec.Cmd, socket string) {
 	go func() { done <- cmd.Wait() }()
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
-		t.Errorf("daemon did not exit within 10s of shutdown; killing it")
+	case <-time.After(35 * time.Second):
+		t.Errorf("daemon did not exit within 35s of shutdown; killing it")
 		_ = cmd.Process.Kill()
 		<-done
 	}

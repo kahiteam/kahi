@@ -196,7 +196,7 @@ startsecs=0
 	wantLines(t, "stderr", stderr, "%(process_num)02d: Kahi has no number padding; wrote %(process_num)d")
 
 	cmd := startDaemonCmd(t, kahiBinary, filepath.Join(dir, "kahi.toml"), dir)
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	t.Cleanup(func() { stopDaemon(t, cmd, socket) })
 	waitForSocket(t, socket, 5*time.Second)
 	for _, name := range []string{"web_0", "web_1"} {
 		out, _, code := runKahi(t, dir, "ctl", "-s", socket, "status", name)
