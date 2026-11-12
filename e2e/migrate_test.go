@@ -87,6 +87,7 @@ supervisor.rpcinterface_factory=x
 		"warning: unsupported section type: eventlistener",
 		"warning: unsupported section type: fcgi-program",
 		"warning: unknown section type: rpcinterface",
+		"included INI files are not converted",
 		"http listener on 127.0.0.1:9001 requires username/password",
 	)
 	for _, typ := range []string{"supervisord", "program", "group", "include", "unix_http_server", "inet_http_server", "eventlistener", "fcgi-program"} {

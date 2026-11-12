@@ -375,6 +375,52 @@ func TestLog_SIGUSR2ReopenRefusesParentSymlink(t *testing.T) {
 	}
 }
 
+// A log file whose parent directory is a symlink with an absolute target is
+// not opened through it: the program goes FATAL and nothing is written in the
+// target (SEC-019). A relative in-tree target is the known deferred residual.
+func TestLog_ParentSymlinkRefusedAtStart(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "logs")); err != nil {
+		t.Fatal(err)
+	}
+	client, _ := startDaemon(t, `
+[programs.web]
+command = "/bin/sleep 300"
+startsecs = 0
+startretries = 0
+stdout_logfile = "`+filepath.Join(dir, "logs", "app.log")+`"
+`)
+	waitForState(t, client, "web", "FATAL", 5*time.Second)
+	info, err := getProcessInfo(client, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(info.Description, "cannot open log file") {
+		t.Errorf("description %q, want it to name 'cannot open log file'", info.Description)
+	}
+	if entries, _ := os.ReadDir(target); len(entries) != 0 {
+		t.Errorf("symlink target has %d entries, want none", len(entries))
+	}
+}
+
+// Platforms without openat document the trusted-path assumption they rely
+// on instead (SEC-019).
+func TestLog_OpenOtherDocumentsTrustedPath(t *testing.T) {
+	t.Parallel()
+	b, err := os.ReadFile(filepath.Join("..", "internal", "logging", "open_other.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "Residual trusted-path assumption") {
+		t.Fatal("internal/logging/open_other.go does not document the trusted-path assumption")
+	}
+}
+
 // A log file that cannot be opened fails the start: the process goes FATAL
 // and status says why. Each start retries the file, so the process starts
 // once the directory exists (FUNC-018, #171).
