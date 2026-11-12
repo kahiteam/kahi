@@ -481,27 +481,32 @@
       "title": "Config Hot Reload on SIGHUP",
       "description": "Re-read config on SIGHUP, compute a diff against the running state, and apply changes: add new programs, remove deleted programs, restart changed programs.",
       "testing_steps": [
-        "Write a test that sends SIGHUP to a running daemon and verifies config is re-read and a diff is computed",
+        "Send SIGHUP to a running daemon after changing a program and verify the config is re-read and the change applied: the program restarts with the new config",
         "Write a test that adds a new program to config, reloads, and verifies the new group starts with autostart processes",
         "Write a test that removes a program from config, reloads and applies, and verifies processes are stopped and group removed",
-        "Write a test that changes a program config, reloads and applies, and verifies processes are stopped, config updated, and processes restarted",
+        "Change a program's spawn-affecting setting, reload, and verify the program restarts with the new config if it was running and stays stopped if it was stopped; a supervision-only change applies in place without a restart (#119)",
         "Write a test where the reloaded config has a syntax error and verify the reload is rejected with existing config retained",
         "Write a test where the reloaded config has a validation error and verify the reload is rejected",
         "Verify unchanged programs keep running and are not restarted during reload",
-        "Verify reload during shutdown is ignored",
-        "Verify concurrent reload requests are serialized",
-        "Write a test that changes numprocs from 2 to 4 and verifies 2 new process instances are added on reload"
+        "Verify a reload during shutdown is not acted on: POST /api/v1/config/reload returns 409 'daemon is shutting down' (SHUTTING_DOWN) and a SIGHUP starts no reload",
+        "Verify reloads are serialized: a SIGHUP during a running reload queues one more, which runs after it and reads the file then, so an edit made meanwhile is applied; further SIGHUPs coalesce into it, and API reloads wait their turn (#136)",
+        "Change numprocs from 2 to 4, reload, and verify all 4 instances run; numprocs is spawn-affecting, so the original 2 are restarted (#119, #136)"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
         "TestReload_SIGHUPChangeProgram",
         "TestReload_AddProgram",
         "TestReload_RemoveProgram",
         "TestReload_ChangeProgram",
+        "TestReload_SupervisionChangeKeepsProcessRunning",
+        "TestReload_ChangeStoppedProgramStaysStopped",
         "TestReload_InvalidConfig",
+        "TestReload_DuplicateProcessNameRejected",
         "TestReload_NoChange",
         "TestReload_Reread",
-        "TestReload_DuplicateProcessNameRejected"
+        "TestReload_IgnoredDuringShutdown",
+        "TestReload_QueuedReloadAppliesLateEdit",
+        "TestReload_NumprocsGrowRecreates"
       ],
       "dependencies": [
         "toml-variable-expansion",
@@ -668,15 +673,19 @@
       "title": "Log File Reopen on SIGUSR2",
       "description": "Reopen all log file handles on SIGUSR2 signal to support external log rotation tools like logrotate.",
       "testing_steps": [
-        "Write a test that sends SIGUSR2 while Kahi is writing to log files and verifies all file handles are closed and reopened",
+        "Send SIGUSR2 while programs write to stdout and stderr log files and verify every file is reopened at its path: new output goes to the new files and the renamed ones stop growing; the daemon's own log is reopened too",
         "Write a test that simulates a file reopen failure and verifies the daemon logs an error and continues",
-        "Write a test that verifies log reopen is safe to call concurrently with log writes",
-        "Write a test that verifies SIGUSR2 during shutdown is ignored"
+        "Rotate a log file four times while a program writes 600 numbered lines and verify each line is in exactly one of the files: reopen is safe alongside concurrent writes",
+        "Verify SIGUSR2 during shutdown is not acted on"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
+        "TestLog_SIGUSR2ReopensAllFiles",
         "TestLog_SIGUSR2ReopensRotatedLog",
-        "TestLog_SIGUSR2ReopensDaemonLog"
+        "TestLog_SIGUSR2ReopensDaemonLog",
+        "TestLog_SIGUSR2ReopenRefusesParentSymlink",
+        "TestLog_SIGUSR2NoLossDuringRotation",
+        "TestReload_IgnoredDuringShutdown"
       ],
       "dependencies": ["process-output-capture"]
     },
@@ -1037,12 +1046,12 @@
         "Change the config file and run 'kahi ctl reread': verify 'would apply: added=[...] changed=[...] removed=[...]' and that nothing is applied",
         "Run 'kahi ctl update' after adding, changing and removing programs (one change per update): verify 'updated: added=[...] changed=[...] removed=[...]', the new program running, the changed one restarted, and the removed one stopped first and gone from status",
         "Run 'kahi ctl add web' for an inactive but configured group and verify 'web: added', exit 0, and its autostart process RUNNING (FUNC-011)",
-        "Run 'kahi ctl remove web' for a stopped group and verify 'web: removed'; with a running process verify 'group web has running processes, stop first' and exit 1",
+        "Run 'kahi ctl remove web' for a stopped group and verify 'web: removed'; with a running process verify 'group web has running processes, stop first (or use kahi ctl remove --stop)' and exit 1",
         "Run 'kahi ctl reread' and 'kahi ctl update' with an invalid config file and verify 'config error: {details}', exit 1, and nothing applied",
-        "Add bogus = 1 under [programs.web] and verify reread, update and reload print the parser's 'warning: ...' line for programs.web.bogus on stderr",
+        "Add bogus = 1 under [programs.web] and verify reread, update and reload print 'warning: unknown config key: programs.web.bogus' on stderr",
         "Verify POST /api/v1/config/reload returns the 'warnings' array both with ?dry_run=true and for an applied reload"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
         "TestGroupLifecycle_RemoveAdd",
         "TestGroupLifecycle_ConfigFile",
@@ -1114,13 +1123,20 @@
       "description": "Trigger config hot reload on SIGHUP signal with error handling for invalid config files.",
       "testing_steps": [
         "Send SIGHUP to Kahi after changing the config file and verify config is re-read and diff is applied",
-        "Send SIGHUP with a config file containing errors and verify reload is rejected with current config retained",
-        "Verify SIGHUP during startup is ignored",
-        "Verify SIGHUP during shutdown is ignored",
-        "Verify multiple rapid SIGHUPs are coalesced into a single reload"
+        "Send SIGHUP with a config file containing errors and verify reload is rejected with current config retained: 'reload failed' with 'config error: ...' is logged and the processes keep their PIDs",
+        "Verify a SIGHUP while the daemon is starting (loading its config) is ignored and the daemon starts normally; a SIGHUP before the Go runtime itself has started cannot be ignored by the program (#136)",
+        "Verify a SIGHUP during shutdown starts no reload and the daemon still exits 0",
+        "Verify SIGHUPs that arrive while a reload runs are coalesced into one more reload after it (#136)"
       ],
-      "passes": false,
-      "verified_by": ["TestReload_SIGHUPChangeProgram"],
+      "passes": true,
+      "verified_by": [
+        "TestReload_SIGHUPChangeProgram",
+        "TestReload_SIGHUPBadConfigKept",
+        "TestReload_SIGHUPDuringStartup",
+        "TestReload_IgnoredDuringShutdown",
+        "TestReload_QueuedReloadAppliesLateEdit",
+        "TestShutdown_SignalQueue"
+      ],
       "dependencies": ["config-hot-reload"]
     },
     {
@@ -1148,16 +1164,19 @@
       "title": "SIGUSR2 Log File Reopen Signal Handler",
       "description": "Handle SIGUSR2 by triggering log file reopen for all active log file handles.",
       "testing_steps": [
-        "Send SIGUSR2 to Kahi and verify all log file handles are closed and reopened",
+        "Send SIGUSR2 to Kahi and verify all log file handles are reopened: the stdout and stderr logs of every program and the daemon log",
         "Verify SIGUSR2 only affects file-based logs: console output keeps flowing without interruption",
         "Verify a file reopen failure is logged but does not crash the daemon",
-        "Send SIGUSR2 when no log files are configured and verify the signal is acknowledged without error",
+        "Send SIGUSR2 when no log files are configured and verify the signal is acknowledged ('log files reopened') without error",
         "Send SIGUSR2 during active log writing and verify no log entries are lost during rotation"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
-        "TestLog_SIGUSR2ReopensRotatedLog",
-        "TestLog_SIGUSR2ReopensDaemonLog"
+        "TestLog_SIGUSR2ReopensAllFiles",
+        "TestLog_SIGUSR2ReopensDaemonLog",
+        "TestLog_SIGUSR2ConsoleAndNoLogFiles",
+        "TestLog_SIGUSR2ReopenRefusesParentSymlink",
+        "TestLog_SIGUSR2NoLossDuringRotation"
       ],
       "dependencies": ["log-reopen-sigusr2"]
     },

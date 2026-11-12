@@ -1078,6 +1078,7 @@ This feature adds two complementary mechanisms:
 - Programs not changed in the reload are untouched (processes keep running)
 - Reload during shutdown is ignored
 - Concurrent reload requests are serialized (second waits for first to complete)
+- A numprocs change is spawn-affecting: the program is recreated, so growing 2 -> 4 runs four instances and restarts the original two (#119, #136)
 - During config reload of a program, stop/start commands targeting that program are queued and executed after reload completes
 - If reload is rejected due to validation error, any in-flight restart completes and previous config is retained
 
@@ -2008,9 +2009,9 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Edge Cases:**
 
-- SIGHUP during startup is ignored
+- SIGHUP during startup is ignored: `kahi daemon` ignores it from its first statement until the supervisor's handler takes over, before any program is spawned. A SIGHUP before the Go runtime has started cannot be ignored by the program (#136)
 - SIGHUP during shutdown is ignored
-- Multiple rapid SIGHUPs are coalesced (only one reload executes)
+- SIGHUPs while a reload runs are coalesced into one more reload that runs after it and reads the file then, so the last edit is applied (#136)
 
 **Dependencies:** FUNC-014
 
@@ -2093,7 +2094,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - Channel buffer size: 16
 - Signals are received and dispatched in the main goroutine (no concurrent handlers), in the order they arrive; each is logged as "received signal"
-- SIGHUP runs the reload off the main loop (#119); a SIGHUP while a reload runs is ignored with "reload already in progress; ignoring SIGHUP"
+- SIGHUP runs the reload off the main loop (#119); a SIGHUP while a reload runs queues one more reload ("reload in progress; another one follows it"), and further SIGHUPs while it is queued coalesce into it ("reload already queued; SIGHUP coalesced") (#136)
 - The kernel merges a signal that arrives while the same signal is pending, so a burst of one signal can be handled fewer times than it was sent
 
 **Dependencies:** INFRA-001
