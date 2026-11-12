@@ -184,8 +184,10 @@ func TestShutdown_OrderedLevels(t *testing.T) {
 	d.signal(syscall.SIGTERM)
 	code := d.waitExit(10 * time.Second)
 	elapsed := time.Since(start)
-	if code != 0 || elapsed < 3*time.Second || elapsed > 5*time.Second {
-		t.Errorf("exit %d after %v, want 0 between 3 and 5 s", code, elapsed)
+	// At least the three 1 s levels in turn; well under the 10 s default
+	// stopwaitsecs any level would cost if it were waited out.
+	if code != 0 || elapsed < 3*time.Second || elapsed > 9*time.Second {
+		t.Errorf("exit %d after %v, want 0 between 3 and 9 s", code, elapsed)
 	}
 
 	o := d.orderLines()
@@ -264,12 +266,14 @@ func TestShutdown_StubbornLevelThenNext(t *testing.T) {
 }
 
 // shutdown_timeout covers all levels: at the deadline everything still
-// running is SIGKILLed, including levels never signalled.
+// running is SIGKILLed, including levels never signalled. a exits 0.5 s after
+// its TERM, so b is signalled well before the 2 s deadline; b ignores TERM,
+// so c is never signalled however slow the host is.
 func TestShutdown_TimeoutKillsAllLevels(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	d := startOrderedDaemon(t, 2, termProgram(t, dir, "a", 300, "1.5", false, "")+
-		termProgram(t, dir, "b", 200, "1.5", false, "")+
+	d := startOrderedDaemon(t, 2, termProgram(t, dir, "a", 300, "0.5", false, "")+
+		termProgram(t, dir, "b", 200, "", true, "")+
 		termProgram(t, dir, "c", 100, "1.5", false, ""))
 	d.ready("a", "b", "c")
 	c, err := getProcessInfo(d.client, "c")
