@@ -707,6 +707,27 @@ func TestClientBasicAuth(t *testing.T) {
 	}
 }
 
+// Status and pid all decode a JSON array; an error response is reported by
+// its message, not as a decode error.
+func TestClientListCallsReportAPIErrors(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/processes", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "authentication required", "code": "UNAUTHORIZED"})
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+	c := NewTCPClient(strings.TrimPrefix(ts.URL, "http://"), "", "")
+
+	if err := c.Status(nil, false, new(bytes.Buffer)); err == nil || err.Error() != "authentication required" {
+		t.Errorf("Status error %v, want \"authentication required\"", err)
+	}
+	if _, err := c.ProcessPIDs(); err == nil || err.Error() != "authentication required" {
+		t.Errorf("ProcessPIDs error %v, want \"authentication required\"", err)
+	}
+}
+
 func TestClientTailFollowError(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/processes/{name}/log/{stream}/stream",

@@ -156,6 +156,20 @@ func (c *Client) doJSONWithin(timeout time.Duration, method, path string, body i
 	return result, nil
 }
 
+// responseError returns the API's error message from a 4xx or 5xx response.
+// Endpoints that answer with a JSON array must check the status first: an
+// error body is an object, and decoding it as the array would report a
+// decode error instead of, say, "authentication required".
+func responseError(resp *http.Response) error {
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err == nil && body.Error != "" {
+		return errors.New(body.Error)
+	}
+	return fmt.Errorf("server error (status %d)", resp.StatusCode)
+}
+
 // ProcessInfo is the JSON structure returned by the API.
 type ProcessInfo struct {
 	Name        string `json:"name"`
@@ -285,6 +299,9 @@ func (c *Client) StatusWithOptions(names []string, opts StatusOptions, w io.Writ
 		return fmt.Errorf("connection failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 400 {
+		return responseError(resp)
+	}
 
 	var procs []ProcessInfo
 	if err := json.NewDecoder(resp.Body).Decode(&procs); err != nil {
@@ -584,6 +601,9 @@ func (c *Client) ProcessPIDs() ([]ProcessInfo, error) {
 		return nil, fmt.Errorf("connection failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 400 {
+		return nil, responseError(resp)
+	}
 	var procs []ProcessInfo
 	if err := json.NewDecoder(resp.Body).Decode(&procs); err != nil {
 		return nil, fmt.Errorf("invalid response: %w", err)
