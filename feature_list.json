@@ -2530,9 +2530,13 @@
         "Configure a program with no per-process user and verify it still inherits the supervisor environment (backward compatible)",
         "Configure a program with user = 65534 and inherit_environment = true and verify the orphaner 'env' output contains ROOT_SECRET",
         "Verify HOME resolves from the target user's passwd entry and falls back to / when unresolved",
-        "Run 'go test -run TestBuildEnv ./internal/process/...' and confirm the differing-user clean-by-default path is covered"
+        "Unit (process): the TestBuildEnv* tests cover the differing-user clean-by-default path, including TestBuildEnvDifferingUserMinimalBase and TestBuildEnvDifferingUserViaStart"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestRootContainer_CleanEnvForOtherUser",
+        "TestEnv_Passthrough"
+      ],
       "dependencies": ["per-process-user-switching"]
     },
     {
@@ -2625,9 +2629,13 @@
         "Configure a program with neither rlimit nor umask and verify the child inherits the supervisor's limits and umask",
         "Configure an invalid rlimit value and verify config validation rejects it",
         "Run the orphaner 'umask' and 'limits' subcommands as the program in the container and verify they print the configured umask and NOFILE value",
-        "Run 'go test -run TestApplyRLimits ./internal/process/...' and 'go test -run TestApplyUmask ./internal/process/...' and confirm they are exercised through the spawn path, not only directly"
+        "Unit (process): TestSpawnAppliesNofileRLimit, TestSpawnAppliesNprocRLimit, TestSpawnAppliesUmask and TestSpawnInheritsUmaskWhenUnconfigured exercise ApplyRLimits and ApplyUmask through the spawn path (the __spawn trampoline), besides the direct TestApplyRLimits and TestApplyUmask* tests"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestRootContainer_RLimitsAndUmask",
+        "TestRLimit_InvalidValueRefused"
+      ],
       "dependencies": ["resource-limits", "process-umask"]
     },
     {
