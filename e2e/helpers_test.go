@@ -54,9 +54,8 @@ func TestMain(m *testing.M) {
 	}
 	buildArgs = append(buildArgs, "github.com/kahiteam/kahi/cmd/kahi")
 	cmd := exec.Command("go", buildArgs...)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to build kahi binary: %v\n", err)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to build kahi binary: %v\n%s", err, out)
 		os.Exit(1)
 	}
 
@@ -124,8 +123,9 @@ func startDaemon(t *testing.T, configTOML string) (*ctl.Client, string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, kahiBinary, "daemon", "-c", configPath)
 	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	out := daemonOutput(t)
+	cmd.Stdout = out
+	cmd.Stderr = out
 
 	if err := cmd.Start(); err != nil {
 		cancel()
@@ -158,6 +158,30 @@ func startDaemon(t *testing.T, configTOML string) (*ctl.Client, string) {
 	waitForHealth(t, client, 3*time.Second)
 
 	return client, socketPath
+}
+
+// daemonOutput returns a file for a daemon's stdout and stderr and logs its
+// content when the test fails. Daemons must never write to the test binary's
+// own stdout: under go test -json it is the stream test2json parses, and a
+// daemon line there can swallow a test's result or block the run (#238). A
+// file, unlike a pipe, also keeps cmd.Wait from waiting on processes that
+// inherited the descriptor.
+func daemonOutput(t *testing.T) *os.File {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "daemon-*.out")
+	if err != nil {
+		t.Fatalf("create daemon output file: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = f.Close()
+		if !t.Failed() {
+			return
+		}
+		if b, err := os.ReadFile(f.Name()); err == nil && len(b) > 0 {
+			t.Logf("daemon output:\n%s", b)
+		}
+	})
+	return f
 }
 
 // waitForSocket polls for the existence of a Unix socket file.
