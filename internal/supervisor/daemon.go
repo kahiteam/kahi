@@ -124,6 +124,20 @@ func CheckPIDFile(path string, logger *slog.Logger) error {
 	return nil
 }
 
+// CheckPrivilegeDrop reports, before anything is bound, whether kahi daemon
+// -u user can be applied: user must be a numeric uid[:gid] (names are #159)
+// and the daemon must run as root. Failing here, not after the socket is
+// bound, gives a clear error and leaves nothing behind.
+func CheckPrivilegeDrop(user string) error {
+	if _, _, err := resolveUser(user); err != nil {
+		return fmt.Errorf("cannot resolve user %q: %w", user, err)
+	}
+	if uid := getuid(); uid != 0 {
+		return fmt.Errorf("kahi daemon -u %s: dropping privileges needs root (running as uid %d)", user, uid)
+	}
+	return nil
+}
+
 // DropPrivileges switches the process to the given user/group.
 func DropPrivileges(user string, logger *slog.Logger) error {
 	if user == "" {

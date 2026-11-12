@@ -194,6 +194,13 @@ command = "/orphaner id"
 user = "65534:65534"
 startsecs = 0
 autorestart = "false"
+
+[programs.badname]
+command = "/orphaner id"
+user = "www-data"
+startsecs = 0
+startretries = 0
+autorestart = "false"
 `}, nil, nil)
 	c.waitLogs(`"msg":"supervisor running"`)
 	if got := c.waitOutput("rootid", "uid="); !strings.HasPrefix(got, "uid=0 euid=0 gid=0 egid=0 ") {
@@ -201,6 +208,20 @@ autorestart = "false"
 	}
 	if got := c.waitOutput("userid", "uid="); got != "uid=65534 euid=65534 gid=65534 egid=65534 groups=[]" {
 		t.Errorf("userid: %q, want uid and gid 65534 with no supplementary groups", got)
+	}
+	// A user that cannot be applied fails closed: the program is FATAL and
+	// never runs with the daemon's root privileges (names are #159).
+	var status string
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		if status = c.run("exec", c.name, "/kahi", "ctl", "-s", "/run/kahi.sock", "status", "badname"); strings.Contains(status, "FATAL") {
+			break
+		}
+	}
+	if !strings.Contains(status, "FATAL") || !strings.Contains(status, `cannot apply user "www-data"`) {
+		t.Errorf("badname status %q, want FATAL naming the user it cannot apply", status)
+	}
+	if len(c.output("badname")) != 0 {
+		t.Errorf("badname printed output, so it ran: %q", c.output("badname"))
 	}
 	logs := c.logs()
 	if n := strings.Count(logs, rootWarning); n != 1 || !strings.Contains(logs, rootWarningUse) {
@@ -236,11 +257,19 @@ autorestart = "false"
 	if !strings.Contains(logs, `"uid":65534`) {
 		t.Errorf("privilege drop not to uid 65534; logs:\n%s", logs)
 	}
-	if got := c.waitOutput("id", "uid="); !strings.HasPrefix(got, "uid=65534 euid=65534 gid=65534 egid=65534 ") {
-		t.Errorf("id: %q, want uid and gid 65534", got)
+	// The program inherits the dropped identity; the supplementary groups
+	// were reset to the target gid alone.
+	if got := c.waitOutput("id", "uid="); got != "uid=65534 euid=65534 gid=65534 egid=65534 groups=[65534]" {
+		t.Errorf("id: %q, want uid and gid 65534 with groups [65534]", got)
 	}
 	if logs = c.logs(); strings.Contains(logs, rootWarning) {
 		t.Errorf("root warning with -u; logs:\n%s", logs)
+	}
+	// Privileges drop after the socket is bound and before the supervisor
+	// runs (FUNC-047).
+	bound, dropped, running := strings.Index(logs, `"msg":"unix socket server started"`), strings.Index(logs, `"msg":"dropped privileges"`), strings.Index(logs, `"msg":"supervisor running"`)
+	if bound < 0 || dropped < bound || running < dropped {
+		t.Errorf("log order: socket %d, drop %d, running %d; want socket, then drop, then running", bound, dropped, running)
 	}
 }
 
@@ -300,5 +329,49 @@ func TestRootWarning_NotRoot(t *testing.T) {
 	waitFor(t, "daemon stdout", out.String, "supervisor running")
 	if strings.Contains(out.String(), "running as root") {
 		t.Fatalf("root warning as uid %d:\n%s", os.Geteuid(), out.String())
+	}
+}
+
+// As non-root, kahi daemon -u is refused before anything is bound, with a
+// clear message; so is a user name (names are #159).
+func TestPrivilegeDrop_UserFlagRefusedBeforeBind(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root")
+	}
+	for flag, want := range map[string]string{
+		"65534":    fmt.Sprintf("kahi daemon -u 65534: dropping privileges needs root (running as uid %d)\n", os.Getuid()),
+		"www-data": "cannot resolve user \"www-data\": invalid uid: www-data\n",
+	} {
+		dir := shortDir(t)
+		socket := filepath.Join(dir, "kahi.sock")
+		cfg := filepath.Join(dir, "kahi.toml")
+		if err := os.WriteFile(cfg, []byte(fmt.Sprintf("[server.unix]\nfile = %q\n", socket)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		out, stderr, code := runKahi(t, dir, "daemon", "-c", cfg, "-u", flag)
+		if code != 1 || out != "" || stderr != want {
+			t.Errorf("-u %s: exit %d, stdout %q, stderr %q; want exit 1 and %q", flag, code, out, stderr, want)
+		}
+		if _, err := os.Stat(socket); err == nil {
+			t.Errorf("-u %s: the socket was bound before the refusal", flag)
+		}
+	}
+}
+
+// As non-root, a program's user is ignored with a warning and the program
+// runs as the daemon's user: it cannot escalate (FUNC-047).
+func TestUserSwitch_NonRootWarns(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root")
+	}
+	script := writeScript(t, t.TempDir(), "uid.sh", "echo uid=$(id -u)\nexec sleep 300")
+	dir := includeConfig(t, map[string]string{"kahi.toml": "[programs.web]\ncommand = \"" + script + "\"\nuser = \"65534:65534\"\nstartsecs = 0\nstopwaitsecs = 2\n"})
+	client, output := startIncludeDaemon(t, dir)
+	waitForState(t, client, "web", "RUNNING", 5*time.Second)
+	waitFor(t, "daemon output", output, fmt.Sprintf(`"log":"uid=%d"`, os.Getuid()))
+	if want := "user switching unavailable (not running as root), running as current user"; !strings.Contains(output(), want) {
+		t.Errorf("daemon output lacks %q:\n%s", want, output())
 	}
 }

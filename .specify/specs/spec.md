@@ -2186,6 +2186,8 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 - Supplementary groups are computed from /etc/group
 - Privilege drop happens after socket creation but before processing any requests
 
+**Until #159 (v0.3.0):** the user comes only from `kahi daemon -u uid[:gid]`, numeric; the `[supervisor] user` key, user names and `/etc/group` are #159. `-u` is checked before anything is bound: as non-root it exits 1 with "kahi daemon -u {user}: dropping privileges needs root (running as uid {uid})", and a name with "cannot resolve user \"{name}\": invalid uid: {name}". The supplementary groups are reset to the target gid alone.
+
 **Dependencies:** FUNC-044
 
 ---
@@ -2214,6 +2216,8 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 **Edge Cases:**
 
 - User switching sets uid, gid, and supplementary groups before exec
+
+**Until #159 (v0.3.0):** `user` takes a numeric uid[:gid]; names and `/etc/group` are #159. As root, a value that cannot be applied makes the process FATAL with "spawn error: cannot apply user \"{user}\": ..." and it never runs; the supplementary groups are cleared.
 
 **Dependencies:** FUNC-045
 
