@@ -155,6 +155,35 @@ func TestCaptureWriterReopen(t *testing.T) {
 	}
 }
 
+// A failed reopen returns the error and keeps writing to the old file (#230).
+func TestCaptureWriterReopenFailureKeepsOldFile(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "logs")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "test.log")
+	cw, err := NewCaptureWriter(CaptureConfig{ProcessName: "test", Stream: "stdout", Logfile: logPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cw.Close() }()
+
+	rotated := filepath.Join(t.TempDir(), "test.log.1")
+	if err := os.Rename(logPath, rotated); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.RemoveAll(dir)
+	if err := cw.Reopen(); err == nil {
+		t.Fatal("reopen into a missing directory succeeded")
+	}
+	if _, err := cw.Write([]byte("still here\n")); err != nil {
+		t.Fatalf("write after failed reopen: %v", err)
+	}
+	if b, _ := os.ReadFile(rotated); string(b) != "still here\n" {
+		t.Fatalf("old file = %q, want the write to land there", b)
+	}
+}
+
 func TestCaptureWriterNonWritablePath(t *testing.T) {
 	_, err := NewCaptureWriter(CaptureConfig{
 		ProcessName: "test",
