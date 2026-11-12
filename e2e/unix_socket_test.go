@@ -89,6 +89,47 @@ func TestUnixSocket_ModeAndOwnership(t *testing.T) {
 	socketRefused(t, `chown = "root:wheel"`, "server.unix.chown is not supported; socket is owner-only")
 }
 
+// With no chmod, the socket is owner-only (0700) and owned by the user the
+// daemon runs as (SEC-022).
+func TestUnixSocket_DefaultOwnerOnly(t *testing.T) {
+	t.Parallel()
+	dir := shortTempDir(t)
+	sock := filepath.Join(dir, "kahi.sock")
+	socketDaemon(t, dir, fmt.Sprintf("file = %q", sock))
+	waitForSocket(t, sock, 5*time.Second)
+	fi, err := os.Stat(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok || fi.Mode()&os.ModeSocket == 0 || fi.Mode().Perm() != 0o700 || int(st.Uid) != os.Geteuid() {
+		t.Fatalf("socket mode %v, stat %+v; want a socket with mode 0700 owned by uid %d", fi.Mode(), st, os.Geteuid())
+	}
+}
+
+// Neither kahi migrate nor kahi init produces a chown setting: migrate keeps
+// a supervisord chown only as an UNSUPPORTED comment with a warning, and the
+// generated template has none (SEC-022).
+func TestUnixSocket_NoChownGenerated(t *testing.T) {
+	t.Parallel()
+	out, stderr, code := migrate(t, "[unix_http_server]\nfile=/tmp/kahi-chown-test.sock\nchown=nobody:nogroup\n\n[program:web]\ncommand=/bin/sleep 300\n")
+	if code != 0 {
+		t.Fatalf("migrate: exit %d, stderr %q", code, stderr)
+	}
+	wantLines(t, "stdout", out, "# UNSUPPORTED: chown")
+	wantLines(t, "stderr", stderr, `server.unix: unsupported option "chown"`)
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "chown") {
+			t.Errorf("migrate wrote an active chown line: %q", line)
+		}
+	}
+
+	tmpl, _, code := runKahi(t, t.TempDir(), "init", "--stdout")
+	if code != 0 || strings.Contains(tmpl, "chown") {
+		t.Fatalf("kahi init --stdout: exit %d, mentions chown: %v", code, strings.Contains(tmpl, "chown"))
+	}
+}
+
 // A socket file left by a crashed daemon is replaced; graceful shutdown
 // removes the socket; a SIGKILLed daemon leaves it, and the next start
 // replaces it.

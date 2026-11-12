@@ -1663,13 +1663,34 @@
         "Run 'kahi migrate --output existing.toml' without --force and verify it refuses to overwrite",
         "Verify an [include] section becomes a commented TOML include listing its globs, with a warning to migrate each included file",
         "Verify environment variables are mapped from supervisord format to Kahi format",
-        "Verify signal names are normalized (e.g., SIGTERM to TERM)",
-        "Verify comments from the original file are preserved as TOML comments where possible",
+        "Verify signal names are normalized to their signal.h names (e.g., TERM to SIGTERM)",
         "Migrate a supervisord config with stopsignal=TERM and another with stopsignal=SIGINT and verify the output has \"SIGTERM\" and \"SIGINT\"; migrating stopwaitsecs=0 warns with 'stopsignal = SIGKILL'"
       ],
-      "passes": false,
-      "verified_by": ["TestSignalNames_Migrate"],
+      "passes": true,
+      "verified_by": [
+        "TestCLI_MigrateToStdout",
+        "TestCLI_MigrateOutputFile",
+        "TestCLI_MigrateErrors",
+        "TestMigrate_ParseErrorLine",
+        "TestMigrate_SectionTypes",
+        "TestMigrate_Values",
+        "TestSignalNames_Migrate"
+      ],
       "dependencies": ["toml-config-parser"]
+    },
+    {
+      "id": "migrate-comment-preservation",
+      "category": "functional",
+      "title": "Migration Comment Preservation",
+      "description": "Carry comments from supervisord.conf into the generated kahi.toml where they still apply (moved out of config-migration-tool; decision D5, #158, v0.3.0). Not implemented: the migrator strips comments today, and TestMigrate_Values and TestMigrateCommentsPreserved assert that.",
+      "testing_steps": [
+        "Migrate a config with a full-line comment above a section and above a key and verify each comment appears above the corresponding TOML table or key",
+        "Migrate a key with an inline comment and verify the comment is kept at the end of the generated line",
+        "Migrate a commented key that Kahi drops and verify its comment is kept as '# (from supervisord) ...'",
+        "Migrate a value with a continuation line carrying a comment and verify that comment is dropped without breaking the value"
+      ],
+      "passes": false,
+      "dependencies": ["config-migration-tool"]
     },
     {
       "id": "migration-ini-parser",
@@ -2551,14 +2572,19 @@
       "title": "Log Open Hardening Beyond the Final Path Component",
       "description": "Extend the existing O_NOFOLLOW final-component guard so a swapped parent-directory symlink cannot redirect a root daemon's log writes, using an openat-style per-component open where supported, otherwise documenting the trusted-path assumption.",
       "testing_steps": [
-        "Set stdout_logfile to <dir>/logs/app.log where logs is a symlink to another directory, start the program, and verify it goes to FATAL with 'cannot open log file' and nothing is written in the symlink target",
+        "Set stdout_logfile to <dir>/logs/app.log where logs is a symlink with an absolute target, start the program, and verify it goes to FATAL with 'cannot open log file' and nothing is written in the symlink target (a relative in-tree target is the deferred SEC-019 residual)",
         "Swap a parent directory of a running program's log for a symlink with an absolute target, send SIGUSR2 (reopen), and verify no file appears in the symlink target, the daemon logs 'log reopen failed', and output still reaches the old file",
         "Verify a normal log path with no symlinked components opens unchanged from the prior O_NOFOLLOW behavior",
         "Verify internal/logging/open_other.go documents the trusted-path assumption for platforms without openat (doc check)",
-        "Run 'go test -run TestLogOpen ./internal/logging/...' covering the parent-symlink case"
+        "Unit (logging): TestLogOpenRejectsSymlinkedParent, TestLogOpenWriteNotRedirectedThroughSwappedParent and TestLogOpenRejectsSymlinkedAncestor cover the parent-symlink case"
       ],
-      "passes": false,
-      "verified_by": ["TestLog_SIGUSR2ReopenRefusesParentSymlink"],
+      "passes": true,
+      "verified_by": [
+        "TestLog_ParentSymlinkRefusedAtStart",
+        "TestLog_SIGUSR2ReopenRefusesParentSymlink",
+        "TestCapture_LinesAndFiles",
+        "TestLog_OpenOtherDocumentsTrustedPath"
+      ],
       "dependencies": ["process-output-capture"]
     },
     {
@@ -2601,13 +2627,18 @@
       "description": "The Unix control socket must stay owner-only (0700, service UID). Reject the dead server.unix.chown field and any group/other chmod with a config error rather than silently ignoring them; peer-credential authorization is deferred as a future extension.",
       "testing_steps": [
         "Start the daemon with default config and verify the control socket is mode 0700 owned by the service UID via stat",
-        "Verify a chmod failure at bind closes the listener so no world-accessible socket is served",
+        "Unit (api): TestUnixControlSocketChmodFailureClosesListener: a chmod failure at bind closes the listener so no world-accessible socket is served",
         "Set server.unix.chmod to 0770 and verify the daemon refuses to start with 'control socket must be owner-only (0700); got 0770'",
         "Set server.unix.chown and verify the daemon refuses to start with 'server.unix.chown is not supported; socket is owner-only'",
-        "Verify the migrator does not emit chown into generated config and the generated template drops the commented chown example",
-        "Run 'go test ./internal/api/... ./internal/config/...' covering the chown and chmod rejections"
+        "Verify the migrator keeps a supervisord chown only as a '# UNSUPPORTED: chown' comment with a warning, never as an active setting, and 'kahi init' output has no chown",
+        "Unit (config): TestControlSocketOwnerOnly and TestValidateUnixServerReportsAllErrors cover the chmod and chown rejections"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestUnixSocket_DefaultOwnerOnly",
+        "TestUnixSocket_ModeAndOwnership",
+        "TestUnixSocket_NoChownGenerated"
+      ],
       "dependencies": ["unix-socket-server"]
     },
     {
