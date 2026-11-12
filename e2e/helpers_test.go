@@ -184,6 +184,24 @@ func daemonOutput(t *testing.T) *os.File {
 	return f
 }
 
+// stopDaemon shuts the daemon behind socket down through the API and waits
+// for cmd to exit, so its programs are stopped too. Only if that takes over
+// 10s is the daemon SIGKILLed: its programs run in their own process groups,
+// so a killed daemon leaves them running as orphans.
+func stopDaemon(t *testing.T, cmd *exec.Cmd, socket string) {
+	t.Helper()
+	_ = ctl.NewUnixClient(socket).Shutdown()
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Errorf("daemon did not exit within 10s of shutdown; killing it")
+		_ = cmd.Process.Kill()
+		<-done
+	}
+}
+
 // waitForSocket polls for the existence of a Unix socket file.
 func waitForSocket(t *testing.T, path string, timeout time.Duration) {
 	t.Helper()

@@ -50,9 +50,22 @@ func startOrderedDaemon(t *testing.T, timeout int, programs string) *orderedDaem
 	d.cmd = startDaemonCmd(t, kahiBinary, cfgPath, d.dir)
 	d.exit = make(chan error, 1)
 	go func() { d.exit <- d.cmd.Wait() }()
+	// A daemon the test left running is shut down, not SIGKILLed, so its
+	// programs are stopped instead of looping on as orphans.
 	t.Cleanup(func() {
-		_ = d.cmd.Process.Kill()
-		<-d.exit
+		select {
+		case err := <-d.exit:
+			d.exit <- err
+			return
+		default:
+		}
+		_ = ctl.NewUnixClient(d.socket).Shutdown()
+		select {
+		case <-d.exit:
+		case <-time.After(10 * time.Second):
+			_ = d.cmd.Process.Kill()
+			<-d.exit
+		}
 	})
 	waitForSocket(t, d.socket, 5*time.Second)
 	d.client = ctl.NewUnixClient(d.socket)
@@ -455,8 +468,9 @@ func TestShutdown_SumWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForSocket(t, filepath.Join(sdir, "k.sock"), 5*time.Second)
-	_ = cmd.Process.Kill()
-	_ = cmd.Wait()
+	// Shut down, do not SIGKILL: a killed daemon cannot stop a and b, which
+	// run in their own process groups and would loop on as orphans.
+	stopDaemon(t, cmd, filepath.Join(sdir, "k.sock"))
 	if !strings.Contains(stderr.String(), "warning: "+want) {
 		t.Errorf("load stderr %q lacks the warning", stderr.String())
 	}
