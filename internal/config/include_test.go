@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,8 +152,69 @@ command = "/usr/bin/web"
 	if err == nil {
 		t.Fatal("expected error for duplicate program name")
 	}
-	if !strings.Contains(err.Error(), "duplicate") {
-		t.Fatalf("error = %q, want duplicate program error", err.Error())
+	// Both definitions are in included files: the error names both (#136).
+	want := fmt.Sprintf("duplicate program name %q: defined in both %s and %s", "web", filepath.Join(confDir, "01.toml"), filepath.Join(confDir, "02.toml"))
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err.Error(), want)
+	}
+}
+
+// A program defined in the main config and in a file a nested include pulls
+// in names the main config and the nested file.
+func TestLoadWithIncludesDuplicateNamesNestedFile(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "kahi.toml"), "include = [\"a.toml\"]\n\n[programs.web]\ncommand = \"/bin/true\"\n")
+	writeFile(t, filepath.Join(dir, "a.toml"), "include = [\"b.toml\"]\n")
+	writeFile(t, filepath.Join(dir, "b.toml"), "[programs.web]\ncommand = \"/bin/true\"\n")
+	_, _, err := LoadWithIncludes(filepath.Join(dir, "kahi.toml"))
+	want := fmt.Sprintf("duplicate program name %q: defined in both main config and %s", "web", filepath.Join(dir, "b.toml"))
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+}
+
+// A file matched by two patterns, or included from two files, is merged
+// once with a warning; it is not a cycle (#136).
+func TestLoadWithIncludesFileMatchedTwice(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "kahi.toml"), "include = [\"conf.d/*.toml\", \"conf.d/web.toml\", \"other.toml\"]\n")
+	writeFile(t, filepath.Join(dir, "conf.d", "web.toml"), "[programs.web]\ncommand = \"/bin/true\"\n")
+	writeFile(t, filepath.Join(dir, "other.toml"), "include = [\"conf.d/web.toml\"]\n")
+	cfg, warnings, err := LoadWithIncludes(filepath.Join(dir, "kahi.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cfg.Programs["web"]; !ok {
+		t.Fatal("web not merged")
+	}
+	want := fmt.Sprintf("include %s is matched more than once; merged once", filepath.Join(dir, "conf.d", "web.toml"))
+	if n := strings.Count(strings.Join(warnings, "\n"), want); n != 2 {
+		t.Fatalf("warnings %q: want %q twice (second pattern, other.toml)", warnings, want)
+	}
+}
+
+// [supervisor] and [server.*] tables in an included file are ignored with
+// a warning (#136).
+func TestLoadWithIncludesWarnsIgnoredTables(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "kahi.toml"), "include = [\"extra.toml\"]\n\n[supervisor]\nlog_level = \"warn\"\n")
+	extra := filepath.Join(dir, "extra.toml")
+	writeFile(t, extra, "[supervisor]\nlog_level = \"debug\"\n\n[server.unix]\nfile = \"/tmp/other.sock\"\n\n[programs.web]\ncommand = \"/bin/true\"\n")
+	cfg, warnings, err := LoadWithIncludes(filepath.Join(dir, "kahi.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Supervisor.LogLevel != "warn" || cfg.Programs["web"].Command != "/bin/true" {
+		t.Fatalf("log_level %q, web %+v: want the main file's [supervisor] and the included program", cfg.Supervisor.LogLevel, cfg.Programs["web"])
+	}
+	got := strings.Join(warnings, "\n")
+	for _, want := range []string{
+		extra + ": [supervisor] in an included file is ignored; set it in the main config",
+		extra + ": [server.unix] in an included file is ignored; set it in the main config",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("warnings %q lack %q", warnings, want)
+		}
 	}
 }
 

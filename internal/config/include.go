@@ -6,20 +6,46 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/BurntSushi/toml"
 )
 
 // ResolveIncludes processes the include directive in the config,
 // loading and merging all matched files. Returns warnings for patterns
 // that match no files. The configDir is the directory of the main config file.
 func ResolveIncludes(cfg *Config, configDir string) ([]string, error) {
-	return resolveIncludes(cfg, configDir, make(map[string]bool))
+	return resolveIncludes(cfg, configDir, newIncludeState(""), mainConfigLabel, nil)
 }
 
-// resolveIncludes merges cfg's includes. seen holds every file already
-// loaded, so a file included twice, or an include cycle, is an error.
-// Included files are expanded on their own, so %(here)s is the directory of
-// the file that uses it, and their own includes resolve relative to them.
-func resolveIncludes(cfg *Config, configDir string, seen map[string]bool) ([]string, error) {
+// mainConfigLabel names the main config file in error messages.
+const mainConfigLabel = "main config"
+
+// includeState is shared by one config load and all its includes.
+type includeState struct {
+	// loaded holds every file already merged: a file matched again, by a
+	// second pattern or from another included file, is skipped.
+	loaded map[string]bool
+	// origins records, per merged config, the file each program came from,
+	// so a duplicate names both files (#136).
+	origins map[*Config]map[string]string
+}
+
+// newIncludeState starts the state for a load whose main file is mainPath
+// ("" when it is not a file).
+func newIncludeState(mainPath string) *includeState {
+	st := &includeState{loaded: make(map[string]bool), origins: make(map[*Config]map[string]string)}
+	if mainPath != "" {
+		st.loaded[mainPath] = true
+	}
+	return st
+}
+
+// resolveIncludes merges cfg's includes into cfg. label names cfg's own file
+// in messages, chain holds the files that include cfg, so a file that
+// includes one of them is a cycle. Included files are expanded on their own,
+// so %(here)s is the directory of the file that uses it, and their own
+// includes resolve relative to them.
+func resolveIncludes(cfg *Config, configDir string, st *includeState, label string, chain []string) ([]string, error) {
 	if len(cfg.Include) == 0 {
 		return nil, nil
 	}
@@ -51,28 +77,36 @@ func resolveIncludes(cfg *Config, configDir string, seen map[string]bool) ([]str
 				return warnings, fmt.Errorf("cannot resolve include path %q: %w", path, err)
 			}
 
-			if seen[absPath] {
+			// A file that includes one of the files including it is a
+			// cycle; one merged already, by another pattern or another
+			// file, is merged once.
+			if slices.Contains(chain, absPath) {
 				return warnings, fmt.Errorf("circular include detected: %s", absPath)
 			}
-			seen[absPath] = true
+			if st.loaded[absPath] {
+				warnings = append(warnings, fmt.Sprintf("include %s is matched more than once; merged once", absPath))
+				continue
+			}
+			st.loaded[absPath] = true
 
 			included, incWarnings, err := Load(absPath)
 			if err != nil {
 				return warnings, fmt.Errorf("include %s: %w", absPath, err)
 			}
 			warnings = append(warnings, incWarnings...)
+			warnings = append(warnings, ignoredIncludeTables(absPath)...)
 
 			if err := ExpandVariables(included, absPath); err != nil {
 				return warnings, fmt.Errorf("include %s: variable expansion failed: %w", absPath, err)
 			}
-			nested, err := resolveIncludes(included, filepath.Dir(absPath), seen)
+			nested, err := resolveIncludes(included, filepath.Dir(absPath), st, absPath, append(slices.Clone(chain), absPath))
 			warnings = append(warnings, nested...)
 			if err != nil {
 				return warnings, err
 			}
 
 			// Merge programs from included files.
-			if err := mergePrograms(cfg, included, absPath); err != nil {
+			if err := mergePrograms(cfg, included, label, absPath, st); err != nil {
 				return warnings, err
 			}
 
@@ -90,16 +124,54 @@ func resolveIncludes(cfg *Config, configDir string, seen map[string]bool) ([]str
 	return warnings, nil
 }
 
-func mergePrograms(dst, src *Config, srcPath string) error {
+// ignoredIncludeTables warns about the tables of an included file that are
+// not merged: [supervisor] and [server.*] come from the main config only.
+func ignoredIncludeTables(path string) []string {
+	var raw map[string]any
+	if _, err := toml.DecodeFile(path, &raw); err != nil {
+		return nil // Load reported it already
+	}
+	var warnings []string
+	if _, ok := raw["supervisor"]; ok {
+		warnings = append(warnings, fmt.Sprintf("%s: [supervisor] in an included file is ignored; set it in the main config", path))
+	}
+	if server, ok := raw["server"].(map[string]any); ok {
+		tables := make([]string, 0, len(server))
+		for name := range server {
+			tables = append(tables, name)
+		}
+		sort.Strings(tables)
+		for _, name := range tables {
+			warnings = append(warnings, fmt.Sprintf("%s: [server.%s] in an included file is ignored; set it in the main config", path, name))
+		}
+	}
+	return warnings
+}
+
+// mergePrograms merges src's programs into dst. dstLabel names dst's own
+// file and srcPath src's; a program defined twice is an error naming both
+// files it came from.
+func mergePrograms(dst, src *Config, dstLabel, srcPath string, st *includeState) error {
+	if st.origins[dst] == nil {
+		st.origins[dst] = make(map[string]string)
+	}
 	for name, prog := range src.Programs {
-		if existing, ok := dst.Programs[name]; ok {
-			_ = existing
-			return fmt.Errorf("duplicate program name %q: defined in both main config and %s", name, srcPath)
+		from := st.origins[src][name]
+		if from == "" {
+			from = srcPath
+		}
+		if _, ok := dst.Programs[name]; ok {
+			other := st.origins[dst][name]
+			if other == "" {
+				other = dstLabel
+			}
+			return fmt.Errorf("duplicate program name %q: defined in both %s and %s", name, other, from)
 		}
 		if dst.Programs == nil {
 			dst.Programs = make(map[string]ProgramConfig)
 		}
 		dst.Programs[name] = prog
+		st.origins[dst][name] = from
 	}
 	return nil
 }
@@ -137,13 +209,14 @@ func LoadWithIncludes(path string) (*Config, []string, error) {
 		return nil, warnings, fmt.Errorf("variable expansion failed: %w", err)
 	}
 
-	// Resolve includes. The main file counts as seen, so a file that
-	// includes it back is reported as a cycle.
-	seen := make(map[string]bool)
-	if abs, err := filepath.Abs(path); err == nil {
-		seen[abs] = true
+	// Resolve includes. The main file counts as loaded and starts the
+	// chain, so a file that includes it back is reported as a cycle.
+	absMain, _ := filepath.Abs(path)
+	var chain []string
+	if absMain != "" {
+		chain = []string{absMain}
 	}
-	incWarnings, err := resolveIncludes(cfg, configDir, seen)
+	incWarnings, err := resolveIncludes(cfg, configDir, newIncludeState(absMain), mainConfigLabel, chain)
 	warnings = append(warnings, incWarnings...)
 	if err != nil {
 		return nil, warnings, err

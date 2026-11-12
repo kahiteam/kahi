@@ -1024,16 +1024,20 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition                | Expected Behavior | User-Facing Message                           |
-| ------------------------------ | ----------------- | --------------------------------------------- |
-| Included file has syntax error | Config load fails | "error in {file}: {parse_error}"              |
-| Circular include               | Config load fails | "circular include detected: {file}"           |
-| Include glob matches no files  | Warning logged    | "include pattern matched no files: {pattern}" |
+| Error Condition                                                      | Expected Behavior      | User-Facing Message                                                                                      |
+| -------------------------------------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------- |
+| Included file has syntax error                                       | Config load fails      | "include {file}: config parse error in {file}: {parse_error}"                                            |
+| Circular include (a file includes one that includes it)              | Config load fails      | "circular include detected: {file}"                                                                      |
+| Include glob matches no files                                        | Warning logged         | "include pattern \"{pattern}\" matched no files"                                                         |
+| Two files define the same program                                    | Config load fails      | "duplicate program name \"{name}\": defined in both {file} and {file}" ("main config" for the main file) |
+| A file is matched again (second pattern, or included from two files) | Merged once, warning   | "include {file} is matched more than once; merged once"                                                  |
+| An included file has [supervisor] or [server.*]                      | Table ignored, warning | "{file}: [supervisor] in an included file is ignored; set it in the main config" (#136)                  |
 
 **Edge Cases:**
 
-- Included files can define programs but not override [supervisor] settings
-- Duplicate program names across included files are caught at validation
+- Included files can define programs, groups and webhooks but not override [supervisor] or [server.*] settings; those tables are ignored with a warning (#136)
+- A [groups] table in a later file replaces one of the same name from an earlier file
+- Duplicate program names across included files are caught at load, naming both files
 - Included files are re-read on config reload (SIGHUP)
 
 **Dependencies:** INFRA-005, FUNC-012
