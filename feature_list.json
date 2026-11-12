@@ -1182,7 +1182,13 @@
         "Configure a program with a nonexistent directory and verify it goes through BACKOFF to FATAL with 'spawn error:' in its status description",
         "With stopasgroup = true, stop a process that has a grandchild and verify the grandchild receives the stop signal"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestLifecycle_ExecWithoutShell",
+        "TestChildIsolation_GroupSignalNotDelivered",
+        "TestChildIsolation_SpawnErrorBackoffToFatal",
+        "TestLifecycle_StopAsGroup"
+      ],
       "dependencies": ["process-start"]
     },
     {
