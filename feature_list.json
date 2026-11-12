@@ -457,16 +457,22 @@
       "title": "Config File Include System with Glob Patterns",
       "description": "Include additional TOML config files via glob patterns, merged alphabetically, with validation for circular includes and duplicate program names.",
       "testing_steps": [
-        "Create a main config with include=['conf.d/*.toml'], add matching files, and verify they are parsed and merged alphabetically",
-        "Create a main config with an include pattern matching no files and verify a warning is logged but loading continues",
+        "Create a main config with include=['conf.d/*.toml'], add matching files, and verify they are parsed and merged in file-name order (a [groups] table in a later file replaces an earlier one)",
+        "Create a main config with an include pattern matching no files and verify the warning 'include pattern \"{absolute pattern}\" matched no files' and that loading continues",
         "Create a main config with relative include paths and verify they resolve relative to the main config directory",
         "Create an included file with a syntax error and verify config load fails with the correct file name in the error",
         "Create a circular include and verify it is detected and config load fails",
-        "Create two included files defining the same program name and verify a validation error about duplicate names",
-        "Verify included files can define programs but cannot override [supervisor] settings"
+        "Create two included files defining the same program name and verify config load fails with 'duplicate program name \"web\": defined in both {file1} and {file2}'",
+        "Verify included files can define programs but cannot override [supervisor] settings: the table is ignored with the warning '{file}: [supervisor] in an included file is ignored; set it in the main config' (likewise [server.*])",
+        "Unit (config): TestLoadWithIncludesFileMatchedTwice: a file matched by two patterns, or included from two files, is merged once with a warning and is not reported as a cycle"
       ],
-      "passes": false,
-      "verified_by": ["TestEnv_HereExpansionInIncludedFile"],
+      "passes": true,
+      "verified_by": [
+        "TestInclude_MergeOrderAndMissingPattern",
+        "TestInclude_Errors",
+        "TestInclude_SupervisorNotOverridden",
+        "TestEnv_HereExpansionInIncludedFile"
+      ],
       "dependencies": ["toml-config-parser", "toml-variable-expansion"]
     },
     {
