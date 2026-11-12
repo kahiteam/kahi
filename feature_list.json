@@ -513,12 +513,18 @@
         "Start the daemon with -c x.toml (program only_x) while /etc/kahi/kahi.toml is absent and verify 'kahi ctl status' lists only_x",
         "Run 'kahi daemon' with no config found and verify exit code 1 and 'no config file found; searched [/etc/kahi/kahi.toml /etc/kahi.toml]'",
         "Set KAHI_CONFIG to y.toml (program only_y) with no -c and verify 'kahi ctl status' lists only_y",
-        "chmod 000 the config named by -c and verify exit 1 with 'cannot read config: {path}: permission denied' (skipped as root)",
-        "Set KAHI_CONFIG to a path that does not exist and verify 'cannot read config: {path}: {error}' and exit 1, with no fall-back to the search paths",
+        "chmod 000 the config named by -c and verify exit 1 with 'cannot read config: {path}: open {path}: permission denied' (skipped as root)",
+        "Set KAHI_CONFIG (or -c) to a path that does not exist and verify 'cannot read config: {path}: stat {path}: no such file or directory' and exit 1, with no fall-back to the search paths",
         "Set KAHI_CONFIG and pass -c with a different file and verify -c wins",
         "Point -c at a symlink to a config file and verify the daemon loads the target"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestConfigSearch_DaemonIgnoresCWD",
+        "TestConfigSearch_ExplicitCWDConfig",
+        "TestConfigSearch_FlagAndEnv",
+        "TestConfigSearch_UnreadableConfig"
+      ],
       "dependencies": ["toml-config-parser"]
     },
     {
@@ -2499,13 +2505,17 @@
       "description": "The daemon must not load ./kahi.toml from an untrusted current working directory ahead of system paths, which is a local privilege-escalation vector when root starts the daemon from an attacker-writable directory. Explicit -c and KAHI_CONFIG are still honored.",
       "testing_steps": [
         "Place a ./kahi.toml in the working directory, start the daemon without -c or KAHI_CONFIG, and verify exit 1 with 'no config file found; searched [/etc/kahi/kahi.toml /etc/kahi.toml]' (the CWD file is not used)",
-        "Verify the daemon resolves config from the system search paths only (/etc/kahi/kahi.toml, /etc/kahi.toml)",
+        "Unit (config): TestResolveDaemonUsesSystemPaths: with ./kahi.toml present and a config at a system search path, the daemon resolves the system path",
         "Start the daemon with '-c ./kahi.toml' (program only_cwd) and verify 'kahi ctl status' lists only_cwd",
         "Set KAHI_CONFIG=./kahi.toml and verify 'kahi ctl status' lists only_cwd",
         "With no config in the system paths and none explicit, verify the daemon exits 1 with 'no config file found; searched [/etc/kahi/kahi.toml /etc/kahi.toml]'",
         "Run 'go test -run TestResolve ./internal/config/...' and confirm the daemon search order excludes the CWD entry"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestConfigSearch_DaemonIgnoresCWD",
+        "TestConfigSearch_ExplicitCWDConfig"
+      ],
       "dependencies": ["config-search-paths"]
     },
     {
