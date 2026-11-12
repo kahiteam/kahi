@@ -18,8 +18,9 @@ import (
 // the suite, re-parented to init, in the test binary's session and started
 // after start. Daemons and their programs stay in that session (programs only
 // get their own process group), so a daemon killed without stopping its
-// programs shows up here (#242). Processes of other test packages running at
-// the same time still have their parents, so they do not match.
+// programs shows up here (#242), as does the child of a program's shell that
+// the daemon SIGKILLed. Processes of other test packages running at the same
+// time still have their parents, so they do not match.
 func leakedProcesses(start time.Time) ([]string, []int) {
 	mySid, err := unix.Getsid(0)
 	if err != nil {
@@ -48,10 +49,27 @@ func leakedProcesses(start time.Time) ([]string, []int) {
 		if sid, err := unix.Getsid(pid); err != nil || sid != mySid {
 			continue
 		}
-		lines = append(lines, strings.TrimSpace(line))
+		lines = append(lines, strings.TrimSpace(line)+"  (cwd "+processCwd(pid)+")")
 		pids = append(pids, pid)
 	}
 	return lines, pids
+}
+
+// processCwd returns a process's working directory, which is its daemon's
+// and usually names the leaking test's temp dir, or "?".
+func processCwd(pid int) string {
+	if dir, err := os.Readlink(fmt.Sprintf("/proc/%d/cwd", pid)); err == nil {
+		return dir
+	}
+	out, err := exec.Command("lsof", "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn").Output()
+	if err == nil {
+		for _, l := range strings.Split(string(out), "\n") {
+			if strings.HasPrefix(l, "n") {
+				return l[1:]
+			}
+		}
+	}
+	return "?"
 }
 
 // parseEtime parses ps etime, [[dd-]hh:]mm:ss.
@@ -94,7 +112,7 @@ func checkLeaks(start time.Time) int {
 	if len(lines) == 0 {
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "e2e: %d processes left running after the suite; a test killed a daemon without stopping its programs (use stopDaemon):\n", len(lines))
+	fmt.Fprintf(os.Stderr, "e2e: %d processes left running after the suite: a daemon was killed without stopping its programs (use stopDaemon), or a program's shell was killed while a child it forked ran on (exec the last command):\n", len(lines))
 	for _, l := range lines {
 		fmt.Fprintln(os.Stderr, "  "+l)
 	}

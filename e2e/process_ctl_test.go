@@ -227,7 +227,9 @@ func TestProcess_StopWaitSecs(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	ready := filepath.Join(dir, "ready")
-	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\necho ready > "+ready+"\nsleep 300")
+	// exec: the SIGKILL after stopwaitsecs must reach the sleep itself; a
+	// sleep forked by the shell would outlive it as an orphan.
+	script := writeScript(t, dir, "stubborn.sh", "trap '' TERM\necho ready > "+ready+"\nexec sleep 300")
 
 	client, _ := startDaemon(t, `
 [programs.stubborn]

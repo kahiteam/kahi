@@ -139,7 +139,7 @@ func TestDaemonize_PIDFileChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := startDaemonCmd(t, kahiBinary, cfg, dir, "-p", pidfile)
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	t.Cleanup(func() { stopDaemon(t, cmd, sock) })
 	waitForSocket(t, sock, 5*time.Second)
 	waitForHealth(t, ctl.NewUnixClient(sock), 3*time.Second)
 	if got := readPID(t, pidfile); got != cmd.Process.Pid {

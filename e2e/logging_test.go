@@ -275,10 +275,7 @@ func TestLog_SIGUSR2ReopensDaemonLog(t *testing.T) {
 	}
 
 	cmd := startDaemonCmd(t, kahiBinary, configPath, dir)
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-	})
+	t.Cleanup(func() { stopDaemon(t, cmd, socketPath) })
 	waitForSocket(t, socketPath, 5*time.Second)
 	client := ctl.NewUnixClient(socketPath)
 	waitForHealth(t, client, 3*time.Second)
@@ -330,10 +327,7 @@ func TestLog_SIGUSR2ReopenRefusesParentSymlink(t *testing.T) {
 	}
 
 	cmd := startDaemonCmd(t, kahiBinary, configPath, dir)
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-	})
+	t.Cleanup(func() { stopDaemon(t, cmd, socketPath) })
 	waitForSocket(t, socketPath, 5*time.Second)
 	client := ctl.NewUnixClient(socketPath)
 	waitForHealth(t, client, 3*time.Second)
