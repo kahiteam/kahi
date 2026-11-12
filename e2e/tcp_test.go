@@ -12,8 +12,6 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
-
-	"github.com/kahiteam/kahi/internal/testutil"
 )
 
 // TCP listener (FUNC-025), fail-closed auth (SEC-015) and bcrypt-only
@@ -121,15 +119,16 @@ func TestTCP_InvalidListenAddress(t *testing.T) {
 	}
 }
 
-// A port that is already in use stops the daemon with the bind error.
+// A port that is already in use stops the daemon with the bind error. The test
+// holds the port from the start (port 0), so a parallel test cannot take it.
 func TestTCP_PortInUse(t *testing.T) {
 	t.Parallel()
-	addr := fmt.Sprintf("127.0.0.1:%d", testutil.FreeTCPPort(t))
-	ln, err := net.Listen("tcp", addr)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = ln.Close() }()
+	addr := ln.Addr().String()
 
 	expectRefused(t, fmt.Sprintf("[server.http]\nenabled = true\nlisten = %q\nusername = \"admin\"\n%s = %q\n", addr, "pass"+"word", hashPassword(t, "secret")),
 		"cannot bind "+addr+": ")
