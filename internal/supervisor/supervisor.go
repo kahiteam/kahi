@@ -53,5 +53,7 @@ func RootWarning(logger *slog.Logger, userConfigured bool) {
 	if userConfigured {
 		return
 	}
-	logger.Warn("running as root without user config; consider setting [supervisor] user for privilege dropping")
+	// -u is the only way to name the user today; a [supervisor] user key is
+	// #159 (FUNC-048, #248).
+	logger.Warn("running as root without user config; consider kahi daemon -u <user> for privilege dropping")
 }

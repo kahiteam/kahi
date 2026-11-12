@@ -92,9 +92,6 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 		}
 	}
 
-	// Warn if running as root without privilege drop configured.
-	supervisor.RootWarning(logger, userFlag != "")
-
 	// A running daemon named by the PID file is refused before the socket
 	// is touched; a stale file is replaced (FUNC-064).
 	if err := supervisor.CheckPIDFile(pidfileFlag, logger); err != nil {
@@ -109,6 +106,11 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 		}
 		return daemonize(cmd.OutOrStdout())
 	}
+
+	// Warn if running as root without privilege drop configured. Only the
+	// process that runs the supervisor warns: with -d that is the
+	// daemonized child, not the foreground parent above (FUNC-048, #248).
+	supervisor.RootWarning(logger, userFlag != "")
 
 	// Create supervisor.
 	sup := supervisor.New(supervisor.SupervisorConfig{

@@ -2251,7 +2251,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - **Given** Kahi starts as root
   **When** no user to drop to is given (`kahi daemon -u`; a `[supervisor] user` key is #159)
-  **Then** a warning is logged once at startup: "running as root without user config; consider kahi daemon -u {user} for privilege dropping" (the `[supervisor] user` key does not exist until #159)
+  **Then** a warning is logged once at startup: "running as root without user config; consider kahi daemon -u <user> for privilege dropping" (the `[supervisor] user` key does not exist until #159)
 
 - **Given** Kahi starts as non-root
   **When** any config
