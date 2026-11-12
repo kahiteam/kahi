@@ -3094,7 +3094,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - **Given** migration produces a TOML file
   **When** validation runs
-  **Then** the output is parsed and validated as a valid Kahi config
+  **Then** the output is parsed and validated as a valid Kahi config, with the same checks the daemon runs when it loads the file, including process names and group references (#245)
 
 - **Given** validation finds errors
   **When** migration completes
@@ -3102,9 +3102,9 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Error Handling:**
 
-| Error Condition                   | Expected Behavior                                                                        | User-Facing Message                                                                                        |
-| --------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Generated config fails validation | The TOML is still printed or written; each error goes to stderr, then exit code 1 (#111) | "validation: generated config has validation errors: {details}", then "generated config failed validation" |
+| Error Condition                   | Expected Behavior                                                                                                                    | User-Facing Message                                                                                        |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| Generated config fails validation | The TOML is still printed or written; the errors go to stderr as one message, each on its own indented line, then exit code 1 (#111) | "validation: generated config has validation errors: {details}", then "generated config failed validation" |
 
 **Edge Cases:**
 

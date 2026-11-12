@@ -298,3 +298,32 @@ autostart = true
 		t.Error("expected validation errors for missing command")
 	}
 }
+
+// The daemon's merged-config checks run too: process names and group
+// references (#245).
+func TestMigrateValidationRunsMergedChecks(t *testing.T) {
+	for name, tc := range map[string]struct{ input, want string }{
+		"process_name without process_num": {
+			"[program:x]\ncommand=/bin/sleep 300\nnumprocs=2\nprocess_name=web\n",
+			`programs.x: process_name "web" must contain %(process_num)d when numprocs > 1`,
+		},
+		"duplicate process name": {
+			"[program:a]\ncommand=/bin/sleep 300\nprocess_name=same\n\n[program:b]\ncommand=/bin/sleep 300\nprocess_name=same\n",
+			"duplicate process name: same (programs.a and programs.b)",
+		},
+		"group named like a program": {
+			"[program:web]\ncommand=/bin/sleep 300\n\n[group:web]\nprograms=web\n",
+			"groups.web: name collides with program web",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			result, err := MigrateReader(strings.NewReader(tc.input), Options{})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got := strings.Join(result.ValidErrs, "\n"); !strings.Contains(got, tc.want) {
+				t.Fatalf("validation errors %q lack %q", got, tc.want)
+			}
+		})
+	}
+}
