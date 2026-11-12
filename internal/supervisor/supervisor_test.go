@@ -102,8 +102,9 @@ func TestRootWarningRootWithoutUserConfigured(t *testing.T) {
 
 	RootWarning(logger, false)
 
-	if !strings.Contains(buf.String(), "running as root") {
-		t.Fatal("expected root warning when running as root without user config")
+	// It names -u, the only way to give the daemon a user today (#248).
+	if want := "running as root without user config; consider kahi daemon -u <user> for privilege dropping"; !strings.Contains(buf.String(), want) {
+		t.Fatalf("log %q lacks %q", buf.String(), want)
 	}
 }
 

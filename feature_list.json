@@ -1265,13 +1265,19 @@
       "title": "Root Detection Warning on Startup",
       "description": "Log a warning when Kahi starts as root without explicit user configuration for privilege dropping.",
       "testing_steps": [
-        "Start Kahi as root (container) without -u and verify the warning 'running as root without user config; consider kahi daemon -u {user} for privilege dropping' is logged once",
+        "Start Kahi as root (container) without -u and verify the warning 'running as root without user config; consider kahi daemon -u <user> for privilege dropping' is logged once",
         "Start Kahi as non-root and verify no warning about root is logged",
         "Start Kahi as root (container) with -u 65534 and verify no root warning is logged",
         "Start Kahi as root (container) without -u, send SIGHUP, and verify the warning still appears exactly once",
         "Start Kahi as root (container) with -d and verify only the daemonized child logs the warning"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestRootContainer_WarningOnceAndUserSwitch",
+        "TestRootWarning_NotRoot",
+        "TestRootContainer_UserFlagNoWarning",
+        "TestRootContainer_DaemonizeWarnsOnce"
+      ],
       "dependencies": ["structured-logging", "privilege-dropping"]
     },
     {
