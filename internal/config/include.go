@@ -150,7 +150,7 @@ func LoadWithIncludes(path string) (*Config, []string, error) {
 	}
 
 	// Validate group references and process names across all files.
-	if errs := append(validateGroupReferences(cfg), validateProcessNames(cfg)...); len(errs) > 0 {
+	if errs := ValidateMerged(cfg); len(errs) > 0 {
 		msgs := make([]string, len(errs))
 		for i, e := range errs {
 			msgs[i] = e.Error()
@@ -200,6 +200,15 @@ func shutdownWarnings(cfg *Config) []string {
 	}
 	return []string{fmt.Sprintf("ordered shutdown can take up to %ds (largest stopwaitsecs per priority level, summed), "+
 		"more than supervisor.shutdown_timeout (%ds); processes still running then are SIGKILLed", sum, limit)}
+}
+
+// ValidateMerged runs the checks that need the whole config, after includes
+// are merged: group references and process names. Validate covers each
+// file on its own. The daemon runs both through LoadWithIncludes; anything
+// else that accepts a config on the daemon's behalf, such as kahi migrate,
+// must run both too (#245).
+func ValidateMerged(cfg *Config) []error {
+	return append(validateGroupReferences(cfg), validateProcessNames(cfg)...)
 }
 
 func validateGroupReferences(cfg *Config) []error {

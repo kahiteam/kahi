@@ -319,7 +319,19 @@ func validateGenerated(result *Result) {
 	if result.TOML == "" {
 		return
 	}
-	_, _, err := config.LoadBytes([]byte(result.TOML), "generated")
+	// The generated file is the whole config (includes stay commented), so
+	// it gets the daemon's merged-config checks too: migrate must not accept
+	// a config the daemon then refuses (#245).
+	cfg, _, err := config.LoadBytes([]byte(result.TOML), "generated")
+	if err == nil {
+		if errs := config.ValidateMerged(cfg); len(errs) > 0 {
+			msgs := make([]string, len(errs))
+			for i, e := range errs {
+				msgs[i] = e.Error()
+			}
+			err = fmt.Errorf("config validation failed in generated:\n  %s", strings.Join(msgs, "\n  "))
+		}
+	}
 	if err != nil {
 		result.ValidErrs = append(result.ValidErrs,
 			fmt.Sprintf("generated config has validation errors: %s", err.Error()))
