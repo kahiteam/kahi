@@ -166,12 +166,14 @@ startsecs = 0
 	read := func(name, stream, length string) apiResponse {
 		return apiDo(t, socket, "GET", "/api/v1/processes/"+name+"/log/"+stream+"?length="+length, "")
 	}
-	waitFor := func(name string, n int) []byte {
+	// waitFor polls until the buffer is full and ends with suffix: a full
+	// buffer alone can be read before the script's last write lands.
+	waitFor := func(name, suffix string) []byte {
 		t.Helper()
 		deadline := time.Now().Add(5 * time.Second)
 		for {
 			r := read(name, "stdout", "65536")
-			if len(r.body) == n || time.Now().After(deadline) {
+			if (len(r.body) == 65536 && strings.HasSuffix(string(r.body), suffix)) || time.Now().After(deadline) {
 				return r.body
 			}
 			time.Sleep(50 * time.Millisecond)
@@ -182,12 +184,12 @@ startsecs = 0
 	}
 
 	// 65546 bytes written: the buffer holds the last 65536, ending in b.
-	if b := waitFor("evict", 65536); len(b) != 65536 || !strings.HasSuffix(string(b), "abbbbbbbbbb") {
+	if b := waitFor("evict", "abbbbbbbbbb"); len(b) != 65536 || !strings.HasSuffix(string(b), "abbbbbbbbbb") {
 		t.Errorf("evict buffer %d bytes, ends %q, want 65536 ending in 10 b", len(b), string(b[max(0, len(b)-12):]))
 	}
 	// 70000 bytes written: a read returns exactly the last 65536; a longer
 	// read is refused (api-input-bounds).
-	if b := waitFor("big", 65536); len(b) != 65536 || strings.Trim(string(b), "x") != "" {
+	if b := waitFor("big", "x"); len(b) != 65536 || strings.Trim(string(b), "x") != "" {
 		t.Errorf("big buffer %d bytes, want 65536 x", len(b))
 	}
 	read("big", "stdout", "1000000").wantError(t, "length 1000000", http.StatusBadRequest, "length exceeds maximum of 65536", "BAD_REQUEST")
