@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/kahiteam/kahi/internal/api"
@@ -40,6 +42,12 @@ func init() {
 }
 
 func daemonRun(cmd *cobra.Command, args []string) (err error) {
+	// A SIGHUP during startup (config load, socket bind) is ignored instead
+	// of ending the daemon with Go's default action. The supervisor's signal
+	// handler takes SIGHUP over once it runs, before any program is spawned,
+	// so no program inherits the ignored disposition (FUNC-014, #136).
+	signal.Ignore(syscall.SIGHUP)
+
 	// A daemonized child reports its start, or the error that ended it, to
 	// the waiting parent; its stderr is /dev/null.
 	report := daemonChildReport()

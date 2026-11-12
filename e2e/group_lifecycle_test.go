@@ -5,13 +5,17 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/kahiteam/kahi/internal/ctl"
 )
 
 // Group add and remove with supervisorctl semantics, [groups] tables that
@@ -244,9 +248,17 @@ func TestGroupLifecycle_ConfigFile(t *testing.T) {
 	wantCtl(t, socket, 0, "updated: added=[] changed=[] removed=[]\n", "", "update")
 	wantCtl(t, socket, 1, "", "no such group: web (not in the loaded config; run kahi ctl update, or kahi ctl add --reload)\n", "add", "web")
 
-	// A running program the file drops is stopped and removed.
+	// A running program the file drops is stopped and removed: its process
+	// is gone when update returns.
+	extraInfo, err := getProcessInfo(ctl.NewUnixClient(socket), "extra")
+	if err != nil || extraInfo.PID == 0 {
+		t.Fatalf("extra %+v %v, want it running", extraInfo, err)
+	}
 	rewriteConfig(t, socket, "")
 	wantCtl(t, socket, 0, "updated: added=[] changed=[] removed=[extra]\n", "", "update")
+	if err := syscall.Kill(extraInfo.PID, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("extra (pid %d) still exists after update removed it: %v", extraInfo.PID, err)
+	}
 	if ev := nextEvent(); ev != "PROCESS_GROUP_REMOVED extra extra" {
 		t.Fatalf("event %q, want REMOVED extra", ev)
 	}
@@ -404,8 +416,8 @@ func TestConfigOps_ErrorsAndWarnings(t *testing.T) {
 	rewriteConfig(t, socket, strings.Replace(twoSleepers, "stopwaitsecs = 2\n", "stopwaitsecs = 2\nbogus = 1\n", 1))
 	for _, cmd := range []string{"reread", "update", "reload"} {
 		_, errOut, code := runCtl(t, socket, cmd)
-		if code != 0 || !strings.Contains(errOut, "warning: ") || !strings.Contains(errOut, "bogus") {
-			t.Errorf("%s: exit %d, stderr %q; want a 'warning: ...' line naming bogus", cmd, code, errOut)
+		if code != 0 || !strings.Contains(errOut, "warning: unknown config key: programs.web.bogus\n") {
+			t.Errorf("%s: exit %d, stderr %q; want 'warning: unknown config key: programs.web.bogus'", cmd, code, errOut)
 		}
 	}
 	for _, path := range []string{"/api/v1/config/reload?dry_run=true", "/api/v1/config/reload"} {

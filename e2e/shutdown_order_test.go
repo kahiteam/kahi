@@ -515,7 +515,8 @@ func TestShutdown_SignalQueue(t *testing.T) {
 	d.ready("stub")
 
 	// A spawn-affecting change makes the reload stop stub, which takes its
-	// 3 s stopwaitsecs; a second SIGHUP meanwhile is ignored.
+	// 3 s stopwaitsecs; a second SIGHUP meanwhile queues one more reload
+	// (#136).
 	cfg := readFile(t, filepath.Join(d.dir, "kahi.toml")) + "\n[programs.stub.environment]\nCHANGED = \"1\"\n"
 	if err := os.WriteFile(filepath.Join(d.dir, "kahi.toml"), []byte(cfg), 0o644); err != nil {
 		t.Fatal(err)
@@ -524,7 +525,7 @@ func TestShutdown_SignalQueue(t *testing.T) {
 	d.waitOrder("stub-term", 5*time.Second)
 	d.signal(syscall.SIGHUP)
 	deadline := time.Now().Add(5 * time.Second)
-	for !d.logContains("reload already in progress; ignoring SIGHUP") {
+	for !d.logContains("reload in progress; another one follows it") {
 		if time.Now().After(deadline) {
 			t.Fatal("second SIGHUP during the reload was not reported")
 		}

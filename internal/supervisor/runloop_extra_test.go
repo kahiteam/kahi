@@ -106,28 +106,71 @@ func TestWaitForShutdownWithStoppedProcesses(t *testing.T) {
 
 // A SIGHUP that arrives while a reload is running is ignored, and
 // handleReload returns at once instead of blocking the main loop.
-func TestHandleReloadWhileReloading(t *testing.T) {
+// reloadableSupervisor is testSupervisor with a config file on disk whose
+// next reload adds the program "extra".
+func reloadableSupervisor(t *testing.T) *Supervisor {
+	t.Helper()
 	s := testSupervisor()
-	s.reloadMu.Lock()
-	defer s.reloadMu.Unlock()
+	s.configPath = filepath.Join(t.TempDir(), "kahi.toml")
+	cfg := "[programs.web]\ncommand = \"/bin/echo hello\"\n\n[programs.extra]\ncommand = \"/bin/true\"\nautostart = false\n"
+	if err := os.WriteFile(s.configPath, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
 
+func (s *Supervisor) hasProgram(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.config.Programs[name]
+	return ok
+}
+
+// A SIGHUP while a reload runs does not block the main loop; it queues one
+// reload, which runs when the first is done and reads the file then. More
+// SIGHUPs meanwhile coalesce into it (#136).
+func TestHandleReloadQueuesBehindRunningReload(t *testing.T) {
+	s := reloadableSupervisor(t)
+	s.reloadMu.Lock() // a reload is running
+
+	queued := s.handleReload()
+	select {
+	case <-queued:
+		t.Fatal("queued reload ran while another held reloadMu")
+	case <-time.After(100 * time.Millisecond):
+	}
 	select {
 	case <-s.handleReload():
 	case <-time.After(time.Second):
-		t.Fatal("handleReload blocked while another reload held reloadMu")
+		t.Fatal("a second SIGHUP blocked instead of coalescing")
 	}
-	if _, ok := s.config.Programs["web"]; !ok {
-		t.Fatal("config changed although the reload was ignored")
+	if s.hasProgram("extra") {
+		t.Fatal("config changed while the reload was only queued")
+	}
+
+	s.reloadMu.Unlock() // the running reload ends
+	select {
+	case <-queued:
+	case <-time.After(5 * time.Second):
+		t.Fatal("queued reload did not run after the first ended")
+	}
+	if !s.hasProgram("extra") {
+		t.Fatal("queued reload did not apply the file")
+	}
+	if s.reloadQueued.Load() {
+		t.Fatal("reloadQueued still set after the queued reload ran")
 	}
 }
 
+// During shutdown a reload is refused, so a valid, changed file is not
+// applied.
 func TestHandleReloadDuringShutdown(t *testing.T) {
-	s := testSupervisor()
+	s := reloadableSupervisor(t)
 	s.shutting = true
 	<-s.handleReload()
 
-	if _, ok := s.config.Programs["web"]; !ok {
-		t.Fatal("config should not change during shutdown reload")
+	if s.hasProgram("extra") {
+		t.Fatal("config changed by a reload during shutdown")
 	}
 }
 

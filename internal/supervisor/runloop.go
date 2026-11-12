@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -47,6 +48,9 @@ type Supervisor struct {
 	// reloadMu serializes reloads. A reload waits for changed programs to
 	// stop, so it never holds mu, which /healthz and shutdown need.
 	reloadMu sync.Mutex
+	// reloadQueued is set while a SIGHUP reload waits for reloadMu, so
+	// SIGHUPs meanwhile coalesce into it (#136).
+	reloadQueued atomic.Bool
 
 	// startupWeb is the [server.web] the daemon started with. The UI is
 	// built once at startup, so reloads compare against this value.
@@ -218,15 +222,26 @@ func (s *Supervisor) handleSignal(sig os.Signal) bool {
 // channel that is closed when it finishes (already closed when no reload
 // ran). It must not block: the reload waits for changed programs to stop,
 // and their exits are reaped by this same main-loop goroutine.
+//
+// A SIGHUP while a reload runs queues one more, which waits for it and then
+// reads the file afresh, so an edit made during a reload is applied. Further
+// SIGHUPs while one is queued are covered by it and coalesce (#136).
 func (s *Supervisor) handleReload() <-chan struct{} {
 	done := make(chan struct{})
-	if !s.reloadMu.TryLock() {
-		s.logger.Warn("reload already in progress; ignoring SIGHUP")
+	if !s.reloadQueued.CompareAndSwap(false, true) {
+		s.logger.Info("reload already queued; SIGHUP coalesced")
 		close(done)
 		return done
 	}
 	go func() {
 		defer close(done)
+		if !s.reloadMu.TryLock() {
+			s.logger.Info("reload in progress; another one follows it")
+			s.reloadMu.Lock()
+		}
+		// From here a new SIGHUP queues another reload: this one may have
+		// read the file already.
+		s.reloadQueued.Store(false)
 		defer s.reloadMu.Unlock()
 		if _, err := s.applyReload(); err != nil {
 			s.logger.Error("reload failed", "error", err)
