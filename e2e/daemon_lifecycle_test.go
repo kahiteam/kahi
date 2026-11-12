@@ -386,8 +386,9 @@ func startDaemonCmd(t *testing.T, binary, configPath, dir string, extraFlags ...
 	args := append([]string{"daemon", "-c", configPath}, extraFlags...)
 	cmd := exec.Command(binary, args...)
 	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	out := daemonOutput(t)
+	cmd.Stdout = out
+	cmd.Stderr = out
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start daemon: %v", err)
 	}

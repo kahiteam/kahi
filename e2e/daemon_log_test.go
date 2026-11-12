@@ -28,7 +28,7 @@ func logDaemon(t *testing.T, dir, supervisor, programs string) (*ctl.Client, str
 	cmd.Dir = dir
 	out := &syncBuffer{}
 	cmd.Stdout = out
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = daemonOutput(t)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
