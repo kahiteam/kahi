@@ -193,13 +193,16 @@ autostart = false
 // all/stop skips what is down, stops BACKOFF and STARTING processes, waits for
 // a process already STOPPING without signalling it again, and SIGKILLs one
 // that ignores TERM within stopwaitsecs. slowstop has the highest priority, so
-// the descending stop reaches it first, while it is still STOPPING.
+// the descending stop reaches it first, while it is still STOPPING. Its TERM
+// handler takes 6 s: long enough to outlast the waits for backoff below (over
+// 3 s under load), short enough that the all/stop waiting for it returns
+// within the client's 10 s timeout.
 func TestBulk_StopPerState(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	terms := filepath.Join(dir, "terms")
 	slowStop := writeScript(t, dir, "slow.sh",
-		"trap 'echo term >> "+terms+"; sleep 3; exit 0' TERM\necho ready > "+filepath.Join(dir, "ready")+"\nwhile true; do sleep 0.1; done")
+		"trap 'echo term >> "+terms+"; sleep 6; exit 0' TERM\necho ready > "+filepath.Join(dir, "ready")+"\nwhile true; do sleep 0.1; done")
 	ignoresTerm := writeScript(t, dir, "ignores.sh", "trap '' TERM\necho ready > "+filepath.Join(dir, "ready2")+"\nexec sleep 300")
 	runs := filepath.Join(dir, "runs")
 	failing := writeScript(t, dir, "failing.sh", "echo run >> "+runs+"\nexit 1")
