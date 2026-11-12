@@ -225,7 +225,8 @@ func (cw *CaptureWriter) logError(msg string, err error) {
 	}
 }
 
-// Reopen closes and reopens the log file (for log rotation tools).
+// Reopen opens the log file path again and switches to it (for log rotation
+// tools). On failure it returns the error and keeps the old file.
 func (cw *CaptureWriter) Reopen() error {
 	cw.mu.Lock()
 	defer cw.mu.Unlock()
@@ -234,11 +235,13 @@ func (cw *CaptureWriter) Reopen() error {
 		return nil
 	}
 
-	_ = cw.file.Close()
+	// Open the new file before closing the old one: if the open fails, output
+	// keeps going to the old file and the next SIGUSR2 retries (#230).
 	f, err := openLogFile(cw.config.Logfile, 0644)
 	if err != nil {
 		return fmt.Errorf("cannot reopen log file: %s: %w", cw.config.Logfile, err)
 	}
+	_ = cw.file.Close()
 	cw.file = f
 	return nil
 }

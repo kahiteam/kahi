@@ -302,6 +302,85 @@ func TestLog_SIGUSR2ReopensDaemonLog(t *testing.T) {
 	}
 }
 
+// A parent directory of a running program's log swapped for a symlink with an
+// absolute target does not redirect the log on SIGUSR2: the reopen fails, the
+// daemon logs it, and output keeps going to the old file (SEC-019, #230).
+func TestLog_SIGUSR2ReopenRefusesParentSymlink(t *testing.T) {
+	t.Parallel()
+	dir, err := os.MkdirTemp("", "k-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	logs := filepath.Join(dir, "logs")
+	target := filepath.Join(dir, "target")
+	for _, d := range []string{logs, target} {
+		if err := os.Mkdir(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	script := writeScript(t, dir, "ticker.sh", "while :; do echo tick; sleep 0.1; done")
+	socketPath := filepath.Join(dir, "kahi.sock")
+	daemonLog := filepath.Join(dir, "kahi.log")
+	configPath := filepath.Join(dir, "kahi.toml")
+	cfg := "[supervisor]\nlogfile = \"" + daemonLog + "\"\nshutdown_timeout = 10\n\n[server.unix]\nfile = \"" + socketPath + "\"\n\n" +
+		"[programs.ticker]\ncommand = \"" + script + "\"\nstartsecs = 0\nstopwaitsecs = 2\nstdout_logfile = \"" + filepath.Join(logs, "app.log") + "\"\n"
+	if err := os.WriteFile(configPath, []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := startDaemonCmd(t, kahiBinary, configPath, dir)
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	waitForSocket(t, socketPath, 5*time.Second)
+	client := ctl.NewUnixClient(socketPath)
+	waitForHealth(t, client, 3*time.Second)
+	waitForState(t, client, "ticker", "RUNNING", 5*time.Second)
+	readFile := func(p string) func() string {
+		return func() string { b, _ := os.ReadFile(p); return string(b) }
+	}
+	waitFor(t, "program log", readFile(filepath.Join(logs, "app.log")), "tick")
+
+	// Move the live log directory aside (the open file moves with it) and put
+	// a symlink with an absolute target in its place.
+	old := filepath.Join(dir, "logs.old")
+	if err := os.Rename(logs, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, logs); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Kill(cmd.Process.Pid, syscall.SIGUSR2); err != nil {
+		t.Fatalf("SIGUSR2: %v", err)
+	}
+	waitFor(t, "daemon log", readFile(daemonLog), "log reopen failed")
+
+	if entries, _ := os.ReadDir(target); len(entries) != 0 {
+		t.Fatalf("symlink target has %d entries after SIGUSR2, want none", len(entries))
+	}
+	oldLog := filepath.Join(old, "app.log")
+	before, err := os.Stat(oldLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		after, err := os.Stat(oldLog)
+		if err == nil && after.Size() > before.Size() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("old log file stopped growing after the failed reopen")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if info, _ := getProcessInfo(client, "ticker"); info.State != "RUNNING" {
+		t.Fatalf("ticker = %s after the failed reopen, want RUNNING", info.State)
+	}
+}
+
 // A log file that cannot be opened fails the start: the process goes FATAL
 // and status says why. Each start retries the file, so the process starts
 // once the directory exists (FUNC-018, #171).

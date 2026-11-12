@@ -2536,12 +2536,13 @@
       "description": "Extend the existing O_NOFOLLOW final-component guard so a swapped parent-directory symlink cannot redirect a root daemon's log writes, using an openat-style per-component open where supported, otherwise documenting the trusted-path assumption.",
       "testing_steps": [
         "Set stdout_logfile to <dir>/logs/app.log where logs is a symlink to another directory, start the program, and verify it goes to FATAL with 'cannot open log file' and nothing is written in the symlink target",
-        "Swap a parent directory of a running program's log for a symlink, send SIGUSR2 (reopen), and verify no file appears in the symlink target",
+        "Swap a parent directory of a running program's log for a symlink with an absolute target, send SIGUSR2 (reopen), and verify no file appears in the symlink target, the daemon logs 'log reopen failed', and output still reaches the old file",
         "Verify a normal log path with no symlinked components opens unchanged from the prior O_NOFOLLOW behavior",
         "Verify internal/logging/open_other.go documents the trusted-path assumption for platforms without openat (doc check)",
         "Run 'go test -run TestLogOpen ./internal/logging/...' covering the parent-symlink case"
       ],
       "passes": false,
+      "verified_by": ["TestLog_SIGUSR2ReopenRefusesParentSymlink"],
       "dependencies": ["process-output-capture"]
     },
     {
