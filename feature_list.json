@@ -1740,11 +1740,15 @@
       "description": "Validate the generated kahi.toml after migration by parsing and validating it as a valid Kahi config, reporting errors for manual correction.",
       "testing_steps": [
         "Run 'kahi migrate in.conf -o out.toml' on a valid supervisord config and verify exit 0, 'wrote out.toml', and that 'kahi daemon -c out.toml' starts",
-        "Migrate a config whose result fails validation (a program with numprocs=2 and a process_name without %(process_num)) and verify each problem is printed on stderr as 'validation: {error}', then 'generated config failed validation', exit 1",
+        "Migrate a config whose result fails validation (a program with numprocs=2 and a process_name without %(process_num)d, a check the daemon runs at load, #245) and verify stderr is one 'validation: generated config has validation errors: config validation failed in generated:' line, each problem on its own indented line ('programs.x: process_name \"web\" must contain %(process_num)d when numprocs > 1'), then 'generated config failed validation', and exit 1",
         "Verify out.toml is still written in that case, so it can be corrected by hand",
-        "Migrate a [program:x] without command and verify a 'validation:' line names the missing command"
+        "Migrate a [program:x] without command and verify the validation output names 'programs.x: command is required'"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestMigrateValidation_ValidConfigRuns",
+        "TestMigrateValidation_FailureReported"
+      ],
       "dependencies": ["config-migration-tool", "toml-config-parser"]
     },
     {
