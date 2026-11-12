@@ -84,7 +84,12 @@ func TestMain(m *testing.M) {
 		}
 	}()
 
-	os.Exit(m.Run())
+	start := time.Now()
+	code := m.Run()
+	if checkLeaks(start) != 0 && code == 0 {
+		code = 1
+	}
+	os.Exit(code)
 }
 
 // processInfo mirrors the API response for a process.
