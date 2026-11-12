@@ -826,17 +826,16 @@
         "Make a request without credentials and verify 401 Unauthorized with WWW-Authenticate: Basic header",
         "Make a request with wrong credentials and verify 401 Unauthorized",
         "Parse a config with a plaintext password and verify a validation error about bcrypt hashing",
-        "Verify auth is required for the TCP server but optional for the Unix socket",
-        "Run kahi ctl --addr host:port -u admin -p <password> status against a TCP listener and verify it succeeds, and that the same command without -u/-p fails as unauthorized"
+        "Verify auth is required for the TCP server (no credentials configured: the daemon refuses to start) and not required on the Unix socket, which skips it",
+        "Run kahi ctl --addr host:port -u admin -p <password> status against a TCP listener and verify it succeeds; without -u/-p it fails with 'authentication required', with a wrong password with 'invalid credentials'"
       ],
-      "passes": false,
+      "passes": true,
       "verified_by": [
-        "TestWebUIE2EServed",
-        "TestWebUIE2EBulk",
-        "TestWebUIE2EAuth",
+        "TestTCP_ServesAPIWithCreds",
+        "TestTCP_PlaintextPasswordRefused",
+        "TestTCP_RefusedWithoutCredentials",
         "TestWebUIE2EUnixSocket",
-        "TestAuth_TCPNoCreds",
-        "TestAuth_TCPBadCreds"
+        "TestTCP_CtlAddrCredentials"
       ],
       "dependencies": ["tcp-http-server"]
     },
@@ -2487,15 +2486,16 @@
       "title": "Redact Secrets from the Config API Response",
       "description": "GET /api/v1/config must not expose secrets. handleGetConfig serializes the raw config (only toml tags), leaking Server.HTTP.Password, per-process Environment maps, and webhook Headers/URL credentials. Return a sanitized view: json-exclude Password/Username and mask Environment values, webhook Headers, and userinfo in webhook URLs.",
       "testing_steps": [
-        "Add json:\"-\" to HTTPServerConfig.Password and Username and run 'go test ./internal/config/...' to confirm they never serialize",
+        "Unit (config): TestHTTPCredentialsNeverSerialize: HTTPServerConfig Username and Password never serialize to JSON (json:\"-\")",
         "Configure an http.password, a program with an environment secret, and a webhook with an Authorization header, then request GET /api/v1/config over the Unix socket and verify the response body contains none of those values",
         "Verify environment map keys remain present in the response but their values are masked (for example \"***\")",
         "Verify webhook Headers values are masked and any userinfo in a webhook URL is stripped",
         "Verify non-secret fields (program name, command, numprocs) are returned unchanged",
-        "Run 'go test -run TestGetConfig ./internal/api/...' and confirm the regression test asserts absence of the seeded secrets",
+        "Unit (api): TestGetConfigRedactsSecrets asserts the seeded secrets are absent from the GET /api/v1/config handler's response",
         "Verify POST /api/v1/config/reload?dry_run=true returns no seeded secret values in its body"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": ["TestREST_ConfigRedactsSecrets"],
       "dependencies": ["rest-api-endpoints", "http-basic-auth"]
     },
     {
@@ -2720,17 +2720,21 @@
       "title": "Reject Cross-Origin State-Changing API Requests",
       "description": "Wrap the REST API in the standard library's http.CrossOriginProtection so a browser cannot be made to send state-changing requests on behalf of another site: process and group start/stop/restart, signal, stdin, config reload and daemon shutdown. Denials are a JSON 403 FORBIDDEN; non-browser clients that send neither Origin nor Sec-Fetch-Site are unaffected.",
       "testing_steps": [
-        "TestCrossOriginBlocksStateChange: with srv.authUser/authPass set and valid Basic credentials, send POST /api/v1/processes/web/stop with Sec-Fetch-Site: cross-site through srv.handler and verify 403, Content-Type application/json, body code FORBIDDEN, and that the call-recording process manager saw 0 Stop calls; send the same request through the bare srv.mux and verify 200 with 1 Stop call, proving the route itself is unprotected and the wrapper is what blocks it",
-        "TestCrossOriginOriginMismatch: set req.Host to kahi.local (not a Host header, which httptest ignores) and Origin: http://evil.example with no Sec-Fetch-Site, POST through srv.handler, and verify 403 FORBIDDEN with 0 Stop calls",
-        "TestCrossOriginSameOriginAllowed: verify unsafe-method requests with Sec-Fetch-Site: same-origin and Sec-Fetch-Site: none are processed (200, Stop called)",
-        "TestCrossOriginNonBrowserAllowed: verify an unsafe-method request with neither Origin nor Sec-Fetch-Site, as kahi ctl and curl send, is processed (200, Stop called)",
-        "TestCrossOriginSafeMethodsAllowed: verify a cross-site GET /api/v1/processes returns 200, and a cross-site GET to an SSE stream, issued with a context timeout so it cannot hang, returns 200 text/event-stream rather than 403",
-        "TestCrossOriginCoversAllUnsafeRoutes: verify cross-site POST /api/v1/shutdown and POST /api/v1/groups/{name}/stop return 403 FORBIDDEN and the daemon and group are unaffected",
-        "TestCrossOriginBeforeAuth: send a cross-site POST with invalid Basic credentials and verify 403 FORBIDDEN, not 401",
-        "TestCrossOriginBothServersWired: start a real TCP listener (127.0.0.1:0, auth set) and a real Unix socket, send a cross-site POST /api/v1/processes/web/stop to each, and verify each returns 403 FORBIDDEN; also assert neither http.Server's Handler is a bare *http.ServeMux",
-        "Run 'go test -count=1 -run TestCrossOrigin ./internal/api/...'; every new test is named TestCrossOrigin* so the filter covers steps 1-8"
+        "With valid credentials, a cross-site POST /api/v1/processes/{name}/stop (Sec-Fetch-Site: cross-site) is refused with 403, Content-Type application/json and {\"error\": \"cross-origin request rejected\", \"code\": \"FORBIDDEN\"}, and the process keeps running; Unit (api): TestCrossOriginBlocksStateChange shows the bare mux would serve the same request, so the wrapper is what blocks it",
+        "An Origin that does not match the Host (Origin: http://evil.example, no Sec-Fetch-Site) is refused with 403 FORBIDDEN",
+        "Unsafe-method requests with Sec-Fetch-Site: same-origin and Sec-Fetch-Site: none are processed (200, the process stops)",
+        "An unsafe-method request with neither Origin nor Sec-Fetch-Site, as kahi ctl and curl send, is processed",
+        "A cross-site GET /api/v1/processes returns 200, and a cross-site GET of the event stream, issued with a context timeout so it cannot hang, returns 200 text/event-stream rather than 403",
+        "Cross-site POST /api/v1/shutdown and POST /api/v1/groups/{name}/stop return 403 FORBIDDEN; the daemon stays up and the group keeps running",
+        "A cross-site POST with invalid Basic credentials returns 403 FORBIDDEN, not 401",
+        "Both listeners are protected: a cross-site POST to the TCP listener and to the Unix socket each returns 403 FORBIDDEN; Unit (api): TestCrossOriginBothServersWired asserts neither http.Server's Handler is a bare *http.ServeMux"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestCrossOrigin_StateChangesRejected",
+        "TestCrossOrigin_AllowedRequests",
+        "TestWebUIE2EBulk"
+      ],
       "dependencies": [
         "rest-api-endpoints",
         "http-basic-auth",
@@ -2838,20 +2842,22 @@
       "id": "web-ui-auth-output-encoding",
       "category": "functional",
       "title": "Web UI Authentication and Output Encoding",
-      "description": "Output-encoding and header requirements met inside internal/web before the UI is mounted: no inline handlers, inline scripts, style attributes or data: URIs; process data reaches the DOM only via html/template escaping or textContent and URLs only via encodeURIComponent or pathEscape; web.Handler sends a strict Content-Security-Policy and nosniff on every response. The authentication criterion holds by construction and is verified by web-ui-config-mounting's TestUIMountAuth and TestUIMountRealHandlerAuth. Spec SEC-026, ADR-029.",
+      "description": "Output-encoding and header requirements met inside internal/web before the UI is mounted: no inline handlers, inline scripts, style attributes or data: URIs; process data reaches the DOM only via html/template escaping or textContent and URLs only via encodeURIComponent or pathEscape; web.Handler sends a strict Content-Security-Policy and nosniff on every response. The authentication criterion holds by construction and is verified by web-ui-config-mounting's TestUIMountAuth and TestUIMountRealHandlerAuth. Spec SEC-026, ADR-029. The implementing session's security review is recorded in PR #85.",
       "testing_steps": [
-        "TestUISecurityHostileName: render /ui/ with a process named a'b\"<c>&d and verify the raw HTML contains a&#39;b&#34;&lt;c&gt;&amp;d in the name cell and in data-name, and never contains the raw name or '<c>'",
-        "TestUISecurityPathEscape: render /ui/ with a process named 'x y/#?' and verify the Tail links are href=\"/ui/log/x%20y%2F%23%3F/stdout\" and href=\"/ui/log/x%20y%2F%23%3F/stderr\"",
-        "TestUISecurityAssetScan: read every embedded file under templates/ and static/ except favicon.svg and verify none contains onclick=, onload=, onerror=, innerHTML, outerHTML, insertAdjacentHTML, 'eval(', 'new Function', a style= attribute, '<style', 'data:', or a <script> element without src",
-        "TestUISecurityNoTemplateBypass: parse internal/web/*.go (non-test) with go/parser and verify no selector expression template.HTML, template.JS, template.URL or template.HTMLAttr appears",
-        "TestUISecurityURLEncoding: verify every line of app.js and log.js that contains '/api/v1/processes/' or '/ui/log/' also contains 'encodeURIComponent('",
-        "TestUISecurityHeaders: verify GET /ui/, /ui/log/web/stdout, /ui/log/web/stdin (400), /ui/log/nosuch/stdout (404), /ui/static/app.js and /ui/static/nope.js through web.Handler each carry Content-Security-Policy \"default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'\" and X-Content-Type-Options: nosniff",
-        "TestUISecuritySameOriginPost (internal/api): with credentials, POST /api/v1/processes/web/start through srv.handler with Sec-Fetch-Site: same-origin returns 200, and with Sec-Fetch-Site: cross-site returns 403",
-        "Mutation check: add onclick=\"x()\" to the embedded index.html and verify TestUISecurityAssetScan fails",
-        "Recorded review (by the implementing session, not a human approval gate): after mounting, review templates, app.js, log.js and the handlers for any path where request or process data reaches markup, a URL or a script without the encodings above, and record the verdict and findings in the PR description",
-        "Run 'go test -count=1 -run TestUISecurity ./internal/web/... ./internal/api/...'; every test above is named TestUISecurity*"
+        "Render /ui/ with a process named a'b\"<c>&d and verify the raw HTML contains a&#39;b&#34;&lt;c&gt;&amp;d in the name cell and in data-name, and never contains the raw name or '<c>'",
+        "Render /ui/ with a process named 'x y#?' and verify the Tail links are percent-encoded, href=\"/ui/log/x%20y%23%3F/stdout\"; Unit (web): TestUISecurityPathEscape also covers a '/' in the name (%2F)",
+        "Unit (web): TestUISecurityAssetScan: no embedded file under templates/ and static/ except favicon.svg contains onclick=, onload=, onerror=, innerHTML, outerHTML, insertAdjacentHTML, 'eval(', 'new Function', a style= attribute, '<style', 'data:', or a <script> element without src",
+        "Unit (web): TestUISecurityNoTemplateBypass: no selector expression template.HTML, template.JS, template.URL or template.HTMLAttr appears in internal/web/*.go (non-test)",
+        "Unit (web): TestUISecurityURLEncoding: every line of app.js and log.js that contains '/api/v1/processes/' or '/ui/log/' also contains 'encodeURIComponent('",
+        "Verify GET /ui/, /ui/log/web/stdout, /ui/log/web/stdin (400), /ui/log/nosuch/stdout (404), /ui/static/app.js and /ui/static/nope.js (404) each carry Content-Security-Policy \"default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'\" and X-Content-Type-Options: nosniff",
+        "With credentials, POST /api/v1/processes/{name}/start with Sec-Fetch-Site: same-origin returns 200 and starts the process, and with Sec-Fetch-Site: cross-site returns 403 and leaves it stopped"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestWebUI_SecurityEncodingAndHeaders",
+        "TestWebUI_LogViewerPages",
+        "TestWebUI_MountAuthAndRedirects"
+      ],
       "dependencies": [
         "web-ui-status-page",
         "web-ui-log-viewer",

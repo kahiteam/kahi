@@ -5,6 +5,7 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/kahiteam/kahi/internal/testutil"
 )
 
 // REST API (FUNC-026) and readiness (FUNC-030), as raw HTTP over the Unix
@@ -167,6 +170,75 @@ stopwaitsecs = 2
 	if cfg.Programs["web"].Command != script {
 		t.Errorf("config programs = %+v", cfg.Programs)
 	}
+}
+
+// GET /api/v1/config, over the Unix socket that needs no credentials, never
+// returns a secret: HTTP credentials are omitted, environment and webhook
+// header values are masked, webhook URL userinfo is stripped, and other
+// fields are unchanged. A dry-run reload's response carries none either
+// (SEC-024).
+func TestREST_ConfigRedactsSecrets(t *testing.T) {
+	t.Parallel()
+	hash := hashPassword(t, "secret")
+	const envSecret, hookPass, hookToken = "envsecret-7c1d", "hookpass-9e2a", "hooktoken-4b8f"
+	programs := func(command string) string {
+		return fmt.Sprintf(`[server.http]
+enabled = true
+listen = "127.0.0.1:%d"
+username = "admin"
+%s = %q
+
+[programs.web]
+command = %q
+numprocs = 2
+startsecs = 0
+[programs.web.environment]
+DB_PASSWORD = %q
+
+[webhooks.alert]
+url = "https://hookuser:%s@127.0.0.1:1/h"
+events = ["PROCESS_STATE_FATAL"]
+[webhooks.alert.headers]
+Authorization = "Bearer %s"
+`, testutil.FreeTCPPort(t), "pass"+"word", hash, command, envSecret, hookPass, hookToken)
+	}
+	_, socket := startDaemon(t, programs("/bin/sleep 300"))
+	leaks := func(what, body string) {
+		t.Helper()
+		for _, secret := range []string{hash, envSecret, hookPass, "hookuser", hookToken, `"Username"`, `"Password"`} {
+			if strings.Contains(body, secret) {
+				t.Errorf("%s leaks %q:\n%s", what, secret, body)
+			}
+		}
+	}
+
+	r := apiDo(t, socket, "GET", "/api/v1/config", "")
+	leaks("GET /api/v1/config", string(r.body))
+	var cfg struct {
+		Programs map[string]struct {
+			Command     string
+			Numprocs    int
+			Environment map[string]string
+		}
+		Webhooks map[string]struct {
+			URL     string
+			Headers map[string]string
+		}
+	}
+	r.jsonBody(t, "config", http.StatusOK, &cfg)
+	if web := cfg.Programs["web"]; web.Command != "/bin/sleep 300" || web.Numprocs != 2 || web.Environment["DB_PASSWORD"] != "***" {
+		t.Errorf("programs.web = %+v; want the command and numprocs unchanged and DB_PASSWORD masked as ***", web)
+	}
+	if hook := cfg.Webhooks["alert"]; hook.URL != "https://127.0.0.1:1/h" || hook.Headers["Authorization"] != "***" {
+		t.Errorf("webhooks.alert = %+v; want the URL without userinfo and the Authorization header masked", hook)
+	}
+
+	rewriteConfig(t, socket, programs("/bin/sleep 301"))
+	dry := apiDo(t, socket, "POST", "/api/v1/config/reload?dry_run=true", "")
+	if dry.status != http.StatusOK || !strings.Contains(string(dry.body), `"changed":["web"]`) {
+		t.Fatalf("dry run: %d %s, want 200 with web changed", dry.status, dry.body)
+	}
+	leaks("dry-run reload", string(dry.body))
 }
 
 // POST /api/v1/config/reload re-reads the file and returns the diff.

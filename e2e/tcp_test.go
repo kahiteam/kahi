@@ -86,6 +86,33 @@ func TestTCP_ServesAPIWithCreds(t *testing.T) {
 	}
 }
 
+// kahi ctl reaches the TCP listener with --addr and sends -u/-p as Basic
+// auth; without them, or with a wrong password, the command fails with the
+// API's own message (FUNC-025).
+func TestTCP_CtlAddrCredentials(t *testing.T) {
+	t.Parallel()
+	d := startWebUIDaemon(t, false)
+	addr := strings.TrimPrefix(d.base, "http://")
+	for _, tc := range []struct {
+		name    string
+		creds   []string
+		code    int
+		inOut   string
+		wantErr string
+	}{
+		{"credentials", []string{"-u", "admin", "-p", "secret"}, 0, "RUNNING", ""},
+		{"none", nil, 1, "", "authentication required\n"},
+		{"wrong password", []string{"-u", "admin", "-p", "wrong"}, 1, "", "invalid credentials\n"},
+	} {
+		args := append(append([]string{"ctl", "--addr", addr}, tc.creds...), "status", "sleeper")
+		out, stderr, code := runKahi(t, t.TempDir(), args...)
+		if code != tc.code || !strings.Contains(out, tc.inOut) || stderr != tc.wantErr {
+			t.Errorf("%s: exit %d, stdout %q, stderr %q; want exit %d, stdout containing %q, stderr %q",
+				tc.name, code, out, stderr, tc.code, tc.inOut, tc.wantErr)
+		}
+	}
+}
+
 // Without credentials the daemon refuses to start, on loopback as on all
 // interfaces; an all-interfaces address is also warned about.
 func TestTCP_RefusedWithoutCredentials(t *testing.T) {
