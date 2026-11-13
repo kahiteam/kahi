@@ -60,6 +60,14 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 		}()
 	}
 
+	// -u is checked before anything is bound: it needs root and a numeric
+	// uid[:gid] (#159 adds names).
+	if userFlag != "" {
+		if err := supervisor.CheckPrivilegeDrop(userFlag); err != nil {
+			return err
+		}
+	}
+
 	// Resolve config path. The daemon excludes the current directory from its
 	// default search order so a root daemon cannot be tricked into loading a
 	// ./kahi.toml planted in an attacker-writable working directory (SEC-017).

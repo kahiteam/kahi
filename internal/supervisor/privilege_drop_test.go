@@ -49,3 +49,23 @@ func TestDropPrivilegesAbortsOnSetgroupsFailure(t *testing.T) {
 		t.Fatal("setgid/setuid must not run after setgroups fails (no partial drop)")
 	}
 }
+
+// -u is checked before anything is bound: a non-numeric user and a non-root
+// daemon are refused with a clear message (#159 adds names).
+func TestCheckPrivilegeDrop(t *testing.T) {
+	original := getuid
+	defer func() { getuid = original }()
+
+	getuid = func() int { return 501 }
+	if err := CheckPrivilegeDrop("65534"); err == nil || err.Error() != "kahi daemon -u 65534: dropping privileges needs root (running as uid 501)" {
+		t.Errorf("non-root: %v", err)
+	}
+	if err := CheckPrivilegeDrop("www-data"); err == nil || err.Error() != `cannot resolve user "www-data": invalid uid: www-data` {
+		t.Errorf("name: %v", err)
+	}
+
+	getuid = func() int { return 0 }
+	if err := CheckPrivilegeDrop("65534:65534"); err != nil {
+		t.Errorf("root, numeric user: %v", err)
+	}
+}

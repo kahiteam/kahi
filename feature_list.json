@@ -1241,16 +1241,33 @@
       "title": "Optional Privilege Dropping to Configured User",
       "description": "When running as root, optionally drop to a configured user after startup, with supplementary group support.",
       "testing_steps": [
-        "Configure user='kahi' in [supervisor] section, start as root, and verify the daemon drops to the kahi user uid/gid after startup",
-        "Start as non-root with user config and verify the setting is ignored with a warning logged",
-        "Configure a nonexistent user and verify exit with 'user not found' error",
-        "Verify supplementary groups are computed from /etc/group",
-        "Verify privilege drop happens after socket creation but before processing requests",
-        "Regression (SEC-010): assert the privilege-drop path invokes setgroups to reset supplementary groups before setgid before setuid, verified via the injectable syscall seam without requiring root",
-        "Regression (SEC-010): assert a setgroups failure aborts startup rather than continuing with a partial privilege drop"
+        "Start as root (container) with kahi daemon -u 65534 and verify the daemon drops to uid and gid 65534 after startup ('dropped privileges') and its programs run as 65534 (a [supervisor] user key is #159)",
+        "Start as non-root with kahi daemon -u 65534 and verify exit 1 with 'kahi daemon -u 65534: dropping privileges needs root (running as uid {uid})' before the socket is bound; a user name is refused the same way with 'cannot resolve user ...' (names are #159)",
+        "Verify the supplementary groups are reset to the target gid alone: a program of the dropped daemon reports groups=[65534] (groups from /etc/group are #159)",
+        "Verify privilege drop happens after socket creation but before processing requests: the log shows the socket bound, then 'dropped privileges', then 'supervisor running'",
+        "Unit (supervisor): TestDropPrivilegesResetsSupplementaryGroups (SEC-010): the drop calls setgroups, then setgid, then setuid, through the injectable syscall seam",
+        "Unit (supervisor): TestDropPrivilegesAbortsOnSetgroupsFailure (SEC-010): a setgroups failure aborts startup rather than continuing with a partial privilege drop"
+      ],
+      "passes": true,
+      "verified_by": [
+        "TestRootContainer_UserFlagNoWarning",
+        "TestPrivilegeDrop_UserFlagRefusedBeforeBind"
+      ],
+      "dependencies": ["unprivileged-operation"]
+    },
+    {
+      "id": "supervisor-user-config",
+      "category": "functional",
+      "title": "[supervisor] user Privilege Drop",
+      "description": "A [supervisor] user key, a name or uid[:gid], as the config equivalent of kahi daemon -u (#159, v0.3.0). Today only -u with a numeric uid[:gid] drops privileges.",
+      "testing_steps": [
+        "Configure user='kahi' in [supervisor], start as root, and verify the daemon drops to the kahi user's uid and gid after startup",
+        "Start as non-root with [supervisor] user set and verify the setting is ignored with a warning logged",
+        "Configure a nonexistent user and verify exit with 'user not found'",
+        "Verify supplementary groups are computed from /etc/group"
       ],
       "passes": false,
-      "dependencies": ["unprivileged-operation"]
+      "dependencies": ["privilege-dropping"]
     },
     {
       "id": "per-process-user-switching",
@@ -1258,15 +1275,32 @@
       "title": "Per-Process User Switching",
       "description": "When running as root, start child processes as specified users with uid, gid, and supplementary group configuration.",
       "testing_steps": [
-        "Configure user='www-data' on a process, run Kahi as root, and verify the child runs as www-data uid/gid",
-        "Configure user on a process, run Kahi as non-root, and verify a warning is logged and the setting is ignored",
-        "Configure a nonexistent user on a process and verify it goes to FATAL with 'user not found' error",
-        "Verify user switching sets uid, gid, and supplementary groups before exec",
-        "Regression (SEC-009): assert that a configured process user results in SysProcAttr.Credential being attached to the spawn config (guards the wiring from silently regressing)",
-        "Regression (SEC-009): assert that when a configured user's credential cannot be applied the spawn fails closed and the child does not start with the supervisor's privileges"
+        "Configure user='65534:65534' on a process, run Kahi as root (container), and verify the child runs with that uid and gid while the daemon stays root (numeric uid[:gid]; user names are #159)",
+        "Configure user on a process, run Kahi as non-root, and verify the warning 'user switching unavailable (not running as root), running as current user' is logged and the child runs as the daemon's user",
+        "Configure, as root, a user that cannot be applied (a name, until #159) and verify the process goes FATAL with 'cannot apply user ...' and never runs",
+        "Verify user switching sets uid and gid and clears the supplementary groups before exec (the child reports groups=[]); groups from /etc/group are #159",
+        "Unit (process): TestSpawnAttachesCredentialWhenRoot (SEC-009): a configured process user attaches SysProcAttr.Credential to the spawn config",
+        "Unit (process): TestSpawnFailsClosedOnInvalidUser and TestSpawnIgnoresUserWhenNotRoot (SEC-009): a credential that cannot be applied fails the spawn closed, never starting the child with the supervisor's privileges"
+      ],
+      "passes": true,
+      "verified_by": [
+        "TestRootContainer_WarningOnceAndUserSwitch",
+        "TestUserSwitch_NonRootWarns"
+      ],
+      "dependencies": ["privilege-dropping"]
+    },
+    {
+      "id": "process-user-names",
+      "category": "functional",
+      "title": "Per-Process User Names and Supplementary Groups",
+      "description": "Accept a user name for a program's user, resolved through /etc/passwd, and set the child's supplementary groups from /etc/group (#159, v0.3.0). Today only a numeric uid[:gid] is accepted and the supplementary groups are cleared.",
+      "testing_steps": [
+        "Configure user='www-data' on a process, run Kahi as root, and verify the child runs as www-data's uid and gid",
+        "Configure a nonexistent user on a process and verify it goes to FATAL with 'user not found'",
+        "Verify the child's supplementary groups are computed from /etc/group for its user"
       ],
       "passes": false,
-      "dependencies": ["privilege-dropping"]
+      "dependencies": ["per-process-user-switching"]
     },
     {
       "id": "process-umask",
