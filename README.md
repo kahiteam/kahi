@@ -36,7 +36,7 @@ Key differences from supervisord:
 - Liveness and readiness probes (`/healthz`, `/readyz`)
 - Event system with pub/sub and an SSE event stream (event listeners and webhook notifications are planned for 0.3.0: [#106](https://github.com/kahiteam/kahi/issues/106))
 - Structured logging with file rotation, ring buffer, ANSI stripping (syslog forwarding is planned for 0.3.0: [#152](https://github.com/kahiteam/kahi/issues/152))
-- Process groups with priority-ordered startup (shutdown in priority order is planned for 0.3.0: [#151](https://github.com/kahiteam/kahi/issues/151))
+- Process groups with priority-ordered startup and shutdown: shutdown stops one priority level at a time, in reverse order, within one `shutdown_timeout`
 - Per-process uid/gid, umask, resource limits (see [Resource limits](#resource-limits)), environment control
 - supervisord.conf migration tool
 - Shell completion for commands and flags (bash, zsh, fish, powershell)
@@ -51,8 +51,9 @@ Stdout/stderr passthrough integrates with container log drivers.
 
 **Traditional server process management.**
 Replace supervisord on bare-metal or VM deployments. Use `kahi daemon -d` to
-daemonize, communicate via Unix socket with `kahi ctl`. Priority-ordered
-startup sequences long-running services.
+daemonize, communicate via Unix socket with `kahi ctl`. Priority order
+sequences long-running services at startup and stops them in reverse at
+shutdown.
 
 **Development environment.**
 Run a project's background services (API server, worker, file watcher) from a
