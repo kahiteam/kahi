@@ -212,6 +212,10 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The release workflow renders the notes footer with this script; a
+      # template it cannot fill fails here, not at release time (#225).
+      - name: Check the release notes footer renders
+        run: ./scripts/render-release-footer.sh v0.0.0-check >/dev/null
       - name: Check Go version references agree with go.mod
         run: |
           GOMOD=$(awk '/^go [0-9]+\.[0-9]+\.[0-9]+$/ { print $2 }' go.mod)
