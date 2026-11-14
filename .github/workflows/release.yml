@@ -36,11 +36,15 @@ jobs:
       - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
       - name: Set Go version env
         run: echo "GOVERSION=$(go env GOVERSION)" >> "$GITHUB_ENV"
+      # GoReleaser renders the footer template once, so templates inside the
+      # variable's text would stay literal; render the tag and version here
+      # (#225). The script fails on any template it leaves.
       - name: Load release notes footer
         run: |
+          footer="$(./scripts/render-release-footer.sh "$GITHUB_REF_NAME")"
           {
             echo "KAHI_RELEASE_FOOTER<<KAHI_EOF"
-            cat .goreleaser/release-footer.md
+            printf '%s\n' "$footer"
             echo "KAHI_EOF"
           } >> "$GITHUB_ENV"
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
@@ -164,6 +168,18 @@ jobs:
             --certificate-identity "$IDENTITY" \
             --certificate-oidc-issuer "$ISSUER" \
             "$IMAGE"
+      - name: Check release notes are rendered
+        # A literal {{ .Tag }} in the notes gives users verify commands that
+        # cannot work (#225): refuse to publish such a draft.
+        env:
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          body="$(gh release view "$TAG" --repo "$REPO" --json body --jq .body)"
+          if grep -n '{{' <<<"$body"; then
+            echo "release notes of $TAG still contain unrendered templates"
+            exit 1
+          fi
       - name: Promote draft release
         # Latest only for a full release that is the highest version: never
         # for a prerelease, nor for a patch on an older line such as 0.1.x
