@@ -23,8 +23,8 @@ task test
 ```
 
 `scripts/install-hooks.sh` installs the Git hooks. `task setup` installs
-golangci-lint at its pinned, checksum-verified version and checks that every
-tool matches its pin. Running `task test` confirms the build and test suite
+golangci-lint and shellcheck at their pinned, checksum-verified versions and
+checks that every tool matches its pin. Running `task test` confirms the build and test suite
 pass on your machine.
 
 ## Branching Model
@@ -90,6 +90,8 @@ Do not use emoji in commit messages.
 - Format all Go code with `gofmt` (enforced by CI).
 - Pass `go vet ./...` with zero findings.
 - Pass `golangci-lint run ./...` with zero findings.
+- Pass `task lint-workflows` (actionlint with shellcheck) with zero findings
+  when you change a workflow.
 - Follow standard Go conventions: exported names are documented, error
   values are checked, packages are small and focused.
 - No dead code, unused imports, or commented-out blocks.

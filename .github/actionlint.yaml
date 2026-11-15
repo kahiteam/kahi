@@ -1,0 +1,8 @@
+# actionlint configuration (run by `task lint-workflows`).
+#
+# actionlint validates runs-on against the GitHub-hosted labels it knows. The
+# pinned release predates the ubuntu-26.04 image, so the label is declared
+# here; drop it once a newer pinned actionlint knows the label.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04

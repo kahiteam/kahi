@@ -4,14 +4,17 @@ version: '3'
 
 vars:
   # Pinned tool invocations. gotestsum/goreleaser/govulncheck come from
-  # tools/go.mod; golangci-lint is a verified binary download because upstream
-  # does not support tool directives. Never call these tools bare: a tool found
+  # tools/go.mod, actionlint from tools/actionlint/go.mod (its yaml dependency
+  # conflicts with goreleaser's); golangci-lint and shellcheck are verified binary
+  # downloads (upstream does not support tool directives; shellcheck is not Go). Never call these tools bare: a tool found
   # on PATH is whatever that machine happens to have, which is how a green
   # local run and a green CI run disagree.
   GOTESTSUM: go tool -modfile=tools/go.mod gotestsum
   GORELEASER: go tool -modfile=tools/go.mod goreleaser
   GOVULNCHECK: go tool -modfile=tools/go.mod govulncheck
   GOLANGCI: ./bin/golangci-lint
+  # pyflakes is off: it would be whatever python tooling the machine has.
+  ACTIONLINT: go tool -modfile=tools/actionlint/go.mod actionlint -shellcheck=./bin/shellcheck -pyflakes=
   # e2e tests run in parallel, each with its own daemon (#197). The limit
   # keeps timing assertions stable under -race; override with
   # `task test-e2e E2E_PARALLEL=n`.
@@ -49,10 +52,17 @@ tasks:
       - '{{.GOTESTSUM}} --format testdox --junitfile unit-results.xml -- -race -count=1 ./...'
 
   lint:
-    desc: Run golangci-lint at the pinned version
+    desc: Run golangci-lint and actionlint at the pinned versions
     cmds:
       - ./scripts/install-golangci-lint.sh
       - '{{.GOLANGCI}} run ./...'
+      - task: lint-workflows
+
+  lint-workflows:
+    desc: Lint GitHub Actions workflows with actionlint and shellcheck
+    cmds:
+      - ./scripts/install-shellcheck.sh
+      - '{{.ACTIONLINT}}'
 
   fmt:
     desc: Check formatting (exits non-zero if files need formatting)
@@ -129,9 +139,10 @@ tasks:
   setup:
     desc: Install development tools at their pinned versions
     cmds:
-      # gotestsum, goreleaser and govulncheck need no install step: `go tool`
+      # gotestsum, goreleaser, govulncheck and actionlint need no install step: `go tool`
       # builds them from tools/go.mod on first use and caches them.
       - ./scripts/install-golangci-lint.sh
+      - ./scripts/install-shellcheck.sh
       - task: tools-parity
 
   tools-parity:
