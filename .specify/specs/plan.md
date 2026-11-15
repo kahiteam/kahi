@@ -1399,14 +1399,14 @@ Each step is one PR, tested red first, with e2e proof through the binary and the
 1. **Spec, plan, features** (this change, `docs/v030-spec`): spec sections, ADR-040..053, feature_list.
 2. **#259 stdin broken pipe** (FUNC-077): smallest, unblocks process-stdin-writing.
 3. **Bus queues and log-stream decoupling** (ADR-041, ADR-040) with **#160** events flags (FUNC-051): foundation for #106 and attach.
-4. **#113 daemon settings and capture buffer** (ADR-047, ADR-048) with **#160** daemon umask: working-directory, resource-limits, process-umask, FUNC-086 entry; FUNC-023 withdrawal (log-cleanup-startup removed).
+4. **#113 daemon settings and capture buffer** (ADR-047, ADR-048) with **#160** daemon umask: working-directory, resource-limits, process-umask, configurable-capture-buffer (FUNC-086); FUNC-023 withdrawal (log-cleanup-startup removed). Resolves the passing->failing pair spawn-rlimit-umask-application -> resource-limits, process-umask.
 5. **#159 users, groups and the file hand-over** (ADR-046, ADR-045): process-user-names, supervisor-user-config; container e2e.
 6. **#106a webhooks** (ADR-043): webhook-notifications, webhook-templates, webhook-env-expansion, webhook-tls-requirement.
 7. **#106b listener pools** (ADR-042): event-listener-pools, event-listener-payload-framing.
 8. **#153 metrics** (ADR-049): prometheus-metrics-endpoint, process-metrics, supervisor-metrics (needs 6 and 7 for the pool and breaker series).
 9. **#152 syslog** (ADR-050): syslog-forwarding.
 10. **#157 attach** (ADR-044; needs 3): cli-foreground-attach.
-11. **#161 avail and partial update** (ADR-051): FUNC-085 entry.
+11. **#161 avail and partial update** (ADR-051): cli-config-avail-update-group (FUNC-085).
 12. **#156 completion** (ADR-052; needs 11): cli-tab-completion.
 13. **#158 migrate comments** (ADR-053): migrate-comment-preservation.
 
