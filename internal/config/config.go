@@ -61,6 +61,8 @@ type ProgramConfig struct {
 	StderrLogfileBackups  int               `toml:"stderr_logfile_backups"`
 	StderrCaptureMaxbytes string            `toml:"stderr_capture_maxbytes"`
 	StderrSyslog          bool              `toml:"stderr_syslog"`
+	StdoutEventsEnabled   bool              `toml:"stdout_events_enabled"`
+	StderrEventsEnabled   bool              `toml:"stderr_events_enabled"`
 	RedirectStderr        bool              `toml:"redirect_stderr"`
 	StripAnsi             bool              `toml:"strip_ansi"`
 	Description           string            `toml:"description"`

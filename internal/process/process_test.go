@@ -603,8 +603,8 @@ func TestProcessPublishesStateEvents(t *testing.T) {
 		mu.Unlock()
 	}
 
-	bus.Subscribe(events.ProcessStateStarting, handler)
-	bus.Subscribe(events.ProcessStateRunning, handler)
+	// One subscription keeps the two types in publish order (ADR-041).
+	bus.SubscribeQueue("test", []events.EventType{events.ProcessStateStarting, events.ProcessStateRunning}, events.QueueSize, handler, nil)
 
 	spawner := &MockSpawner{}
 	cfg := defaultProgramConfig()
@@ -612,6 +612,7 @@ func TestProcessPublishesStateEvents(t *testing.T) {
 
 	_ = p.Start()
 	time.Sleep(50 * time.Millisecond)
+	bus.Flush()
 
 	mu.Lock()
 	defer mu.Unlock()

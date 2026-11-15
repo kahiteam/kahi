@@ -24,6 +24,7 @@ type Manager struct {
 	processes  map[string]*Process
 	groups     map[string]*Group
 	captures   map[string]*logging.CaptureWriter
+	logs       *logHub
 	bus        *events.Bus
 	logger     *slog.Logger
 	spawner    ProcessSpawner
@@ -60,6 +61,7 @@ func NewManager(spawner ProcessSpawner, bus *events.Bus, logger *slog.Logger) *M
 		processes:  make(map[string]*Process),
 		groups:     make(map[string]*Group),
 		captures:   make(map[string]*logging.CaptureWriter),
+		logs:       newLogHub(),
 		bus:        bus,
 		logger:     logger,
 		spawner:    spawner,
@@ -267,10 +269,12 @@ func (m *Manager) createProgramLocked(progName string, progCfg config.ProgramCon
 		// redirect_stderr there is no stderr writer: the process routes its
 		// stderr pipe to the stdout handler.
 		if stdoutCW != nil {
-			opts = append(opts, WithStdoutHandler(logPublisher(bus, stdoutCW, events.ProcessLogStdout)))
+			// With redirect_stderr, stderr output arrives here too and is
+			// published as PROCESS_LOG_STDOUT (FUNC-051).
+			opts = append(opts, WithStdoutHandler(m.logPublisher(bus, stdoutCW, "stdout", inst.Config.StdoutEventsEnabled)))
 		}
 		if stderrCW != nil {
-			opts = append(opts, WithStderrHandler(logPublisher(bus, stderrCW, events.ProcessLogStderr)))
+			opts = append(opts, WithStderrHandler(m.logPublisher(bus, stderrCW, "stderr", inst.Config.StderrEventsEnabled)))
 		}
 
 		if h := m.passthroughHandler(inst.Config); h != nil {
@@ -790,21 +794,45 @@ func (m *Manager) ReadLog(name string, stream string, offset int64, length int) 
 	return cw.ReadTail(length), nil
 }
 
-// logPublisher returns a pipe handler that captures data and publishes it as
-// a log event with its stream id.
-func logPublisher(bus *events.Bus, cw *logging.CaptureWriter, t events.EventType) func(name string, data []byte) {
+// logPublisher returns a pipe handler that captures data, hands it with its
+// stream id to the log stream subscribers (ADR-040) and, when the program
+// enables log events for the stream, publishes it on the bus (FUNC-051).
+// Both run under the capture writer's lock, so ids stay in order.
+func (m *Manager) logPublisher(bus *events.Bus, cw *logging.CaptureWriter, stream string, eventsEnabled bool) func(name string, data []byte) {
+	t := events.ProcessLogStdout
+	if stream == "stderr" {
+		t = events.ProcessLogStderr
+	}
 	return func(name string, data []byte) {
-		var publish func([]byte, string)
-		if bus != nil {
-			publish = func(out []byte, id string) {
+		cw.CaptureAndPublish(data, func(out []byte, id string) {
+			m.logs.publish(name, stream, out, id)
+			if eventsEnabled && bus != nil {
 				bus.Publish(events.Event{
 					Type: t,
 					Data: map[string]string{"name": name, "data": string(out), "id": id},
 				})
 			}
-		}
-		cw.CaptureAndPublish(data, publish)
+		})
 	}
+}
+
+// SubscribeLog calls fn with every chunk captured on a process stream from
+// now on, with its stream id, until cancel is called (ADR-040). fn runs under
+// the capture writer's lock and must not block. The subscription follows the
+// name, so it survives a reload that creates the process again.
+func (m *Manager) SubscribeLog(name, stream string, fn func(data []byte, id string)) (cancel func(), err error) {
+	m.mu.RLock()
+	_, ok := m.processes[name]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("no such process: %s", name)
+	}
+	return m.logs.subscribe(name, stream, fn), nil
+}
+
+// LogSubscribers returns the number of log stream subscribers of a stream.
+func (m *Manager) LogSubscribers(name, stream string) int {
+	return m.logs.count(name, stream)
 }
 
 // ReadLogFrom returns what a stream's buffer still holds after offset, the

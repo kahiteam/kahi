@@ -2,6 +2,7 @@ package process
 
 import (
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -489,15 +490,16 @@ func TestOrderGroupPriorityFirst(t *testing.T) {
 // PROCESS_GROUP_ADDED (FUNC-053).
 func TestLoadConfigPublishesNoGroupEvents(t *testing.T) {
 	bus := events.NewBus(testLogger())
-	var n int
-	bus.Subscribe(events.ProcessGroupAdded, func(events.Event) { n++ })
+	var n atomic.Int64
+	bus.Subscribe(events.ProcessGroupAdded, func(events.Event) { n.Add(1) })
 	mgr := NewManager(&MockSpawner{}, bus, testLogger())
 	mgr.LoadConfig(&config.Config{
 		Programs: map[string]config.ProgramConfig{"web": defaultProgramConfig(), "api": defaultProgramConfig()},
 		Groups:   map[string]config.GroupConfig{"services": {Programs: []string{"api"}}},
 	})
-	if n != 0 {
-		t.Fatalf("startup published %d PROCESS_GROUP_ADDED events, want 0", n)
+	bus.Flush()
+	if n.Load() != 0 {
+		t.Fatalf("startup published %d PROCESS_GROUP_ADDED events, want 0", n.Load())
 	}
 	if g := mgr.Groups(); g["services"] == nil || g["web"] == nil || g["api"] != nil {
 		t.Fatalf("groups %v, want services and web, and no own group for the member api", g)

@@ -14,27 +14,25 @@ var allStateEvents = []events.EventType{
 	events.ProcessStateFatal,
 }
 
-// recordStates subscribes to every state event and records each event's
-// data together with the state the process reports from inside the callback.
-func recordStates(bus *events.Bus, p **Process) (*sync.Mutex, *[]map[string]string) {
+// recordStates subscribes once to every state event, so the events keep
+// their publish order, and records each event's data. Delivery is
+// asynchronous (ADR-041): callers Flush the bus before reading.
+func recordStates(bus *events.Bus, _ **Process) (*sync.Mutex, *[]map[string]string) {
 	var mu sync.Mutex
 	var got []map[string]string
-	for _, et := range allStateEvents {
-		bus.Subscribe(et, func(e events.Event) {
-			mu.Lock()
-			defer mu.Unlock()
-			d := map[string]string{"queried": (*p).State().String()}
-			for k, v := range e.Data {
-				d[k] = v
-			}
-			got = append(got, d)
-		})
-	}
+	bus.SubscribeQueue("test", allStateEvents, events.QueueSize, func(e events.Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		d := map[string]string{}
+		for k, v := range e.Data {
+			d[k] = v
+		}
+		got = append(got, d)
+	}, nil)
 	return &mu, &got
 }
 
-// A subscriber that queries the process from its callback sees the state of
-// the event; from_state chains each event to the previous one; EXITED carries
+// Each event carries its state; from_state chains each event to the previous one; EXITED carries
 // expected and exitstatus (FUNC-050, ADR-032).
 func TestStateEventsPayload(t *testing.T) {
 	bus := events.NewBus(testLogger())
@@ -50,6 +48,7 @@ func TestStateEventsPayload(t *testing.T) {
 	}
 	p.HandleExitStatus(3, "")
 
+	bus.Flush()
 	mu.Lock()
 	defer mu.Unlock()
 	want := []struct{ state, from string }{{"STARTING", "STOPPED"}, {"RUNNING", "STARTING"}, {"EXITED", "RUNNING"}}
@@ -58,8 +57,8 @@ func TestStateEventsPayload(t *testing.T) {
 	}
 	for i, w := range want {
 		e := (*got)[i]
-		if e["state"] != w.state || e["from_state"] != w.from || e["queried"] != w.state {
-			t.Errorf("event %d = %v, want state %s from %s, queried state equal", i, e, w.state, w.from)
+		if e["state"] != w.state || e["from_state"] != w.from {
+			t.Errorf("event %d = %v, want state %s from %s", i, e, w.state, w.from)
 		}
 	}
 	if pid := (*got)[0]["pid"]; pid != "0" {
@@ -86,6 +85,7 @@ func TestStateEventsSignalDeath(t *testing.T) {
 	}
 	p.HandleExitStatus(-1, "SIGKILL")
 
+	bus.Flush()
 	mu.Lock()
 	defer mu.Unlock()
 	exited := (*got)[len(*got)-1]
@@ -113,6 +113,7 @@ func TestStaleStartWatcherIgnored(t *testing.T) {
 	time.Sleep(2500 * time.Millisecond)
 	_ = p.Stop()
 
+	bus.Flush()
 	mu.Lock()
 	defer mu.Unlock()
 	var seq []string

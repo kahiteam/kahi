@@ -65,3 +65,21 @@ func ignoredSettingWarnings(cfg *Config) []string {
 	}
 	return warnings
 }
+
+// redirectWarnings flags stderr settings that have no effect because
+// redirect_stderr sends stderr to the stdout stream (FUNC-051).
+func redirectWarnings(cfg *Config) []string {
+	names := make([]string, 0, len(cfg.Programs))
+	for name := range cfg.Programs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var warnings []string
+	for _, name := range names {
+		p := cfg.Programs[name]
+		if p.RedirectStderr && p.StderrEventsEnabled {
+			warnings = append(warnings, fmt.Sprintf("programs.%s.stderr_events_enabled has no effect with redirect_stderr", name))
+		}
+	}
+	return warnings
+}
