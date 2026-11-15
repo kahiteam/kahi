@@ -28,7 +28,7 @@ stderr_syslog = true
 	}
 	warnings := strings.Join(result.Warnings, "\n")
 	for _, key := range []string{
-		"minfds", "minprocs", "nocleanup", "directory", "identifier",
+		"nocleanup", "identifier",
 		"stdout_capture_maxbytes", "stderr_capture_maxbytes", "stdout_syslog", "stderr_syslog",
 	} {
 		if !strings.Contains(warnings, `"`+key+`"`) {
@@ -36,6 +36,34 @@ stderr_syslog = true
 		}
 		if !strings.Contains(result.TOML, "# UNSUPPORTED: "+key+" = ") {
 			t.Errorf("TOML does not comment out %s:\n%s", key, result.TOML)
+		}
+	}
+	if len(result.ValidErrs) != 0 {
+		t.Errorf("generated TOML does not validate: %v", result.ValidErrs)
+	}
+	if !strings.Contains(result.TOML, "# UNSUPPORTED: nocleanup = true (has no effect: kahi does not auto-name child logs)") {
+		t.Errorf("nocleanup comment lacks the FUNC-023 note:\n%s", result.TOML)
+	}
+}
+
+// The daemon applies these since v0.3.0 (#113, #160), so migrate maps them.
+func TestMigrateMapsDaemonSettings(t *testing.T) {
+	input := `[supervisord]
+minfds = 4096
+minprocs = 500
+directory = /srv
+umask = 022
+
+[program:web]
+command = /usr/bin/server
+`
+	result, err := MigrateReader(strings.NewReader(input), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"minfds = 4096", "minprocs = 500", `directory = "/srv"`, `umask = "022"`} {
+		if !strings.Contains(result.TOML, want) {
+			t.Errorf("TOML lacks %q:\n%s", want, result.TOML)
 		}
 	}
 	if len(result.ValidErrs) != 0 {

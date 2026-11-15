@@ -275,6 +275,7 @@ func (s *Supervisor) applyReload() (config.ReloadResult, error) {
 
 	s.warnWebChange(newCfg)
 	s.applyLogChange(oldCfg, newCfg)
+	s.warnRestartOnly(oldCfg, newCfg)
 
 	out := s.manager.ApplyReload(oldCfg, newCfg)
 	s.logger.Info("config reloaded", "added", out.Added, "changed", out.Changed, "removed", out.Removed)
@@ -645,6 +646,25 @@ func (s *Supervisor) applyLogChange(oldCfg, newCfg *config.Config) {
 	}
 	if o.LogFormat != n.LogFormat || o.Logfile != n.Logfile {
 		s.logger.Warn("supervisor.log_format and supervisor.logfile changes take effect after restart")
+	}
+}
+
+// warnRestartOnly logs, for each startup-only [supervisor] setting that a
+// reload changed, that it takes effect after restart (FUNC-047, 067, 068).
+func (s *Supervisor) warnRestartOnly(oldCfg, newCfg *config.Config) {
+	o, n := oldCfg.Supervisor, newCfg.Supervisor
+	for _, c := range []struct {
+		key     string
+		changed bool
+	}{
+		{"directory", o.Directory != n.Directory},
+		{"umask", o.Umask != n.Umask},
+		{"minfds", o.Minfds != n.Minfds},
+		{"minprocs", o.Minprocs != n.Minprocs},
+	} {
+		if c.changed {
+			s.logger.Warn("supervisor." + c.key + " change takes effect after restart")
+		}
 	}
 }
 

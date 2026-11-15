@@ -48,7 +48,7 @@ stopwaitsecs = 2
 		}
 		for _, want := range []string{
 			"warning: supervisor.identifier is not implemented yet and is ignored",
-			"warning: supervisor.nocleanup is not implemented yet and is ignored",
+			"warning: supervisor.nocleanup has no effect: kahi does not auto-name child logs",
 		} {
 			if !strings.Contains(stderr, want) {
 				t.Errorf("ctl %s stderr = %q, want it to contain %q", sub, stderr, want)

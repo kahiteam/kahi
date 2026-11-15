@@ -271,11 +271,12 @@ kahi init --stdout            # print to stdout
 # logfile = ""                  # daemon log file path (default: stdout)
 # log_level = "info"            # debug, info, warn, error
 # log_format = "json"           # json, text
-# directory = ""                # daemon working directory (not implemented yet)
+# directory = ""                # daemon working directory, applied at startup (default: inherited)
 # identifier = "kahi"           # daemon identifier (not implemented yet)
-# minfds = 1024                 # minimum file descriptors (not implemented yet)
-# minprocs = 200                # minimum process count (not implemented yet)
-# nocleanup = false             # preserve stale log files on startup (not implemented yet)
+# minfds = 1024                 # raise the NOFILE soft limit to at least this at startup
+# minprocs = 200                # raise the NPROC soft limit to at least this at startup
+# umask = ""                    # daemon umask, e.g. "0027" (default: inherited)
+# nocleanup = false             # no effect: kahi does not auto-name child logs
 # shutdown_timeout = 30         # total seconds for an ordered shutdown, then SIGKILL; levels stop one after
 #                               # another, so keep it >= the sum of the largest stopwaitsecs in each level,
 #                               # and below your service manager's stop timeout (TimeoutStopSec, docker stop -t)
@@ -383,8 +384,13 @@ KAHI_RLIMIT_CORE = "0"
 
 Supported resources: `NOFILE`, `NPROC`, `CORE`, `FSIZE`, `AS`, `DATA`,
 `STACK`, `RSS`. An unknown resource or an invalid value is a config error.
-Daemon-wide `minfds`/`minprocs` are not implemented yet
-([#113](https://github.com/kahiteam/kahi/issues/113)).
+Daemon-wide `[supervisor] minfds` and `minprocs` set the limits programs
+inherit. `minprocs` raises the NPROC soft limit at startup when it is lower.
+`minfds`, when set, makes the NOFILE soft limit exactly `minfds` (raising the
+hard limit too when it is lower and the daemon may), so every program gets that
+many open files; set it higher to give programs more. Without `minfds`, NOFILE
+is left alone and programs keep the limit they were started with. A value you
+set that cannot be met stops the daemon; the defaults (1024, 200) only warn.
 
 ### Web UI
 

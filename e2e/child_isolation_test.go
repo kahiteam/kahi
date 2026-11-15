@@ -103,7 +103,7 @@ startretries = 1
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "spawn error: directory " + missing + " does not exist"; info.State != "FATAL" || info.Description != want {
+	if want := "spawn error: directory does not exist: " + missing; info.State != "FATAL" || info.Description != want {
 		t.Fatalf("nodir = %s %q, want FATAL %q", info.State, info.Description, want)
 	}
 }

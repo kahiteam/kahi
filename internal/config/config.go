@@ -27,6 +27,13 @@ type SupervisorConfig struct {
 	Minprocs        int    `toml:"minprocs"`
 	Nocleanup       bool   `toml:"nocleanup"`
 	ShutdownTimeout int    `toml:"shutdown_timeout"`
+	Umask           string `toml:"umask"`
+
+	// MinfdsSet and MinprocsSet report whether the key is in the file: an
+	// explicit value that cannot be met is an error, a default only warns
+	// (FUNC-068).
+	MinfdsSet   bool `toml:"-" json:"-"`
+	MinprocsSet bool `toml:"-" json:"-"`
 }
 
 // ProgramConfig holds per-program settings.

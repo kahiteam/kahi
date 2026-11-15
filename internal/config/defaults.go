@@ -1,6 +1,11 @@
 package config
 
-import "github.com/BurntSushi/toml"
+import (
+	"fmt"
+	"strconv"
+
+	"github.com/BurntSushi/toml"
+)
 
 // ApplyDefaults fills in unset fields with their default values. For the
 // numeric settings where 0 is meaningful (priority 0 starts first,
@@ -21,6 +26,8 @@ func ApplyDefaults(cfg *Config, md toml.MetaData) {
 	if cfg.Supervisor.LogFormat == "" {
 		cfg.Supervisor.LogFormat = "json"
 	}
+	cfg.Supervisor.MinfdsSet = md.IsDefined("supervisor", "minfds")
+	cfg.Supervisor.MinprocsSet = md.IsDefined("supervisor", "minprocs")
 	if cfg.Supervisor.Minfds == 0 {
 		cfg.Supervisor.Minfds = 1024
 	}
@@ -39,8 +46,13 @@ func ApplyDefaults(cfg *Config, md toml.MetaData) {
 		cfg.Server.Unix.Chmod = "0700"
 	}
 
+	cfg.Supervisor.Umask = canonicalUmask(cfg.Supervisor.Umask)
+
 	// Program defaults.
 	for name, p := range cfg.Programs {
+		// "022" and "0022" are the same umask; one spelling keeps a reload
+		// from seeing a change (FUNC-047).
+		p.Umask = canonicalUmask(p.Umask)
 		if unset(p.Numprocs, "programs", name, "numprocs") {
 			p.Numprocs = 1
 		}
@@ -92,4 +104,14 @@ func ApplyDefaults(cfg *Config, md toml.MetaData) {
 		}
 		cfg.Groups[name] = g
 	}
+}
+
+// canonicalUmask writes a valid umask with 4 digits; anything else is left
+// for validation to report.
+func canonicalUmask(s string) string {
+	if !ValidUmask(s) {
+		return s
+	}
+	v, _ := strconv.ParseUint(s, 8, 32)
+	return fmt.Sprintf("%04o", v)
 }

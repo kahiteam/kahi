@@ -238,13 +238,13 @@ func TestProcessStartMissingDirectory(t *testing.T) {
 	cfg.Startretries = 0
 	p := NewProcess("test", "test", cfg, spawner, testBus(), testLogger())
 
-	if err := p.Start(); err == nil || !strings.Contains(err.Error(), "directory /nonexistent-kahi-dir does not exist") {
+	if err := p.Start(); err == nil || !strings.Contains(err.Error(), "directory does not exist: /nonexistent-kahi-dir") {
 		t.Fatalf("Start() = %v, want the missing directory named", err)
 	}
 	if len(spawner.SpawnCalls) != 0 {
 		t.Fatal("spawner was called despite the missing directory")
 	}
-	if got := p.SpawnError(); got != "spawn error: directory /nonexistent-kahi-dir does not exist" {
+	if got := p.SpawnError(); got != "spawn error: directory does not exist: /nonexistent-kahi-dir" {
 		t.Fatalf("SpawnError() = %q", got)
 	}
 }

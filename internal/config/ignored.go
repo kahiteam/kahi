@@ -25,19 +25,10 @@ func ignoredSettingWarnings(cfg *Config) []string {
 	}
 
 	s := cfg.Supervisor
-	if s.Directory != "" {
-		ignored("supervisor.directory")
-	}
-	// minfds and minprocs have defaults; only a different value was set on
-	// purpose.
-	if s.Minfds != 1024 {
-		ignored(fmt.Sprintf("supervisor.minfds = %d", s.Minfds))
-	}
-	if s.Minprocs != 200 {
-		ignored(fmt.Sprintf("supervisor.minprocs = %d", s.Minprocs))
-	}
+	// FUNC-023 is withdrawn: kahi never names child logs itself, so there
+	// is nothing to clean up.
 	if s.Nocleanup {
-		ignored("supervisor.nocleanup")
+		warnings = append(warnings, "supervisor.nocleanup has no effect: kahi does not auto-name child logs")
 	}
 	if s.Identifier != "" {
 		ignored("supervisor.identifier")

@@ -610,12 +610,12 @@ This feature adds two complementary mechanisms:
 
 **Error Handling:**
 
-| Error Condition          | Expected Behavior                           | User-Facing Message                            |
-| ------------------------ | ------------------------------------------- | ---------------------------------------------- |
-| Command binary not found | Process goes to FATAL, spawn error recorded | "spawn error: {command}: no such file"         |
-| Command not executable   | Process goes to FATAL                       | "spawn error: {command}: permission denied"    |
-| Process already running  | Reject start, return error                  | "process already started: {name}"              |
-| Directory does not exist | Process goes to FATAL                       | "spawn error: directory {path} does not exist" |
+| Error Condition          | Expected Behavior                                                      | User-Facing Message                             |
+| ------------------------ | ---------------------------------------------------------------------- | ----------------------------------------------- |
+| Command binary not found | Process goes to FATAL, spawn error recorded                            | "spawn error: {command}: no such file"          |
+| Command not executable   | Process goes to FATAL                                                  | "spawn error: {command}: permission denied"     |
+| Process already running  | Reject start, return error                                             | "process already started: {name}"               |
+| Directory does not exist | Spawn error: BACKOFF, then FATAL after startretries retries (FUNC-067) | "spawn error: directory does not exist: {path}" |
 
 **Edge Cases:**
 
@@ -2309,7 +2309,7 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 
 ### FUNC-047: Process Umask
 
-**Description:** Configure file creation umask per process and for the daemon. The daemon-level `[supervisor] umask` and load-time validation are v0.3.0 (#160).
+**Description:** Configure file creation umask per process and for the daemon (#160).
 
 **Acceptance Criteria:**
 
@@ -3097,7 +3097,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 
 ### FUNC-067: Working Directory
 
-**Description:** Configure the working directory for the daemon and per process. The daemon-level `[supervisor] directory` and the per-process existence check are v0.3.0 (#113); until then the daemon key is accepted and ignored with a warning, and a bad per-process directory fails with the raw exec error.
+**Description:** Configure the working directory for the daemon and per process (#113).
 
 **Acceptance Criteria:**
 
@@ -3141,13 +3141,21 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 
 ### FUNC-068: Resource Limits
 
-**Description:** Configure minimum file descriptor and process limits for the daemon; raise the soft rlimits at startup when they are lower. Implemented in v0.3.0 (#113); until then `minfds` and `minprocs` warn when they differ from the defaults and are ignored.
+**Description:** Configure minimum file descriptor and process limits for the daemon and raise the limits at startup when they are lower (#113).
 
 **Acceptance Criteria:**
 
-- **Given** `minfds = 4096` in daemon config
-  **When** Kahi starts and the NOFILE soft limit is below 4096
-  **Then** Kahi raises the NOFILE soft limit to 4096
+- **Given** `minfds = 4096` in daemon config and a NOFILE hard limit of 8192
+  **When** Kahi starts
+  **Then** Kahi sets the NOFILE soft limit to exactly 4096 with an explicit Setrlimit, also when it was higher, and every program inherits 4096 (decided 2026-11-15)
+
+- **Given** no `minfds` in the config
+  **When** Kahi starts
+  **Then** NOFILE is left alone and programs keep their original soft limit; only a hard limit below the default 1024 logs the default-value warning
+
+- **Given** `minfds = 4096` and a NOFILE hard limit of 2048, as root with CAP_SYS_RESOURCE
+  **When** Kahi starts
+  **Then** Kahi raises both NOFILE limits to 4096 with an explicit Setrlimit, so children inherit 4096
 
 - **Given** `minprocs = 512` in daemon config
   **When** Kahi starts and the NPROC soft limit is below 512
@@ -3155,7 +3163,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 
 - **Given** `minfds = 4096` set explicitly and a NOFILE hard limit of 2048 as non-root
   **When** Kahi starts
-  **Then** it exits 1 with "cannot set NOFILE to 4096: hard limit is 2048 (current soft=1024, hard=2048)"
+  **Then** it exits 1 with "cannot set NOFILE to 4096: hard limit is 2048 (current soft={s}, hard=2048)", {s} being the soft limit kahi reads, which Go has already raised towards the hard limit
 
 - **Given** `minprocs` not set (default 200) and an NPROC hard limit of 100 as non-root
   **When** Kahi starts
@@ -3175,7 +3183,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 **Edge Cases:**
 
 - Default minfds=1024, minprocs=200 (matching supervisord defaults). A value is explicit when the key is present in `[supervisor]`, whatever its value. A default that cannot be met raises the soft limit to the hard limit and warns "{RLIMIT} is {n}, below the default {key} {default}; set supervisor.{key} = {n} or lower to silence this" (NOFILE/minfds, NPROC/minprocs)
-- The raise happens once at startup with an explicit `syscall.Setrlimit`, before any process starts, so children inherit the raised limits (Go raises its own NOFILE soft limit at startup but restores the original for children unless the program calls Setrlimit itself); per-process limits (SEC-021) are applied on top in the child. The e2e proof checks a child's `ulimit -n` / `ulimit -u`, not the daemon's
+- The raise happens once at startup, before any process starts. NPROC: the soft limit is raised to minprocs and children inherit it. NOFILE: every Go program raises its own soft limit to the hard limit and `os/exec` gives children the original soft limit back unless the program calls Setrlimit; the original cannot be read. So an explicit `minfds` sets the soft limit to exactly minfds (lowering it when it was higher; raise minfds to give programs more), and without `minfds` NOFILE is left alone (decided 2026-11-15). A per-program `KAHI_RLIMIT_NOFILE` still sets an exact value for one program. Per-process limits (SEC-021) are applied on top in the child
 - A daemon with CAP_SYS_RESOURCE (root outside a restricted container) also raises the hard limit; without it only the soft limit is raised, up to the hard limit, and a hard limit below an explicit value is the error above
 - On containers, rlimits may be set by the container runtime; raise only if needed
 - On macOS an NPROC refusal does not exit; it warns "cannot set NPROC to {n}: {error}; continuing (macOS)". A NOFILE value above `kern.maxfilesperproc` fails with "cannot set NOFILE to {n}: exceeds kern.maxfilesperproc ({max}) (current soft={s}, hard={h})" (explicit: exit 1; default: warn)

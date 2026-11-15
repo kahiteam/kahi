@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -73,12 +74,45 @@ func startRootContainer(t *testing.T, files map[string]string, runArgs, daemonAr
 	}
 	files["Containerfile"] = "FROM scratch\nCOPY . /\nENTRYPOINT [\"/kahi\", \"daemon\", \"-c\", \"/kahi.toml\"]\n"
 	files["run/.keep"] = ""
+	// A name may end in "|0700" to set its mode; a name ending in "/" is a
+	// directory (COPY keeps the modes; the image owns everything as root).
+	type modeEntry struct {
+		path string
+		mode os.FileMode
+	}
+	var modes []modeEntry
 	for name, content := range files {
+		mode, explicit := os.FileMode(0o644), false
+		if i := strings.LastIndexByte(name, '|'); i >= 0 {
+			explicit = true
+			m, err := strconv.ParseUint(name[i+1:], 8, 32)
+			if err != nil {
+				t.Fatalf("files key %q: bad mode: %v", name, err)
+			}
+			name, mode = name[:i], os.FileMode(m)
+		}
 		path := filepath.Join(dir, name)
+		if strings.HasSuffix(name, "/") {
+			if err := os.MkdirAll(path, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if !explicit {
+				mode = 0o755
+			}
+			modes = append(modes, modeEntry{path, mode})
+			continue
+		}
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		modes = append(modes, modeEntry{path, mode})
+	}
+	// Directory modes last, so a 0700 directory was still writable above.
+	for _, m := range modes {
+		if err := os.Chmod(m.path, m.mode); err != nil {
 			t.Fatal(err)
 		}
 	}

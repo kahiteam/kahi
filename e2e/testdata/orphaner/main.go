@@ -75,8 +75,15 @@ func main() {
 		sort.Ints(groups)
 		fmt.Printf("uid=%d euid=%d gid=%d egid=%d groups=%v\n", os.Getuid(), os.Geteuid(), os.Getgid(), os.Getegid(), groups)
 	case "limits":
-		// /proc/self/limits: "Max open files  1024  4096  files".
-		b, err := os.ReadFile("/proc/self/limits")
+		// /proc/self/limits: "Max open files  1024  4096  files". "limits
+		// PID" reads another process's limits: a Go child raises its own
+		// NOFILE soft limit at startup, so a test reads the daemon's (PID 1)
+		// to see what children inherit.
+		path := "/proc/self/limits"
+		if len(os.Args) > 2 {
+			path = "/proc/" + os.Args[2] + "/limits"
+		}
+		b, err := os.ReadFile(path)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
