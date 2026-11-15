@@ -72,3 +72,34 @@ func TestDefaultConfigHasNoIgnoredSettingWarnings(t *testing.T) {
 		}
 	}
 }
+
+// stderr_events_enabled has no effect with redirect_stderr (FUNC-051).
+func TestRedirectStderrEventsWarning(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kahi.toml")
+	if err := os.WriteFile(path, []byte(`[programs.p]
+command = "/bin/p"
+redirect_stderr = true
+stdout_events_enabled = true
+stderr_events_enabled = true
+
+[programs.q]
+command = "/bin/q"
+stderr_events_enabled = true
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, warnings, err := LoadWithIncludes(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Programs["p"].StdoutEventsEnabled || !cfg.Programs["q"].StderrEventsEnabled {
+		t.Fatalf("flags not parsed: %+v", cfg.Programs)
+	}
+	joined := strings.Join(warnings, "\n")
+	if !strings.Contains(joined, "programs.p.stderr_events_enabled has no effect with redirect_stderr") {
+		t.Errorf("no redirect warning; warnings:\n%s", joined)
+	}
+	if strings.Contains(joined, "programs.q.stderr_events_enabled") {
+		t.Errorf("warning for q, which does not redirect; warnings:\n%s", joined)
+	}
+}

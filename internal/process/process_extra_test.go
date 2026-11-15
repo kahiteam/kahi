@@ -231,13 +231,11 @@ func TestDoPublishStateAllMappings(t *testing.T) {
 		mu.Unlock()
 	}
 
-	bus.Subscribe(events.ProcessStateStopped, handler)
-	bus.Subscribe(events.ProcessStateStarting, handler)
-	bus.Subscribe(events.ProcessStateRunning, handler)
-	bus.Subscribe(events.ProcessStateBackoff, handler)
-	bus.Subscribe(events.ProcessStateStopping, handler)
-	bus.Subscribe(events.ProcessStateExited, handler)
-	bus.Subscribe(events.ProcessStateFatal, handler)
+	bus.SubscribeQueue("test", []events.EventType{
+		events.ProcessStateStopped, events.ProcessStateStarting, events.ProcessStateRunning,
+		events.ProcessStateBackoff, events.ProcessStateStopping, events.ProcessStateExited,
+		events.ProcessStateFatal,
+	}, events.QueueSize, handler, nil)
 
 	cfg := defaultProgramConfig()
 	spawner := &MockSpawner{}
@@ -248,7 +246,7 @@ func TestDoPublishStateAllMappings(t *testing.T) {
 		p.doPublishState(s, 0)
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	bus.Flush()
 	mu.Lock()
 	defer mu.Unlock()
 

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -41,6 +42,46 @@ type mockProcessManager struct {
 	logHeld  []byte
 	logTotal int64
 	logGen   string
+
+	// Log stream subscribers (ADR-040), fed by feedLog.
+	logMu   sync.Mutex
+	logFns  map[int]func(data []byte, id string)
+	logNext int
+}
+
+func (m *mockProcessManager) SubscribeLog(name, stream string, fn func(data []byte, id string)) (func(), error) {
+	if _, err := m.Get(name); err != nil {
+		return nil, err
+	}
+	m.logMu.Lock()
+	defer m.logMu.Unlock()
+	if m.logFns == nil {
+		m.logFns = make(map[int]func([]byte, string))
+	}
+	m.logNext++
+	id := m.logNext
+	m.logFns[id] = fn
+	return func() {
+		m.logMu.Lock()
+		defer m.logMu.Unlock()
+		delete(m.logFns, id)
+	}, nil
+}
+
+// feedLog hands a chunk to every log stream subscriber, as the capture
+// writer does.
+func (m *mockProcessManager) feedLog(data, id string) {
+	m.logMu.Lock()
+	defer m.logMu.Unlock()
+	for _, fn := range m.logFns {
+		fn([]byte(data), id)
+	}
+}
+
+func (m *mockProcessManager) logSubs() int {
+	m.logMu.Lock()
+	defer m.logMu.Unlock()
+	return len(m.logFns)
 }
 
 func (m *mockProcessManager) List() []ProcessInfo { return m.processes }

@@ -327,8 +327,7 @@ func TestRunPublishesEvents(t *testing.T) {
 		defer mu.Unlock()
 		got = append(got, string(e.Type)+" "+e.Data["from_state"]+">"+e.Data["state"])
 	}
-	s.bus.Subscribe(events.SupervisorStateRunning, record)
-	s.bus.Subscribe(events.SupervisorStateStopping, record)
+	s.bus.SubscribeQueue("test", []events.EventType{events.SupervisorStateRunning, events.SupervisorStateStopping}, events.QueueSize, record, nil)
 
 	go func() {
 		time.Sleep(50 * time.Millisecond)
@@ -337,6 +336,7 @@ func TestRunPublishesEvents(t *testing.T) {
 	}()
 
 	_ = s.Run()
+	s.bus.Flush()
 
 	// Once per state change, each naming the state it left (FUNC-052, #154).
 	mu.Lock()

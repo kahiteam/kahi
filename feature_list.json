@@ -800,7 +800,7 @@
       "testing_steps": [
         "Make a GET request to /api/v1/processes/web/log/stdout/stream with Accept: text/event-stream and verify new output arrives as unnamed SSE events: an 'id:' line, 'data:' lines, a blank line",
         "Request /api/v1/events/stream?types=PROCESS_STATE_RUNNING,PROCESS_STATE_EXITED and verify only events of those exact types arrive, each framed as 'event: {TYPE}' and 'data: {JSON}'; an unknown type name matches nothing",
-        "Unit (api): after an SSE client disconnects, the bus subscriber count returns to its value before the request",
+        "Unit (api): after an SSE client disconnects, the log stream subscriber count (ADR-040) and the bus subscriber count of the events stream return to their values before the request",
         "Request the stream of a nonexistent process and verify 404 with {\"error\": \"no such process: nosuch\", \"code\": \"NOT_FOUND\"} before the stream starts",
         "Request /log/stdin/stream and verify 400 with 'stream must be stdout or stderr'",
         "Verify SSE responses include X-Accel-Buffering: no",
@@ -1411,13 +1411,14 @@
         "Write a unit test with multiple subscribers for the same event type and verify all are notified",
         "Write a unit test that unsubscribes and verifies the callback is not called on subsequent events",
         "Unit (events): TestPanicRecovery and TestPanicRecoveryLogged -- a panicking callback is recovered, 'event handler panicked' is logged with event=<type> and panic=<value>, and the other subscribers are still notified",
-        "Unit (events): TestPublishSynchronous -- every subscriber callback has run when Publish returns",
+        "Unit (events): TestPublishNeverBlocks -- a subscriber whose handler blocks holds up only itself: Publish returns, its full queue drops the oldest event, the other subscribers get every event (ADR-041); TestQueueDropsOldest and TestStalledQueueReportsDrops -- drops are counted and reported, also for a consumer that never reads",
         "Verify subscriber registration/unregistration is safe from any goroutine (race detector)",
         "Unit (events): TestNoSubscribersNoAlloc -- Publish with no subscribers has testing.AllocsPerRun == 0",
         "Write a unit test that subscribes to multiple different event types and verifies each type triggers the correct callback",
         "Unit (events): TestPublishOrderPerSubscriber -- 1000 events published from one goroutine reach every subscriber, all of them, in publish order",
         "Write a unit test that registers and unregisters subscribers concurrently from multiple goroutines and verifies no race conditions",
-        "Open /api/v1/events/stream against the daemon, start a process, and verify its state events arrive on the stream"
+        "Open /api/v1/events/stream against the daemon, start a process, and verify its state events arrive on the stream",
+        "Unit (events): TestSubscribeQueueOrderAcrossTypes -- one subscription over several types keeps their publish order; TestUnsubscribeReleasesBlockedHandler -- Unsubscribe does not hang on a handler blocked on Stopped"
       ],
       "passes": true,
       "verified_by": ["TestStateEvents_StartRunExit"],
@@ -1432,7 +1433,7 @@
         "Start a process and verify PROCESS_STATE_STARTING and PROCESS_STATE_RUNNING arrive on /api/v1/events/stream with name, group, state, from_state (STOPPED, then STARTING) and pid, every value a JSON string",
         "Let a RUNNING process exit 3 with exitcodes = [0] and verify PROCESS_STATE_EXITED carries expected 'false' and exitstatus '3'; exit 0 gives expected 'true'; a process killed by SIGKILL carries exitsignal 'SIGKILL'",
         "Verify the RUNNING event's pid equals the process pid and STARTING's is '0' (published before the spawn)",
-        "Unit (process): TestStateEventsPayload -- a subscriber that queries the process state from its callback sees the state of the event; TestStaleStartWatcherIgnored -- the startsecs watcher of an exited child publishes nothing for a later spawn",
+        "Unit (process): TestStateEventsPayload -- each event carries its state, from_state chains to the previous event, EXITED carries expected and exitstatus (delivery is asynchronous, ADR-041, so the state comes from the event data); TestStaleStartWatcherIgnored -- the startsecs watcher of an exited child publishes nothing for the next one",
         "Run a program with startsecs = 1, startretries = 1 and a command that exits 1 at once, start it, and verify the stream carries STARTING, BACKOFF, STARTING, FATAL in that order, each from_state equal to the previous state; then a normal program covers RUNNING, STOPPING, STOPPED and EXITED",
         "Set startretries = 0 on a command that exits at once and verify PROCESS_STATE_FATAL arrives with from_state STARTING",
         "Put web in [groups.services] and verify PROCESS_STATE_RUNNING of web_0 carries group 'services'"
@@ -1465,12 +1466,19 @@
         "e2e: stdout_events_enabled = true; open GET /api/v1/events/stream?types=PROCESS_LOG_STDOUT and never read it; the program writes 50 MB in 1 KB lines then prints 'done'; 'done' reaches the stdout log file within 30 s and within 15 s more the output has 'events stream queue full, dropped'",
         "e2e: kahi migrate on 'stdout_events_enabled=true' prints 'stdout_events_enabled = true' under [programs.p]"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "event-bus",
         "process-output-capture",
         "sse-streaming",
         "ansi-escape-stripping"
+      ],
+      "verified_by": [
+        "TestLogEvents_OptInAndStripped",
+        "TestLogEvents_DefaultOffStreamStillWorks",
+        "TestLogEvents_RedirectStderr",
+        "TestLogEvents_StalledClientNeverBlocks",
+        "TestCLI_MigrateToStdout"
       ]
     },
     {
@@ -2099,8 +2107,8 @@
         "TestLogViewerAssetLineCap: verify log.js contains 'MAX_LINES = 5000' and removes the oldest rendered line with removeChild( when over the cap",
         "TestLogViewerAssetMessages: verify log.js contains 'No output captured for this stream yet', 'No such process: ' and 'Failed to load log: ' and '.close()' (the stream is closed when the backlog read returns 404)",
         "TestLogViewerAssetEncoding: verify every line of log.js containing '/api/v1/processes/' also contains 'encodeURIComponent('",
-        "TestStreamLogSubscribesBeforeFlush (internal/api): on a fresh events.NewBus(), serve GET /api/v1/processes/web/log/stdout/stream through srv.handler with a ResponseWriter whose Flush records the bus subscriber count for the stream's event type, cancel the request context after the first Flush, and verify the recorded count is 1",
-        "Mutation check: move bus.Subscribe after flusher.Flush() in handleStreamLog and verify TestStreamLogSubscribesBeforeFlush fails",
+        "TestStreamLogSubscribesBeforeFlush (internal/api): serve GET /api/v1/processes/web/log/stdout/stream through srv.handler with a ResponseWriter whose Flush records the log stream subscriber count (ProcessManager.SubscribeLog, ADR-040) at the first flush, and verify it is 1",
+        "Mutation check: move the SubscribeLog call after flusher.Flush() in handleStreamLog and verify TestStreamLogSubscribesBeforeFlush fails",
         "Run 'go test -count=1 -run TestLogViewer ./internal/web/...' and 'go test -count=1 -run TestStreamLogSubscribesBeforeFlush ./internal/api/...'"
       ],
       "passes": true,

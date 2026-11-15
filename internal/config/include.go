@@ -234,6 +234,7 @@ func LoadWithIncludes(path string) (*Config, []string, error) {
 
 	warnings = append(warnings, shutdownWarnings(cfg)...)
 	warnings = append(warnings, ignoredSettingWarnings(cfg)...)
+	warnings = append(warnings, redirectWarnings(cfg)...)
 
 	return cfg, warnings, nil
 }
