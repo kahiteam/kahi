@@ -40,6 +40,11 @@ jobs:
               - 'scripts/**'
               - 'tools/go.mod'
               - 'tools/go.sum'
+              - 'tools/actionlint/go.*'
+              # Binary tool pins and the actionlint config.
+              - '.tool-versions'
+              - '*.sha256'
+              - '.github/actionlint.yaml'
               # Workflow edits change the environment the suite runs in
               # (runner OS, tool versions), so they must run it.
               - '.github/workflows/**'
@@ -61,13 +66,16 @@ jobs:
           cache-dependency-path: |
             go.sum
             tools/go.sum
+            tools/actionlint/go.sum
       - uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
         with:
           version: '3.54.0'
-      # gotestsum comes from tools/go.mod via `go tool`; only golangci-lint
-      # needs installing, as a checksum-verified binary download.
+      # gotestsum and actionlint come from tools/ modules via `go tool`;
+      # golangci-lint and shellcheck are checksum-verified binary downloads.
       - name: Install pinned tools
-        run: ./scripts/install-golangci-lint.sh
+        run: |
+          ./scripts/install-golangci-lint.sh
+          ./scripts/install-shellcheck.sh
       - name: Tool parity
         run: ./scripts/check-tool-parity.sh
       - run: task fmt
@@ -133,7 +141,7 @@ jobs:
             -junit unit-results.xml \
             -title "Unit test results" \
             -label "Unit" \
-            $FULL_REPORT \
+            ${FULL_REPORT:+"$FULL_REPORT"} \
             -output pr-comment-unit.md
           {
             echo ""

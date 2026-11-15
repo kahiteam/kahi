@@ -111,11 +111,12 @@ The binary is written to `./bin/kahi`.
 
 - Go 1.27.4 or later
 - [Task](https://taskfile.dev) -- task runner
-- golangci-lint (optional, for linting)
+- golangci-lint and shellcheck (optional, for linting; `task setup` installs both)
 
-Run `task setup` to install golangci-lint. goreleaser, gotestsum, and
-govulncheck are pinned in `tools/go.mod` and run via `go tool`; they need no
-install step.
+Run `task setup` to install golangci-lint and shellcheck at their pinned,
+checksum-verified versions. goreleaser, gotestsum, and govulncheck are pinned in
+`tools/go.mod`, and actionlint in `tools/actionlint/go.mod`; they run via
+`go tool` and need no install step.
 
 ### Task targets
 
@@ -123,7 +124,8 @@ install step.
 | ----------------------- | ------------------------------------------- |
 | `task build`            | Compile binary to `./bin/kahi`              |
 | `task test`             | Run unit tests with race detector           |
-| `task lint`             | Run golangci-lint                           |
+| `task lint`             | Run golangci-lint and actionlint            |
+| `task lint-workflows`   | Lint workflows (actionlint + shellcheck)    |
 | `task vet`              | Run `go vet`                                |
 | `task fmt`              | Check formatting                            |
 | `task coverage`         | Generate coverage report (threshold: 85%)   |
@@ -131,7 +133,7 @@ install step.
 | `task clean`            | Remove build artifacts                      |
 | `task test-integration` | Run integration tests                       |
 | `task test-e2e`         | Run end-to-end tests                        |
-| `task setup`            | Install golangci-lint at its pinned version |
+| `task setup`            | Install golangci-lint and shellcheck        |
 | `task tools-parity`     | Fail if a tool on PATH differs from its pin |
 | `task snapshot`         | Local release snapshot (pinned goreleaser)  |
 

@@ -115,7 +115,7 @@ jobs:
             -junit integration-results.xml \
             -title "Integration test results" \
             -label "Integration" \
-            $FULL_REPORT \
+            ${FULL_REPORT:+"$FULL_REPORT"} \
             -output pr-comment-integration.md
           {
             echo ""
@@ -141,7 +141,7 @@ jobs:
             -junit e2e-results.xml \
             -title "E2E test results" \
             -label "E2E" \
-            $FULL_REPORT \
+            ${FULL_REPORT:+"$FULL_REPORT"} \
             -output pr-comment-e2e.md
           {
             echo ""

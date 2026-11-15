@@ -4,8 +4,10 @@
 # instead of "CI disagrees with my green local run".
 #
 # Pins live in two places, by tool type:
-#   .tool-versions  golangci-lint, installed as a verified binary download
+#   .tool-versions  golangci-lint, shellcheck, installed as verified binary downloads
 #   tools/go.mod    gotestsum, govulncheck, goreleaser, deadcode, as tool directives
+#   tools/actionlint/go.mod  actionlint, as a tool directive (own module: its
+#                   yaml/v4 version conflicts with goreleaser's)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -34,6 +36,22 @@ else
   fi
 fi
 
+# The shellcheck pin lives in .tool-versions; only bin/ counts. actionlint is
+# always given ./bin/shellcheck, so a shellcheck elsewhere on PATH is irrelevant.
+want="$(awk '$1 == "shellcheck" { print $2; exit }' .tool-versions)"
+if [[ -z "$want" ]]; then
+  fail shellcheck ".tool-versions declares no version"
+elif [[ ! -x ./bin/shellcheck ]]; then
+  fail shellcheck "not installed; run scripts/install-shellcheck.sh"
+else
+  got="$(./bin/shellcheck --version 2>/dev/null | sed -n 's/^version: //p')"
+  if [[ "$got" != "$want" ]]; then
+    fail shellcheck "pinned $want, found ${got:-unknown} (./bin/shellcheck)"
+  else
+    ok shellcheck "$want"
+  fi
+fi
+
 # tools/go.mod tools: compare the pinned module version against what runs.
 # These run through `go tool -modfile=tools/go.mod`, which always builds and
 # runs exactly the version tools/go.mod pins, so their --version output cannot
@@ -43,13 +61,13 @@ fi
 # The pin comes from `go list -m`, not from grepping go.mod: the `tool (` block
 # carries no versions, those sit in `require` as indirect entries.
 check_tool() {
-  local name="$1" module="$2" tool="$3"
+  local name="$1" module="$2" tool="$3" modfile="${4:-tools/go.mod}"
   local want
-  want="$(go list -modfile=tools/go.mod -m "$module" 2>/dev/null | awk '{print $2}')"
+  want="$(go list -modfile="$modfile" -m "$module" 2>/dev/null | awk '{print $2}')"
   if [[ -z "$want" ]]; then
-    fail "$name" "tools/go.mod does not pin $module"
-  elif ! grep -qE "^[[:space:]]*${tool//./\\.}\$" tools/go.mod; then
-    fail "$name" "tools/go.mod does not declare $tool as a tool"
+    fail "$name" "$modfile does not pin $module"
+  elif ! grep -qE "^([[:space:]]*|tool )${tool//./\\.}\$" "$modfile"; then
+    fail "$name" "$modfile does not declare $tool as a tool"
   else
     ok "$name" "$want"
   fi
@@ -59,6 +77,7 @@ check_tool gotestsum   gotest.tools/gotestsum              gotest.tools/gotestsu
 check_tool govulncheck golang.org/x/vuln                   golang.org/x/vuln/cmd/govulncheck
 check_tool goreleaser  github.com/goreleaser/goreleaser/v2 github.com/goreleaser/goreleaser/v2
 check_tool deadcode    golang.org/x/tools                  golang.org/x/tools/cmd/deadcode
+check_tool actionlint  github.com/rhysd/actionlint         github.com/rhysd/actionlint/cmd/actionlint tools/actionlint/go.mod
 
 # The release job's goreleaser must equal the one pinned in tools/go.mod,
 # otherwise the binaries built in CI differ from a local `task` build.

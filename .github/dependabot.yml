@@ -22,6 +22,18 @@ updates:
           - 'minor'
           - 'patch'
 
+  # actionlint, in its own module: its yaml/v4 dependency conflicts with
+  # goreleaser's in /tools.
+  - package-ecosystem: 'gomod'
+    directory: '/tools/actionlint'
+    schedule:
+      interval: 'weekly'
+    groups:
+      minor-and-patch:
+        update-types:
+          - 'minor'
+          - 'patch'
+
   # GitHub Actions
   - package-ecosystem: 'github-actions'
     directory: '/'
