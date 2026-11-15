@@ -1026,7 +1026,8 @@ func classifyError(err error) int {
 		strings.Contains(msg, "already active"),
 		strings.Contains(msg, "has running processes"),
 		strings.Contains(msg, "is still active"),
-		strings.Contains(msg, "did not stop"):
+		strings.Contains(msg, "did not stop"),
+		strings.Contains(msg, "stdin pipe broken"):
 		return http.StatusConflict
 	case strings.Contains(msg, "invalid signal"),
 		strings.Contains(msg, "not running"),

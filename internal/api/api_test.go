@@ -1406,6 +1406,12 @@ func TestClassifyErrorNotRunning(t *testing.T) {
 	}
 }
 
+func TestClassifyErrorStdinPipeBroken(t *testing.T) {
+	if code := classifyError(fmt.Errorf("stdin pipe broken for web")); code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d", code)
+	}
+}
+
 func TestClassifyErrorDoesNotAcceptStdin(t *testing.T) {
 	code := classifyError(fmt.Errorf("process does not accept stdin"))
 	if code != http.StatusBadRequest {

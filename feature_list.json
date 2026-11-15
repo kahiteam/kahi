@@ -2040,11 +2040,16 @@
         "e2e: program sh -c 'exec 0<&-; echo closed; sleep 30'; after the stdout log shows 'closed', POST stdin returns 409 'stdin pipe broken for web'",
         "e2e: after that, daemon stderr has a line with 'stdin pipe broken for web' and 'broken pipe'"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": [
         "rest-api-endpoints",
         "process-start",
         "cli-process-control"
+      ],
+      "verified_by": [
+        "TestStdin_Write",
+        "TestCLI_SendWritesLineToStdin",
+        "TestStdin_ErrorsAndBrokenPipe"
       ]
     },
     {

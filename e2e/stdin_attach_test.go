@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -150,6 +152,74 @@ startsecs = 0
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("output never contained %q", want)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestStdin_ErrorsAndBrokenPipe proves the stdin error paths of FUNC-077
+// (#259): a stopped process is "process not running" (400), a running
+// process whose stdin is closed is "stdin pipe broken for {name}" (409),
+// kahi ctl send exits 1 with the same text, and the daemon log keeps the
+// underlying cause.
+func TestStdin_ErrorsAndBrokenPipe(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	closer := writeScript(t, dir, "closer.sh", "exec 0<&-\necho closed\nexec sleep 30")
+	client, socket, out := startDaemonOut(t, `
+[programs.stopped]
+command = "/bin/cat"
+autostart = false
+
+[programs.broken]
+command = "`+closer+`"
+autostart = true
+startsecs = 0
+`)
+
+	apiDo(t, socket, "POST", "/api/v1/processes/stopped/stdin", `{"data":"x"}`).
+		wantError(t, "stdin to stopped", http.StatusBadRequest, "process not running: stopped", "BAD_REQUEST")
+	if _, stderr, code := runKahi(t, dir, "ctl", "-s", socket, "send", "stopped", "x"); code != 1 || !strings.Contains(stderr, "process not running: stopped") {
+		t.Errorf("ctl send to stopped: exit %d, stderr %q; want 1 and 'process not running: stopped'", code, stderr)
+	}
+
+	// The program closes fd 0 before printing "closed", so once "closed" is
+	// in its output a write meets a closed pipe.
+	waitForState(t, client, "broken", "RUNNING", 5*time.Second)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var buf bytes.Buffer
+		if err := client.Tail("broken", "stdout", 4096, &buf); err == nil && strings.Contains(buf.String(), "closed") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("program never printed 'closed'")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	apiDo(t, socket, "POST", "/api/v1/processes/broken/stdin", `{"data":"x\n"}`).
+		wantError(t, "stdin to closed pipe", http.StatusConflict, "stdin pipe broken for broken", "CONFLICT")
+	if _, stderr, code := runKahi(t, dir, "ctl", "-s", socket, "send", "broken", "x"); code != 1 || !strings.Contains(stderr, "stdin pipe broken for broken") {
+		t.Errorf("ctl send to closed pipe: exit %d, stderr %q; want 1 and 'stdin pipe broken for broken'", code, stderr)
+	}
+
+	// The cause (EPIPE) stays in the daemon log next to the message.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		b, _ := os.ReadFile(out.Name())
+		found := false
+		for _, line := range strings.Split(string(b), "\n") {
+			if strings.Contains(line, "stdin pipe broken for broken") && strings.Contains(line, "broken pipe") {
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("daemon log has no line with 'stdin pipe broken for broken' and 'broken pipe':\n%s", b)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
