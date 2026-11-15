@@ -113,7 +113,9 @@ The binary is written to `./bin/kahi`.
 - [Task](https://taskfile.dev) -- task runner
 - golangci-lint (optional, for linting)
 
-Run `task setup` to install golangci-lint and goreleaser.
+Run `task setup` to install golangci-lint. goreleaser, gotestsum, and
+govulncheck are pinned in `tools/go.mod` and run via `go tool`; they need no
+install step.
 
 ### Task targets
 
@@ -129,6 +131,9 @@ Run `task setup` to install golangci-lint and goreleaser.
 | `task clean`            | Remove build artifacts                      |
 | `task test-integration` | Run integration tests                       |
 | `task test-e2e`         | Run end-to-end tests                        |
+| `task setup`            | Install golangci-lint at its pinned version |
+| `task tools-parity`     | Fail if a tool on PATH differs from its pin |
+| `task snapshot`         | Local release snapshot (pinned goreleaser)  |
 
 ### Release builds
 
@@ -137,8 +142,8 @@ linux (amd64, arm, arm64, ppc64le, riscv64, s390x) and darwin (amd64, arm64).
 Every target is built with `GOFIPS140=v1.0.0`.
 
 ```sh
-# Local snapshot build (no publish)
-goreleaser release --snapshot --clean
+# Local snapshot build with the pinned goreleaser (no publish, no signing)
+task snapshot
 ```
 
 Tagged releases are published automatically via GitHub Actions.
@@ -249,7 +254,7 @@ convenience, additionally checks `./kahi.toml` ahead of the system paths.
 ## Configuration
 
 Kahi uses [TOML](https://toml.io/) for configuration. Generate a sample config
-with all available options:
+with every supported option:
 
 ```sh
 kahi init                     # write ./kahi.toml (--force to overwrite)
@@ -305,7 +310,7 @@ kahi init --stdout            # print to stdout
 # stopwaitsecs = 10            # seconds to wait before SIGKILL; a slow stop holds up the next priority level
 # stopasgroup = false          # send stop signal to process group
 # killasgroup = false          # send SIGKILL to process group
-# user = ""                    # run as user
+# user = ""                    # numeric uid or uid:gid; needs a root daemon
 # directory = ""               # working directory
 # umask = ""                   # file creation mask
 # clean_environment = false    # pass only supervisor + explicit env vars (no inheritance)
@@ -434,7 +439,9 @@ Kahi is secure by default:
 - **Config secrets.** `GET /api/v1/config` returns a redacted view: passwords,
   process environment values, and webhook auth headers are masked.
 - **Privilege separation.** The daemon can drop privileges (`-u`), and per-process
-  `user`/`umask`/resource limits are enforced at spawn. A process that runs as a
+  `umask` and resource limits are applied at spawn. Per-process `user` (numeric
+  `uid` or `uid:gid`) is applied only when the daemon runs as root; otherwise it
+  is ignored with a warning in the daemon log. A process that runs as a
   different user starts from a minimal environment by default, so supervisor
   secrets are not inherited downward (opt in with `inherit_environment`).
 - **No shell.** Commands are `exec`'d directly, never via `sh -c`.
