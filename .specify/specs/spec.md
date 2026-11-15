@@ -1309,12 +1309,12 @@ syslog_priority = "INFO"     # EMERG, ALERT, CRIT, ERR, WARNING, NOTICE, INFO, D
 
 **Error Handling:**
 
-| Error Condition                    | Expected Behavior                                                                                   | User-Facing Message                                                       |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Syslog connection fails at spawn   | Log once per spawn at WARN, the process starts and runs without syslog; the next spawn retries      | "syslog connection failed: {error}"                                       |
-| Write to syslog fails during a run | Log once at WARN, stop forwarding for that process until its next spawn; capture and files continue | "syslog connection failed: {error}"                                       |
-| Unknown facility or priority name  | Config validation error                                                                             | "programs.{name}.syslog_facility: unknown facility {value}" (or priority) |
-| Unparsable `syslog_address`        | Config validation error                                                                             | "supervisor.syslog_address: invalid address {value}"                      |
+| Error Condition                    | Expected Behavior                                                                                                                      | User-Facing Message                                                       |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Syslog connection fails at spawn   | The process starts; forwarding reconnects with backoff (1 s doubling to 60 s); WARN once per outage, not per spawn                     | "syslog connection failed: {error}"                                       |
+| Write to syslog fails during a run | Reconnect with the same backoff, dropping lines while disconnected; WARN once per outage, INFO on recovery; capture and files continue | "syslog connection failed: {error}"                                       |
+| Unknown facility or priority name  | Config validation error                                                                                                                | "programs.{name}.syslog_facility: unknown facility {value}" (or priority) |
+| Unparsable `syslog_address`        | Config validation error                                                                                                                | "supervisor.syslog_address: invalid address {value}"                      |
 
 **Edge Cases:**
 
@@ -1322,6 +1322,10 @@ syslog_priority = "INFO"     # EMERG, ALERT, CRIT, ERR, WARNING, NOTICE, INFO, D
 - Lines are forwarded after ANSI stripping when `strip_ansi = true`, the same data the log file receives; a partial last line is forwarded when the process exits
 - With `redirect_stderr = true`, stderr lines follow `stdout_syslog`; setting `stderr_syslog` as well logs a config warning "programs.{name}.stderr_syslog has no effect with redirect_stderr"
 - Both streams use the same facility and priority
+- Messages use the RFC 3164 format Go's `log/syslog` writes; TCP is newline-framed; lines over 2048 bytes are split into several messages
+- The default local socket is `/dev/log` on Linux and `/var/run/syslog` on macOS
+- One connection per process and stream
+- A `syslog_address` change on reload takes effect after restart ("supervisor.syslog_address change takes effect after restart"); a per-program syslog key change is a program change (FUNC-014)
 - SIGUSR2 (FUNC-022) does not touch syslog connections; forwarding continues without interruption
 - `kahi migrate` maps supervisord `stdout_syslog` / `stderr_syslog` to the same keys
 
@@ -1508,7 +1512,7 @@ syslog_priority = "INFO"     # EMERG, ALERT, CRIT, ERR, WARNING, NOTICE, INFO, D
 
 - **Given** the API server
   **When** `GET /api/v1/processes/web/log/stdout?length=1000` is requested
-  **Then** the last 1000 bytes of the in-memory stdout buffer are returned as `text/plain` (`length` defaults to 1600, at most the stream's buffer size: 65536 by default, FUNC-086)
+  **Then** the last 1000 bytes of the in-memory stdout buffer are returned as `text/plain` (`length` defaults to 1600; a larger value than the buffer holds returns the whole buffer)
 
 - **Given** the API server
   **When** `POST /api/v1/config/reload` is requested
@@ -1847,7 +1851,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - **Given** stdin is not a terminal (a pipe or file)
   **When** `kahi ctl attach web` is issued
-  **Then** raw mode is not used and input is forwarded as it arrives; end of input ends the session with exit 0 (this is the e2e route; no pty is needed)
+  **Then** raw mode is not used, no banners are printed, and input is forwarded as it arrives. End of input never closes the process's stdin; after it, output keeps streaming until the process exits or 1 second passes without output, then the command exits 0 (this is the e2e route; no pty is needed)
 
 **Error Handling:**
 
@@ -1861,6 +1865,9 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 **Edge Cases:**
 
 - The command is `attach` (supervisorctl calls it `fg`); decided 2026-10-26 (#157)
+- Transport: `POST /api/v1/processes/{name}/attach` is upgraded (HTTP Upgrade, hijacked connection) to one raw two-way byte stream on the Unix socket and on TCP (auth on TCP, SEC-015); output frames are tagged stdout or stderr so the client can split them (decided 2026-11-14)
+- While a session is open, `kahi ctl send` and `POST .../stdin` for that process are refused with 409 "process {name}: attached", so input never interleaves (decided 2026-11-14)
+- Only input is put in raw mode (ICANON, ECHO and ISIG off); output post-processing stays on, so a child's `\n` still starts a new line. The child is not on a pty, so typed input is not echoed locally; programs that want echo do it themselves
 - The session lock is held by the daemon, not the client: it is taken when the session opens and released when the client disconnects, detaches or the process exits, so a killed client never leaves the process locked
 - Ctrl+] is the only detach key; Ctrl+C, Ctrl+Z and Ctrl+\ are forwarded to the process as bytes (decided 2026-11-14), so an interactive program receives ^C as it would in a terminal. SIGINT, SIGTERM or SIGHUP sent to the `kahi ctl` client itself still ends the session and restores the terminal
 - Input bytes are written without a trailing newline; the line-oriented `kahi ctl send` (FUNC-077) is unchanged
@@ -1979,8 +1986,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Edge Cases:**
 
-- Process names complete for every command that takes them: `start`, `stop`, `restart`, `status`, `tail`, `pid`, `signal` (second argument), `send`, `attach`; group names (no `:*`) complete for `add` and `remove`, and `update` (FUNC-085)
-- `all` is offered only where the command accepts it
+- Per command: `start`, `stop`, `restart`, `status` and the `signal` target offer process names, `name:*` and `all`; `tail`, `pid`, `send` and `attach` offer process names only; `add` offers groups that are in the config but not in the running state (the `avail` set, FUNC-085); `remove` and `update` offer groups in the running state
 - Completion queries the daemon through the same client as the command, honouring `-s`, `-c` and the TCP flags already typed on the command line; it uses its own 1-second budget instead of the normal dial and query timeouts
 - File names are never offered where a process name is expected
 - fish and powershell scripts are generated by the same mechanism and get the same dynamic names, but only bash and zsh are tested
@@ -2217,7 +2223,7 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 
 - **Given** Kahi runs as root with `user = "kahi:adm"`
   **When** startup completes
-  **Then** the primary gid is adm's gid; the supplementary groups are still kahi's
+  **Then** the primary gid is adm's gid; the supplementary groups are kahi's own list (initgroups with kahi's passwd gid) plus adm
 
 - **Given** Kahi runs as non-root with `[supervisor] user` set
   **When** startup begins
@@ -2241,8 +2247,12 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 - Accepted forms: `name`, `uid`, `name:group`, `name:gid`, `uid:gid`, `uid:group`. A numeric value is a uid even when a user with that name exists
 - A numeric uid with a passwd entry takes that entry's primary gid and groups; without one the gid defaults to the uid and the supplementary groups are reset to the gid alone (the pre-#159 behaviour)
 - Lookups are pure Go (no CGO, Architectural Constraint 5): `/etc/passwd` and `/etc/group` only, no NSS, LDAP or SSSD
-- The explicit `-u` flag fails closed as non-root while the config key only warns, because one config file is often shared between root and non-root runs (proposed 2026-11-14; confirm in clarify)
+- The explicit `-u` flag fails closed as non-root while the config key only warns, because one config file is often shared between root and non-root runs (decided 2026-11-14)
 - The user is resolved and validated before anything is bound, so a bad name never leaves a socket behind
+- Before the drop, the daemon hands the files it created as root to the target uid and gid with fchown: the control socket (still mode 0700), the PID file and its own log file. `kahi ctl` run as the target user then connects, and the daemon can remove the socket and PID file at shutdown (decided 2026-11-14). This is internal and unrelated to the rejected `server.unix.chown` key (SEC-022); the socket stays owned by the identity the daemon runs as. Proven in the ADR-037 container: after `kahi daemon -u kahi`, `kahi ctl status` run as kahi succeeds
+- Startup order (FUNC-045, 047, 067, 068 together): load config and includes, resolve and validate the drop user, chdir (`directory`), set the umask (`umask`), raise rlimits (`minfds`, `minprocs`; root can raise hard limits only here), check the PID file, bind sockets and ports, fchown the socket, PID file and log, drop privileges, open the daemon log for writing if not yet open, start processes
+- After a drop the daemon is non-root for FUNC-046: a per-process `user` that differs from the drop user gets the non-root warning and is ignored; one equal to it is a no-op without a warning
+- On macOS, names resolve only for users listed in `/etc/passwd` (the system `_` accounts); other users are in Directory Services, which pure Go cannot read, so use a numeric uid. The root-only criteria are proven on Linux in the ADR-037 container
 - Privilege drop happens after socket creation but before processing any requests
 - Changing `[supervisor] user` on reload logs "supervisor.user change takes effect after restart"
 - `kahi migrate` maps supervisord `[supervisord] user` to `[supervisor] user`
@@ -2269,15 +2279,15 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 
 - **Given** Kahi runs as root and a process has `user = "nosuchuser"`
   **When** the process starts
-  **Then** the process goes to FATAL with "spawn error: user not found: nosuchuser" and never runs
+  **Then** each start attempt fails with "spawn error: user not found: nosuchuser" and the process never runs: it goes to BACKOFF and, after `startretries` attempts, to FATAL (as FUNC-018)
 
 **Error Handling:**
 
-| Error Condition                           | Expected Behavior               | User-Facing Message                                                         |
-| ----------------------------------------- | ------------------------------- | --------------------------------------------------------------------------- |
-| Specified user does not exist             | Process goes to FATAL           | "spawn error: user not found: {name}"                                       |
-| Specified group does not exist            | Process goes to FATAL           | "spawn error: group not found: {name}"                                      |
-| Running as non-root with per-process user | Warning logged, setting ignored | "user switching unavailable (not running as root), running as current user" |
+| Error Condition                           | Expected Behavior                                   | User-Facing Message                                                         |
+| ----------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------- |
+| Specified user does not exist             | Spawn error: BACKOFF, then FATAL after startretries | "spawn error: user not found: {name}"                                       |
+| Specified group does not exist            | Spawn error: BACKOFF, then FATAL after startretries | "spawn error: group not found: {name}"                                      |
+| Running as non-root with per-process user | Warning logged, setting ignored                     | "user switching unavailable (not running as root), running as current user" |
 
 **Edge Cases:**
 
@@ -2324,9 +2334,9 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 
 - A umask is 1 to 4 octal digits with a value up to 0777 (`"022"` and `"0022"` are equal); `kahi init` and the docs show the 4-digit form
 - The socket bind still ORs in 077 around the bind (ADR-026), whatever the daemon umask is
-- A daemon umask change on reload applies immediately; it affects only files and children created afterwards
+- A daemon umask change on reload logs "supervisor.umask change takes effect after restart" and is not applied (decided 2026-11-14), like `directory`, `user` and `minfds`; this also keeps it out of the SEC-023 bind window
 - `kahi migrate` maps supervisord `[supervisord] umask`
-- Supersedes the earlier "default daemon umask is 0022": Kahi sets a daemon umask only when configured (proposed 2026-11-14; confirm in clarify)
+- Supersedes the earlier "default daemon umask is 0022": Kahi sets a daemon umask only when configured (decided 2026-11-14)
 
 **Dependencies:** FUNC-002
 
@@ -2458,8 +2468,9 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 
 - The log stream (FUNC-027, ADR-033) is fed directly by the capture writer, not through the event bus; turning events on or off never changes what `tail -f` shows (decided 2026-11-14)
 - Log events carry the chunk the capture writer stored (ANSI-stripped when `strip_ansi = true`), the same data the log stream and log file get
-- With `redirect_stderr = true`, stderr output is published as PROCESS_LOG_STDOUT when `stdout_events_enabled` is true
-- High-throughput processes can generate many events; subscribers must handle backpressure
+- With `redirect_stderr = true`, stderr output is published as PROCESS_LOG_STDOUT when `stdout_events_enabled` is true; setting `stderr_events_enabled` as well logs "programs.{name}.stderr_events_enabled has no effect with redirect_stderr"
+- High-throughput processes can generate many events; publishing never blocks the capture writer, because every subscriber enqueues into a bounded drop-oldest queue (FUNC-055 edge case)
+- Webhooks may not subscribe to PROCESS_LOG_* (one POST per output chunk); listing one in `[webhooks.x] events` is a config error "webhooks.{name}.events: PROCESS_LOG events cannot be sent to webhooks" (decided 2026-11-14). Listeners and the events API may subscribe
 - `kahi migrate` maps supervisord `stdout_events_enabled` / `stderr_events_enabled`
 
 **Until #160 (v0.3.0):** log events are published for every process, because the log stream is built on them.
@@ -2572,6 +2583,7 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 command = "/usr/local/bin/notify-listener"
 events = ["PROCESS_STATE_EXITED", "PROCESS_STATE_FATAL"]
 buffer_size = 10        # queued events per pool (default 10)
+result_timeout = 60     # seconds a listener may take to answer RESULT (default 60)
 numprocs = 1            # every [programs.x] key is accepted (autorestart, user, environment, ...)
 ```
 
@@ -2599,13 +2611,15 @@ numprocs = 1            # every [programs.x] key is accepted (autorestart, user,
 
 **Error Handling:**
 
-| Error Condition                       | Expected Behavior                                                 | User-Facing Message                                           |
-| ------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------- |
-| Listener crashes                      | Restart per autorestart policy; its in-flight event is re-queued  | "event listener {name} exited unexpectedly"                   |
-| Buffer overflow                       | Oldest queued (not in-flight) event dropped, logged at WARN level | "event buffer overflow for {name}, dropping oldest event"     |
-| Invalid result format                 | Log error, re-queue event                                         | "invalid result from listener {name}: {data}"                 |
-| Unknown event type in `events`        | Config validation error                                           | "eventlisteners.{name}.events: unknown event type {type}"     |
-| Name shared with a `[programs]` table | Config validation error                                           | "eventlisteners.{name}: name already used by programs.{name}" |
+| Error Condition                                       | Expected Behavior                                                 | User-Facing Message                                           |
+| ----------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------- |
+| Listener crashes                                      | Restart per autorestart policy; its in-flight event is re-queued  | "event listener {name} exited unexpectedly"                   |
+| Buffer overflow                                       | Oldest queued (not in-flight) event dropped, logged at WARN level | "event buffer overflow for {name}, dropping oldest event"     |
+| Invalid result format                                 | Log error, re-queue event                                         | "invalid result from listener {name}: {data}"                 |
+| No RESULT within `result_timeout` (default 60 s)      | Listener killed and restarted, event re-queued                    | "listener {name} timed out on event {serial}"                 |
+| Event fails 3 times (FAIL, invalid result or timeout) | Event dropped                                                     | "event {serial} for {pool} dropped after 3 failures"          |
+| Unknown event type in `events`                        | Config validation error                                           | "eventlisteners.{name}.events: unknown event type {type}"     |
+| Name shared with a `[programs]` table                 | Config validation error                                           | "eventlisteners.{name}: name already used by programs.{name}" |
 
 **Edge Cases:**
 
@@ -2615,8 +2629,9 @@ numprocs = 1            # every [programs.x] key is accepted (autorestart, user,
 - Event envelope format: `ver:3.0 server:kahi serial:{n} pool:{pool} poolserial:{n} eventname:{type} len:{n}\n{payload}`; `len` is the payload length in bytes, so the length framing of SEC-020 holds
 - Listener response format: `RESULT {len}\n{payload}` where len is byte length of payload; payload "OK" = success, "FAIL" = re-queue
 - If response parsing fails or payload is unrecognized, log error and re-queue event for retry
-- A listener's stdout carries the protocol and is not captured as output; its stderr is captured like a program's
-- The bus handler only enqueues (the bus publishes synchronously), so a slow or stuck listener never blocks other subscribers or the supervision loop
+- A listener's stdout carries the protocol and is not captured as output; its stderr is captured like a program's. `redirect_stderr = true` on a listener is a config error "eventlisteners.{name}.redirect_stderr: not allowed, stdout carries the protocol"; the stdout output keys (`stdout_logfile*`, `stdout_syslog`, `stdout_events_enabled`, `stdout_capture_maxbytes`) are ignored with the warning "eventlisteners.{name}.{key} has no effect: stdout carries the protocol"
+- `events` takes exact event type names, as the events API does (FUNC-027); supervisord's supertypes such as `PROCESS_STATE` are not accepted, and `kahi migrate` expands them to their member types
+- Every bus subscriber (listener pools, webhooks, the events API, metrics) only enqueues into its own bounded queue that drops the oldest entry when full, so publishing never blocks the publisher: not the supervision loop and not a capture writer (FUNC-018). Drops are counted and logged at WARN once per burst (decided 2026-11-14)
 - Listener processes appear in `kahi ctl status` and the API like programs and can be started, stopped and restarted the same way
 - A reload adds, changes and removes pools like programs (FUNC-014); events queued for a removed pool are discarded
 - `kahi migrate` maps supervisord `[eventlistener:x]` to `[eventlisteners.x]`
@@ -2675,8 +2690,12 @@ routing_key = ""            # PagerDuty integration key; required with template 
 - Webhook failures do not affect process management
 - Circuit breaker state transitions logged at INFO level
 - `max_retries` counts retries after the first attempt (3 means up to 4 POSTs); the older key `retries` is accepted as an alias with the warning "webhooks.{name}.retries is deprecated; use max_retries"
-- 2xx is success; 3xx, 4xx and 5xx responses and transport errors are failures (4xx is not retried: it fails the delivery at once)
-- `{webhook}` in messages is the config table name; log lines never contain the URL or header values, which often carry credentials (FUNC-058)
+- 2xx is success; 3xx, 4xx and 5xx responses and transport errors are failures; 4xx other than 408 and 429 is not retried and fails the delivery at once
+- `{webhook}` in messages is the config table name; log lines never contain the URL or header values, which often carry credentials (FUNC-058). `{error}` is the unwrapped cause (the `Err` of a Go `*url.Error`) or the HTTP status, never a formatted request; an e2e test with an unreachable URL containing a marker string asserts the marker is absent from the daemon log
+- 408 and 429 are retried and honour `Retry-After` (capped at 60 s); redirects are not followed (a 3xx is a failure), so headers and `routing_key` are never re-sent elsewhere
+- Deliveries per webhook are serialized through a bounded queue of 100 events; when full the oldest is dropped with WARN "webhook queue full for {webhook}, dropping oldest event"
+- While the breaker is open, the first event after each 5-minute interval is sent as the probe
+- `timeout` must be >= 1 and `max_retries` >= 0: "webhooks.{name}.timeout must be >= 1", "webhooks.{name}.max_retries must be >= 0"
 - A reload rebuilds the webhook set: added webhooks start, removed ones stop after in-flight deliveries finish, changed ones restart with a closed breaker
 - Expose the `kahi_webhook_circuit_breaker{webhook,status=open|closed}` gauge metric (FUNC-060). The `webhook` label is the config table name (`[webhooks.slack]` gives `webhook="slack"`), never the URL: webhook URLs often embed credentials (a Slack incoming-webhook URL is the secret) and `/metrics` must not disclose them
 
@@ -2695,8 +2714,8 @@ routing_key = ""            # PagerDuty integration key; required with template 
   **Then** payload matches Slack incoming webhook format: `{"text": "Process {name} entered FATAL state on {hostname}"}`
 
 - **Given** `template = "pagerduty"`
-  **When** a critical event fires
-  **Then** payload matches PagerDuty Events API v2 format: `{"routing_key": "{routing_key}", "event_action": "trigger", "payload": {"summary": "...", "source": "{hostname}", "severity": "critical"}}`
+  **When** a subscribed event fires
+  **Then** payload matches PagerDuty Events API v2 format: `{"routing_key": "{routing_key}", "event_action": "trigger", "dedup_key": "kahi-{hostname}-{name}", "payload": {"summary": "...", "source": "{hostname}", "severity": "critical"}}`; every subscribed event sends `severity: critical`, and the dedup key keeps repeated events for one process in one incident
 
 - **Given** `template = "pagerduty"` and no `routing_key`
   **When** the config is loaded
@@ -2808,7 +2827,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 
 - **Given** `[server.metrics] enabled = true` and `[server.http] enabled = false`
   **When** the config is loaded
-  **Then** validation fails with "server.metrics requires server.http.enabled = true"
+  **Then** validation fails with "server.metrics.enabled requires server.http.enabled"
 
 - **Given** metrics enabled
   **When** processes are running
@@ -2873,8 +2892,10 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 - `kahi_process_start_total` counts every spawn: manual starts, autorestarts and backoff retries
 - `expected` on `kahi_process_exit_total`: `"true"` when the exit followed a stop request (STOPPING) or the process exited from RUNNING with a code listed in `exitcodes`; `"false"` otherwise, including every exit from STARTING
 - `kahi_process_uptime_seconds` is computed at scrape time (0 when not RUNNING)
-- Metrics survive config reload for processes that remain (counters are not reset)
-- Removed processes have their series deleted at removal; there is no retention period or config key. Prometheus marks the series stale and keeps already-scraped history
+- Series are keyed by process name (`web`, `web_0` for numprocs members) with the group as a label on `kahi_process_state`
+- Metrics survive config reload for processes that remain, including programs changed by the reload and recreated (counters are not reset)
+- A spawn that fails before exec counts as a start and as an unexpected exit
+- Removed processes, including those dropped by a numprocs decrease, have their series deleted at removal; there is no retention period or config key. Prometheus marks the series stale and keeps already-scraped history
 
 **Dependencies:** FUNC-060
 
@@ -2903,10 +2924,10 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 
 **Edge Cases:**
 
-- The `kahi_info` metric is a constant 1 gauge with labels from `internal/version` (`Version`, `GoVersion`, `FIPS`)
+- The `kahi_info` metric is a constant 1 gauge with labels `version`, `go_version` and `fips`, with values from `internal/version`
 - `kahi_supervisor_processes` has one series per state, including states with a count of 0, computed at scrape time
 - `kahi_supervisor_uptime_seconds` is computed at scrape time
-- A reload counts as successful when the new config is applied; a reload rejected by parsing or validation increments both `kahi_supervisor_config_reload_total` and `kahi_supervisor_config_reload_errors_total`
+- `kahi_supervisor_config_reload_total` counts every reload attempt, applied or rejected, excluding `dry_run` previews; `update <group>` counts as one attempt. A rejected reload also increments `kahi_supervisor_config_reload_errors_total`
 
 **Dependencies:** FUNC-060
 
@@ -3086,21 +3107,21 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 
 - **Given** a process with `directory = "/nonexistent"`
   **When** the process starts
-  **Then** it goes to FATAL with "spawn error: directory does not exist: /nonexistent"
+  **Then** each start attempt fails with "spawn error: directory does not exist: /nonexistent": BACKOFF, then FATAL after `startretries` (as FUNC-018)
 
 **Error Handling:**
 
-| Error Condition                  | Expected Behavior              | User-Facing Message                                     |
-| -------------------------------- | ------------------------------ | ------------------------------------------------------- |
-| Daemon directory does not exist  | Exit 1 at startup              | "directory does not exist: {path}"                      |
-| Daemon directory not accessible  | Exit 1 at startup              | "cannot access directory: {path}: {error}"              |
-| Process directory does not exist | Process goes to FATAL at spawn | "spawn error: directory does not exist: {path}"         |
-| Process directory not accessible | Process goes to FATAL at spawn | "spawn error: cannot access directory: {path}: {error}" |
+| Error Condition                  | Expected Behavior                                   | User-Facing Message                                     |
+| -------------------------------- | --------------------------------------------------- | ------------------------------------------------------- |
+| Daemon directory does not exist  | Exit 1 at startup                                   | "directory does not exist: {path}"                      |
+| Daemon directory not accessible  | Exit 1 at startup                                   | "cannot access directory: {path}: {error}"              |
+| Process directory does not exist | Spawn error: BACKOFF, then FATAL after startretries | "spawn error: directory does not exist: {path}"         |
+| Process directory not accessible | Spawn error: BACKOFF, then FATAL after startretries | "spawn error: cannot access directory: {path}: {error}" |
 
 **Edge Cases:**
 
-- Without `[supervisor] directory` the daemon keeps the working directory it was started in; supersedes the earlier "default is the directory containing the config file" (proposed 2026-11-14; confirm in clarify), which would change how existing relative paths resolve
-- A per-process directory is checked at spawn, not at load: it may be created by another process or a mount after startup
+- Without `[supervisor] directory` the daemon keeps the working directory it was started in; supersedes the earlier "default is the directory containing the config file" (decided 2026-11-14), which would change how existing relative paths resolve
+- A per-process directory is checked at spawn, not at load, as the target uid and gid when `user` is set: it may be created by another process or a mount after startup, and the retries give it the `startretries` window
 - Per-process directory supports variable expansion
 - Changing `[supervisor] directory` on reload logs "supervisor.directory change takes effect after restart"
 - `kahi migrate` maps supervisord `[supervisord] directory`
@@ -3123,9 +3144,13 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
   **When** Kahi starts and the NPROC soft limit is below 512
   **Then** Kahi raises the NPROC soft limit to 512
 
-- **Given** `minfds = 4096` and a NOFILE hard limit of 2048 as non-root
+- **Given** `minfds = 4096` set explicitly and a NOFILE hard limit of 2048 as non-root
   **When** Kahi starts
   **Then** it exits 1 with "cannot set NOFILE to 4096: hard limit is 2048 (current soft=1024, hard=2048)"
+
+- **Given** `minprocs` not set (default 200) and an NPROC hard limit of 100 as non-root
+  **When** Kahi starts
+  **Then** the soft limit is raised to 100, the warning "NPROC is 100, below the default minprocs 200; set supervisor.minprocs to silence this" is logged, and startup continues (decided 2026-11-14)
 
 - **Given** the soft limit already meets the minimum
   **When** Kahi starts
@@ -3133,19 +3158,20 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 
 **Error Handling:**
 
-| Error Condition     | Expected Behavior | User-Facing Message                                              |
-| ------------------- | ----------------- | ---------------------------------------------------------------- |
-| Cannot raise NOFILE | Exit 1 at startup | "cannot set NOFILE to {n}: {error} (current soft={s}, hard={h})" |
-| Cannot raise NPROC  | Exit 1 at startup | "cannot set NPROC to {n}: {error} (current soft={s}, hard={h})"  |
+| Error Condition                            | Expected Behavior | User-Facing Message                                              |
+| ------------------------------------------ | ----------------- | ---------------------------------------------------------------- |
+| Cannot raise NOFILE to an explicit minfds  | Exit 1 at startup | "cannot set NOFILE to {n}: {error} (current soft={s}, hard={h})" |
+| Cannot raise NPROC to an explicit minprocs | Exit 1 at startup | "cannot set NPROC to {n}: {error} (current soft={s}, hard={h})"  |
 
 **Edge Cases:**
 
 - Default minfds=1024, minprocs=200 (matching supervisord defaults)
-- The raise happens once at startup, before any process starts, so children inherit the raised limits; per-process limits (SEC-021) are applied on top in the child
+- The raise happens once at startup with an explicit `syscall.Setrlimit`, before any process starts, so children inherit the raised limits (Go raises its own NOFILE soft limit at startup but restores the original for children unless the program calls Setrlimit itself); per-process limits (SEC-021) are applied on top in the child. The e2e proof checks a child's `ulimit -n` / `ulimit -u`, not the daemon's
+- On macOS a NOFILE value above `kern.maxfilesperproc` fails with EINVAL even when the hard limit is unlimited; the error message names the sysctl
 - Root may raise the hard limit as well; non-root raises only the soft limit up to the hard limit
 - On containers, rlimits may be set by the container runtime; raise only if needed
 - On macOS, RLIMIT_NPROC is best effort: a refusal logs a warning instead of exiting
-- Changing `minfds` or `minprocs` on reload logs "supervisor.minfds change takes effect after restart"
+- Changing `minfds` or `minprocs` on reload logs "supervisor.{key} change takes effect after restart"
 - The daemon-level raise is the exception ADR-024 allows: it changes the daemon's own limits, once, at startup
 - `kahi migrate` maps supervisord `minfds` and `minprocs`
 
@@ -3185,7 +3211,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 
 - **Given** a value continued over several lines, with a comment on a continuation line
   **When** migration runs
-  **Then** that comment is dropped and the joined value is unchanged
+  **Then** that comment is dropped with the warning "comment on continuation line {n} dropped" and the joined value is unchanged
 
 **Error Handling:**
 
@@ -3200,7 +3226,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 - An `[include]` section is written as a commented TOML `include` with a warning; the included files are not expanded or inlined (the user converts them separately)
 - Maps environment variables from supervisord format to Kahi format
 - Writes signal names in the `<signal.h>` form (TERM -> SIGTERM; a value that already has the prefix is kept)
-- Comment rules (decision D5 of the 2026-10-26 delivery plan; scope in #158): a comment travels with the section or key it is attached to, so it survives the sorted output order (tables by name, keys alphabetically) and section renames (`[supervisord]` -> `[supervisor]`, `[unix_http_server]` -> `[server.unix]`). A comment followed by a blank line, or at the end of a section or file, is written after that section's last key
+- Comment rules (decision D5 of the 2026-10-26 delivery plan; scope in #158): a comment travels with the section or key it is attached to, so it survives the sorted output order (tables by name, keys alphabetically) and section renames (`[supervisord]` -> `[supervisor]`, `[unix_http_server]` -> `[server.unix]`). A comment followed by a blank line stays above the next item; a comment at the end of a section or file is written after that section's last key
 - A renamed key with a user comment gets the user comment first, then the note: `{kahi_key} = {value} # {user comment} (renamed from "{supervisord_key}")`
 - A comment on `environment` goes above the generated `[programs.{name}.environment]` table; a comment on a section header line goes at the end of the TOML table header line
 - Comment text is written on one line; `;` comment markers become `#`
@@ -3466,7 +3492,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 | Process not running | Return error      | "process not running: {name}"  |
 | Stdin pipe broken   | Return error      | "stdin pipe broken for {name}" |
 
-API status codes: "process not running" is 400 and "stdin pipe broken" is 409; both are JSON errors like every other API error, and `kahi ctl send` prints the message and exits 1. The broken-pipe mapping is v0.3.0 (#259); until then the raw write error is returned as a 500.
+API status codes: "process not running" is 400, "stdin pipe broken" is 409, and "process {name}: attached" (an attach session is open, FUNC-034) is 409; both are JSON errors like every other API error, and `kahi ctl send` prints the message and exits 1. The broken-pipe mapping is v0.3.0 (#259); until then the raw write error is returned as a 500.
 
 **Edge Cases:**
 
@@ -3684,7 +3710,7 @@ API status codes: "process not running" is 400 and "stdin pipe broken" is 409; b
 
 - **Given** a process that has written 70000 bytes to stdout
   **When** `GET /api/v1/processes/web/log/stdout?length=65536` is requested
-  **Then** exactly the last 65536 bytes are returned; a longer `length` is refused with 400 "length exceeds maximum of 65536" (api-input-bounds). With a configured buffer size (FUNC-086) the maximum is that stream's buffer size
+  **Then** exactly the last 65536 bytes are returned. A `length` larger than what the buffer holds returns the whole buffer (decided 2026-11-14); only a non-numeric or negative value, or one above the absolute maximum of 16777216 (the FUNC-086 cap), is refused with 400 (api-input-bounds)
 
 - **Given** the ring buffer is full
   **When** new output arrives
@@ -3878,7 +3904,7 @@ static_dir = ""      # optional per-file overlay for /ui/static/ (FUNC-080)
 
 - **Given** a config with `web` (active, autostart, priority 999) and `batch` (in the config but not added, `autostart = false`, priority 500)
   **When** `kahi ctl avail` is issued
-  **Then** one line per program is printed, sorted by name, in the form `{name} {in use|avail} {auto|manual} {priority}`: `batch avail manual 500` and `web in use auto 999`
+  **Then** one line per program is printed, sorted by name, in the form `{name} {in use|avail} {auto|manual} {priority}`: `batch avail manual 500` and `web in use auto 999` (`batch` was removed from the running state with `kahi ctl remove`)
 
 - **Given** the config changed `web` and `worker`
   **When** `kahi ctl update web` is issued
@@ -3901,11 +3927,13 @@ static_dir = ""      # optional per-file overlay for /ui/static/ (FUNC-080)
 
 **Edge Cases:**
 
-- `avail` reads the config file the daemon would load on reload (the same source as `reread`), so it also shows programs added to the file since the last reload, as `avail`
+- `avail` is served by the daemon (`GET /api/v1/config/avail`) from the file it would load on reload (the same source as `reread`), so a root-owned config works and programs added to the file since the last reload show as `avail`. `in use` means present in the running state, whatever its process state or `autostart`
 - `avail` lists event listener pools (FUNC-055) like programs; a `[groups.x]` table is listed under its member programs, not as an extra line
 - `update <group>` applies a removal only when the removed group is named: `kahi ctl update old` stops and removes `old` if it is gone from the config
 - The API takes the filter as `POST /api/v1/config/reload?groups=web,worker`; `dry_run=true` combines with it, so `reread` can preview one group
-- `update` without arguments and `reload` call the same reload today; whether `reload` should differ (for example by also applying `[supervisor]` settings) is open for clarify
+- `reload` and `update` without arguments are the same operation: the full diff, including the `[supervisor]` settings that can change at runtime (decided 2026-11-14). `reload` is the daemon-level name (as SIGHUP), `update` the supervisorctl-compatible one that also takes group names
+- After `update web`, groups that were not named keep their old config, and a later `reread` still reports them; `[supervisor]` changes are applied only by a full update
+- Arguments are group names; a member program of a `[groups.x]` table is "no such group: {name}" (name the table). `reread` accepts the same group arguments for a preview
 - e2e proof runs `avail`, `update <group>`, `add` and `remove` through the binary
 
 **Dependencies:** FUNC-035, FUNC-014
@@ -3940,8 +3968,9 @@ static_dir = ""      # optional per-file overlay for /ui/static/ (FUNC-080)
 **Edge Cases:**
 
 - Sizes use the same syntax as `stdout_logfile_maxbytes` (`"64KB"`, `"1MB"`, or a plain byte count)
-- The API `length` maximum for a stream is that stream's buffer size (FUNC-082)
+- A `length` above the stream's buffer size returns the whole buffer; above 16777216 it is refused (FUNC-082)
 - Changing the size on reload counts as a program change (FUNC-014): the program is restarted and its buffer is recreated empty
+- With `redirect_stderr = true`, `stderr_capture_maxbytes` logs "programs.{name}.stderr_capture_maxbytes has no effect with redirect_stderr"
 - Memory use is buffer size x 2 streams x numprocs; the 16 MB cap bounds a single stream
 - supervisord's `capture_maxbytes` means "capture mode" for PROCESS_COMMUNICATION events, not a ring buffer; `kahi migrate` keeps it as `# UNSUPPORTED` with that note instead of mapping it
 
@@ -4062,7 +4091,7 @@ GET /api/v1/processes/{name}/log/{stream}?length=N
 
 - **Given** `GET /api/v1/processes/web/log/stdout?length=999999999`
   **When** the request is processed by `handleReadLog()`
-  **Then** `length` is clamped to a maximum of the stream's buffer size (65536 by default; FUNC-086) before passing to `ReadLog()`
+  **Then** a `length` above the absolute maximum (16777216, the largest buffer FUNC-086 allows) is refused with 400 before any allocation, and the ring buffer returns at most the bytes it holds, so a `length` between the buffer size and the maximum returns the whole buffer
 
 - **Given** `RingBuffer.Read(n)` is called with `n > rb.size`
   **When** the allocation occurs
@@ -4088,7 +4117,7 @@ GET /api/v1/processes/{name}/log/{stream}?length=N
 
 - `length=0` is treated as "use default" by the existing `v > 0` check
 - The 64KB cap matches the ring buffer allocation in `capture.go:39` (`64 * 1024`)
-- The cap tracks the stream's buffer size, so a program with `stdout_capture_maxbytes = "1MB"` accepts `length` up to 1048576 (FUNC-086, v0.3.0); the message names the actual maximum
+- From v0.3.0 the API cap is the absolute maximum 16777216 and the per-stream limit is the buffer itself (FUNC-086): the early-return guard shape described below for CodeQL is kept, only the constant changes; the message becomes "length exceeds maximum of 16777216"
 
 **Dependencies:** FUNC-082, FUNC-026
 
@@ -4368,7 +4397,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 - **Given** Kahi runs as root with supplementary groups and `user = "kahi"` in config
   **When** the privilege drop runs
-  **Then** `setgroups` is called to replace the supplementary groups with kahi's own group list before `setuid`, in the order setgroups -> setgid -> setuid; none of root's groups survive
+  **Then** `setgroups` is called to replace the supplementary groups with kahi's own group list before `setuid`, in the order setgroups -> setgid -> setuid; none of the groups the daemon inherited survive
 
 - **Given** a numeric target uid with no `/etc/passwd` entry
   **When** the privilege drop runs
@@ -4391,7 +4420,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 **Edge Cases:**
 
 - Call order is setgroups, then setgid, then setuid; reversing leaves a window of residual privilege
-- The new list is the target user's groups as initgroups(3) computes them: the primary gid plus every `/etc/group` entry naming the user (v0.3.0, #159, decided 2026-11-14). Until #159 it is the target gid only. The purpose is unchanged: the daemon's inherited groups are always discarded, never kept
+- The new list is the target user's groups as initgroups(3) computes them (the passwd primary gid plus every `/etc/group` entry naming the user), plus the override gid of a `user:group` value. Groups the target user is itself listed in are kept, gid 0 included; only the daemon's inherited list is discarded (v0.3.0, #159, decided 2026-11-14). Until #159 it is the target gid only. The purpose is unchanged: the daemon's inherited groups are always discarded, never kept
 - The same list is used for children switched to a user (FUNC-046), so a child never keeps the daemon's groups either
 
 **Dependencies:** FUNC-045
