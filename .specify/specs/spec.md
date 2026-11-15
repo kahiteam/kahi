@@ -1508,7 +1508,7 @@ syslog_priority = "INFO"     # EMERG, ALERT, CRIT, ERR, WARNING, NOTICE, INFO, D
 
 - **Given** the API server
   **When** `GET /api/v1/processes/web/log/stdout?length=1000` is requested
-  **Then** the last 1000 bytes of the in-memory stdout buffer are returned as `text/plain` (`length` defaults to 1600, at most 65536)
+  **Then** the last 1000 bytes of the in-memory stdout buffer are returned as `text/plain` (`length` defaults to 1600, at most the stream's buffer size: 65536 by default, FUNC-086)
 
 - **Given** the API server
   **When** `POST /api/v1/config/reload` is requested
@@ -1574,6 +1574,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - SSE includes `X-Accel-Buffering: no` header for nginx reverse proxy compatibility
 - Each log event is an unnamed SSE event (`id:` line, then `data:` lines, then a blank line) and carries `id: {generation}-{offset}`. {offset} is the number of bytes of that stream captured since the process was created, up to the end of the event's data; {generation} identifies that creation and changes whenever a reload, remove+add or daemon restart creates the process again (decided 2026-10-29, #155)
+- The log stream is fed by the capture writer directly, not by PROCESS_LOG bus events, so it works whatever `stdout_events_enabled` says (FUNC-051, v0.3.0 #160)
 - A request without `Last-Event-ID`, or with an empty one, streams live output only; clients read the backlog with `GET .../log/{stream}` (the Web UI does), so nothing is sent twice
 - A request with `Last-Event-ID: {generation}-{offset}` of the current generation first replays the bytes after that offset that the in-memory buffer (FUNC-082) still holds, then streams live output. An offset equal to the current one replays nothing
 - If part of the requested range is no longer held, the server first sends `event: gap` with `data: {"bytes": {n}}` ({n} = oldest held offset - requested offset), then replays from the oldest held byte. A named event, not a comment, so a browser EventSource sees it
@@ -1813,7 +1814,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 **Edge Cases:**
 
 - `tail -f` uses SSE streaming from the API and prints the output exactly as written: a line written in several chunks stays one line, and nothing is added (#190)
-- Without a log file, tail reads the in-memory buffer (64 KB per stream)
+- Without a log file, tail reads the in-memory buffer (64 KB per stream by default, FUNC-086)
 - Ctrl+C cleanly terminates the tail stream
 - Default byte count (1600) is configurable via `--bytes` flag
 - When no log file is configured, tail reads from the ring buffer (FUNC-082)
@@ -1963,7 +1964,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - **Given** a daemon managing `web` (numprocs 1) and `worker` (numprocs 2, group `worker`)
   **When** the user types `kahi ctl start <TAB>`
-  **Then** `web`, `worker_0`, `worker_1`, `worker:*` and `all` are offered (the names `kahi ctl status` shows)
+  **Then** `web`, `worker_0`, `worker_1`, `web:*`, `worker:*` and `all` are offered (the names `kahi ctl status` shows; every program is addressable as `name:*`)
 
 - **Given** the user types `kahi ctl signal <TAB>`
   **When** completion is active
@@ -2240,7 +2241,7 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 - Accepted forms: `name`, `uid`, `name:group`, `name:gid`, `uid:gid`, `uid:group`. A numeric value is a uid even when a user with that name exists
 - A numeric uid with a passwd entry takes that entry's primary gid and groups; without one the gid defaults to the uid and the supplementary groups are reset to the gid alone (the pre-#159 behaviour)
 - Lookups are pure Go (no CGO, Architectural Constraint 5): `/etc/passwd` and `/etc/group` only, no NSS, LDAP or SSSD
-- The explicit `-u` flag fails closed as non-root while the config key only warns, because one config file is often shared between root and non-root runs (decided 2026-11-14)
+- The explicit `-u` flag fails closed as non-root while the config key only warns, because one config file is often shared between root and non-root runs (proposed 2026-11-14; confirm in clarify)
 - The user is resolved and validated before anything is bound, so a bad name never leaves a socket behind
 - Privilege drop happens after socket creation but before processing any requests
 - Changing `[supervisor] user` on reload logs "supervisor.user change takes effect after restart"
@@ -2325,7 +2326,7 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 - The socket bind still ORs in 077 around the bind (ADR-026), whatever the daemon umask is
 - A daemon umask change on reload applies immediately; it affects only files and children created afterwards
 - `kahi migrate` maps supervisord `[supervisord] umask`
-- Supersedes the earlier "default daemon umask is 0022": Kahi sets a daemon umask only when configured (decided 2026-11-14)
+- Supersedes the earlier "default daemon umask is 0022": Kahi sets a daemon umask only when configured (proposed 2026-11-14; confirm in clarify)
 
 **Dependencies:** FUNC-002
 
@@ -3098,7 +3099,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 
 **Edge Cases:**
 
-- Without `[supervisor] directory` the daemon keeps the working directory it was started in; supersedes the earlier "default is the directory containing the config file" (decided 2026-11-14), which would change how existing relative paths resolve
+- Without `[supervisor] directory` the daemon keeps the working directory it was started in; supersedes the earlier "default is the directory containing the config file" (proposed 2026-11-14; confirm in clarify), which would change how existing relative paths resolve
 - A per-process directory is checked at spawn, not at load: it may be created by another process or a mount after startup
 - Per-process directory supports variable expansion
 - Changing `[supervisor] directory` on reload logs "supervisor.directory change takes effect after restart"
@@ -3116,7 +3117,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 
 - **Given** `minfds = 4096` in daemon config
   **When** Kahi starts and the NOFILE soft limit is below 4096
-  **Then** Kahi raises the NOFILE soft limit to 4096 (or to the hard limit if that is lower, see below)
+  **Then** Kahi raises the NOFILE soft limit to 4096
 
 - **Given** `minprocs = 512` in daemon config
   **When** Kahi starts and the NPROC soft limit is below 512
@@ -3199,7 +3200,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 - An `[include]` section is written as a commented TOML `include` with a warning; the included files are not expanded or inlined (the user converts them separately)
 - Maps environment variables from supervisord format to Kahi format
 - Writes signal names in the `<signal.h>` form (TERM -> SIGTERM; a value that already has the prefix is kept)
-- Comment rules (decision D5, scope in #158): a comment travels with the section or key it is attached to, so it survives the sorted output order (tables by name, keys alphabetically) and section renames (`[supervisord]` -> `[supervisor]`, `[unix_http_server]` -> `[server.unix]`). A comment followed by a blank line, or at the end of a section or file, is written after that section's last key
+- Comment rules (decision D5 of the 2026-10-26 delivery plan; scope in #158): a comment travels with the section or key it is attached to, so it survives the sorted output order (tables by name, keys alphabetically) and section renames (`[supervisord]` -> `[supervisor]`, `[unix_http_server]` -> `[server.unix]`). A comment followed by a blank line, or at the end of a section or file, is written after that section's last key
 - A renamed key with a user comment gets the user comment first, then the note: `{kahi_key} = {value} # {user comment} (renamed from "{supervisord_key}")`
 - A comment on `environment` goes above the generated `[programs.{name}.environment]` table; a comment on a section header line goes at the end of the TOML table header line
 - Comment text is written on one line; `;` comment markers become `#`
@@ -3579,7 +3580,7 @@ API status codes: "process not running" is 400 and "stdin pipe broken" is 409; b
 - A `gap` event first ends the pending partial line as a line, then shows a line "[{n} bytes not shown]"; a `reset` event does the same with "[log restarted]" and then renders the replay
 - The server closes a stream whose client falls 64 events behind; `EventSource` reconnects and resumes, so a fast writer no longer leaves silent gaps (v0.2.4)
 - With `strip_ansi = true` the backlog and the stream are both stripped: the stream publishes the chunk the capture writer stored, which its offsets count (FUNC-027)
-- The ring buffer is a fixed 64 KB by design (FUNC-082); making it configurable is #113 (v0.3.0)
+- The backlog request stays at 65536 bytes when a program's buffer is larger (FUNC-086): a larger buffer that holds at least 64 KB still returns exactly 65536 bytes, so the partial-first-line rule above holds
 - The read endpoint ignores its `offset` parameter; the viewer does not use it
 - `stderr` with `redirect_stderr = true` has no capture and returns an empty body (the "no output" message)
 - Auto-scroll to bottom; scrolling up pauses auto-scroll until the user returns to the bottom
@@ -3904,7 +3905,7 @@ static_dir = ""      # optional per-file overlay for /ui/static/ (FUNC-080)
 - `avail` lists event listener pools (FUNC-055) like programs; a `[groups.x]` table is listed under its member programs, not as an extra line
 - `update <group>` applies a removal only when the removed group is named: `kahi ctl update old` stops and removes `old` if it is gone from the config
 - The API takes the filter as `POST /api/v1/config/reload?groups=web,worker`; `dry_run=true` combines with it, so `reread` can preview one group
-- `update` and `reload` apply the same diff; `reload` also re-reads the `[supervisor]` settings that can change at runtime
+- `update` without arguments and `reload` call the same reload today; whether `reload` should differ (for example by also applying `[supervisor]` settings) is open for clarify
 - e2e proof runs `avail`, `update <group>`, `add` and `remove` through the binary
 
 **Dependencies:** FUNC-035, FUNC-014
@@ -4061,7 +4062,7 @@ GET /api/v1/processes/{name}/log/{stream}?length=N
 
 - **Given** `GET /api/v1/processes/web/log/stdout?length=999999999`
   **When** the request is processed by `handleReadLog()`
-  **Then** `length` is clamped to a maximum of 65536 (64KB) before passing to `ReadLog()`
+  **Then** `length` is clamped to a maximum of the stream's buffer size (65536 by default; FUNC-086) before passing to `ReadLog()`
 
 - **Given** `RingBuffer.Read(n)` is called with `n > rb.size`
   **When** the allocation occurs
@@ -4087,7 +4088,7 @@ GET /api/v1/processes/{name}/log/{stream}?length=N
 
 - `length=0` is treated as "use default" by the existing `v > 0` check
 - The 64KB cap matches the ring buffer allocation in `capture.go:39` (`64 * 1024`)
-- If ring buffer size is made configurable in the future, the API cap should track `stdout_capture_maxbytes`
+- The cap tracks the stream's buffer size, so a program with `stdout_capture_maxbytes = "1MB"` accepts `length` up to 1048576 (FUNC-086, v0.3.0); the message names the actual maximum
 
 **Dependencies:** FUNC-082, FUNC-026
 
@@ -5172,21 +5173,21 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 #### Supervisord E2E Coverage Mapping
 
-| supervisord E2E test            | Kahi disposition                                               |
-| ------------------------------- | -------------------------------------------------------------- |
-| test_stdout_capturemode         | Ported -> TestLog_TailStdout                                   |
-| test_stderr_capturemode         | Ported -> TestLog_TailStderr                                   |
-| test_tail_follow                | Ported -> TestLog_TailFollow                                   |
-| test_unicode_stdout             | Ported -> TestRegression_UnicodeTail                           |
-| test_start_stop                 | Ported -> TestProcess_Start, TestProcess_Stop                  |
-| test_restart                    | Ported -> TestProcess_Restart                                  |
-| test_signal                     | Ported -> TestProcess_Signal                                   |
-| test_autorestart                | Ported -> TestState_AutorestartTrue                            |
-| test_environment                | Ported -> TestEnv_Passthrough                                  |
-| test_update (add/remove)        | Ported -> TestReload_AddProgram, TestReload_RemoveProgram      |
-| test_shutdown                   | Ported -> TestDaemon_Shutdown                                  |
-| test*eventlistener*\* (6 tests) | Deferred -- event listener pool not yet E2E-testable           |
-| test*xmlrpc*\* (5 tests)        | Skipped -- Python XML-RPC specific, not applicable to REST API |
+| supervisord E2E test            | Kahi disposition                                                       |
+| ------------------------------- | ---------------------------------------------------------------------- |
+| test_stdout_capturemode         | Ported -> TestLog_TailStdout                                           |
+| test_stderr_capturemode         | Ported -> TestLog_TailStderr                                           |
+| test_tail_follow                | Ported -> TestLog_TailFollow                                           |
+| test_unicode_stdout             | Ported -> TestRegression_UnicodeTail                                   |
+| test_start_stop                 | Ported -> TestProcess_Start, TestProcess_Stop                          |
+| test_restart                    | Ported -> TestProcess_Restart                                          |
+| test_signal                     | Ported -> TestProcess_Signal                                           |
+| test_autorestart                | Ported -> TestState_AutorestartTrue                                    |
+| test_environment                | Ported -> TestEnv_Passthrough                                          |
+| test_update (add/remove)        | Ported -> TestReload_AddProgram, TestReload_RemoveProgram              |
+| test_shutdown                   | Ported -> TestDaemon_Shutdown                                          |
+| test*eventlistener*\* (6 tests) | Deferred until event listener pools are wired (FUNC-055, #106, v0.3.0) |
+| test*xmlrpc*\* (5 tests)        | Skipped -- Python XML-RPC specific, not applicable to REST API         |
 
 ---
 
