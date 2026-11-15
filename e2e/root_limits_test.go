@@ -25,28 +25,38 @@ command = "/orphaner limits"
 user = "1001"
 startsecs = 0
 autorestart = "false"
+
+# The daemon's own limits (PID 1): children inherit its NOFILE soft limit
+# once kahi has called Setrlimit, but a Go child raises its own.
+[programs.daemon]
+command = "/orphaner limits 1"
+startsecs = 0
+autorestart = "false"
 `, supervisor)
 }
 
 func TestRootContainer_MinfdsMinprocs(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		name, supervisor, ulimit, want string
+		name, program, supervisor, ulimit, want string
 	}{
-		// NPROC: Go leaves it alone, so the raised soft limit is what the
-		// child inherits.
-		{"raise soft NPROC", "minprocs = 512", "nproc=100:1024", "NPROC 512 1024"},
-		// NOFILE: a hard limit at or above minfds is left alone (children
-		// get their original soft limit back from os/exec).
-		{"untouched NOFILE", "minfds = 4096", "nofile=8192:8192", "NOFILE 8192 8192"},
+		// NPROC: Go leaves it alone, so the child sees the raised soft
+		// limit itself.
+		{"raise soft NPROC", "limits", "minprocs = 512", "nproc=100:1024", "NPROC 512 1024"},
+		// NOFILE: an explicit minfds sets the soft limit to exactly minfds,
+		// raised or lowered (decided 2026-11-15); children inherit it.
+		{"explicit minfds raises", "daemon", "minfds = 4096", "nofile=1024:8192", "NOFILE 4096 8192"},
+		{"explicit minfds lowers", "daemon", "minfds = 4096", "nofile=8192:8192", "NOFILE 4096 8192"},
+		// Without minfds NOFILE is left alone.
+		{"default untouched", "daemon", "", "nofile=8192:8192", "NOFILE 8192 8192"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 			ct := startRootContainer(t, map[string]string{"kahi.toml": limitsConfig(c.supervisor)}, []string{"--ulimit", c.ulimit}, nil)
 			ct.waitLogs(`"msg":"supervisor running"`)
 			prefix := strings.Fields(c.want)[0] + " "
-			if got := ct.waitOutput("limits", prefix); got != c.want {
-				t.Errorf("child limits %q, want %q", got, c.want)
+			if got := ct.waitOutput(c.program, prefix); got != c.want {
+				t.Errorf("%s limits %q, want %q", c.program, got, c.want)
 			}
 		})
 	}
@@ -102,8 +112,8 @@ func TestRootContainer_LimitsAboveHard(t *testing.T) {
 		if strings.Contains(logs, "cannot set NOFILE") {
 			t.Skipf("runtime does not let root raise the hard limit (rootless podman):\n%s", logs)
 		}
-		if got := ct.waitOutput("limits", "NOFILE "); got != "NOFILE 4096 4096" {
-			t.Errorf("child limits %q, want NOFILE 4096 4096", got)
+		if got := ct.waitOutput("daemon", "NOFILE "); got != "NOFILE 4096 4096" {
+			t.Errorf("daemon limits %q, want NOFILE 4096 4096", got)
 		}
 	})
 }

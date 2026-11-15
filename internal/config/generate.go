@@ -13,6 +13,7 @@ const DefaultConfigTOML = `# Kahi configuration file
 # minfds = 1024                 # raise the NOFILE soft limit to at least this at startup
 # minprocs = 200                # raise the NPROC soft limit to at least this at startup
 # umask = ""                    # daemon umask, e.g. "0027" (default: inherited)
+# nocleanup = false             # no effect: kahi does not auto-name child logs
 # shutdown_timeout = 30         # total seconds for an ordered shutdown, then SIGKILL; levels stop one after
 #                               # another, so keep it >= the sum of the largest stopwaitsecs in each level,
 #                               # and below your service manager's stop timeout (TimeoutStopSec, docker stop -t)

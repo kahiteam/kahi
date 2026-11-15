@@ -50,15 +50,17 @@ func TestRaiseLimitsSoftUpToHard(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := f.lim[unix.RLIMIT_NOFILE]; got.Cur != 4096 || got.Max != 8192 {
-		t.Errorf("NOFILE %+v, want 4096/8192", got)
+		t.Errorf("NOFILE %+v, want 4096/8192 (explicit minfds sets the soft limit)", got)
 	}
 	if got := f.lim[unix.RLIMIT_NPROC]; got.Cur != 512 || got.Max != 1024 {
 		t.Errorf("NPROC %+v, want 512/1024", got)
 	}
 }
 
+// Without minfds in the file, NOFILE is left alone (programs keep their
+// original soft limit); NPROC already meets its default.
 func TestRaiseLimitsUntouchedWhenEnough(t *testing.T) {
-	f := &fakeLimits{lim: map[int]unix.Rlimit{unix.RLIMIT_NOFILE: {Cur: 8192, Max: 8192}, unix.RLIMIT_NPROC: {Cur: 4096, Max: 4096}}}
+	f := &fakeLimits{lim: map[int]unix.Rlimit{unix.RLIMIT_NOFILE: {Cur: 256, Max: 8192}, unix.RLIMIT_NPROC: {Cur: 4096, Max: 4096}}}
 	logger, _ := logBuf()
 	if err := raiseLimits(f.ops("linux"), config.SupervisorConfig{Minfds: 1024, Minprocs: 200}, logger); err != nil || f.sets != 0 {
 		t.Fatalf("err %v, sets %d; want nil and no setrlimit", err, f.sets)
@@ -129,8 +131,9 @@ func TestRaiseLimitsSetFailure(t *testing.T) {
 	if err := raiseLimits(ops, config.SupervisorConfig{Minfds: 500, Minprocs: 200}, logger); err != nil {
 		t.Fatalf("default: err = %v, want a warning only", err)
 	}
-	if !strings.Contains(out.String(), "cannot set NOFILE to 500: denied") {
-		t.Errorf("log %q lacks the warning", out)
+	// A default minprocs that cannot be set warns; NOFILE is not touched.
+	if !strings.Contains(out.String(), "cannot set NPROC to 200: denied") || strings.Contains(out.String(), "NOFILE") {
+		t.Errorf("log %q: want the NPROC warning and nothing about NOFILE", out)
 	}
 }
 
@@ -168,5 +171,30 @@ func TestSetUmask(t *testing.T) {
 	}
 	if got := syscall.Umask(0o022); got != 0o022 {
 		t.Fatalf("empty umask changed it to %04o", got)
+	}
+}
+
+// An explicit minfds sets the soft limit to exactly minfds, also below what
+// Go raised it to, so programs inherit minfds.
+func TestRaiseLimitsExplicitMinfdsSetsExactly(t *testing.T) {
+	f := &fakeLimits{lim: map[int]unix.Rlimit{unix.RLIMIT_NOFILE: {Cur: 1048576, Max: 1048576}, unix.RLIMIT_NPROC: {Cur: 4096, Max: 4096}}}
+	logger, _ := logBuf()
+	if err := raiseLimits(f.ops("linux"), config.SupervisorConfig{Minfds: 4096, MinfdsSet: true, Minprocs: 200}, logger); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.lim[unix.RLIMIT_NOFILE]; got.Cur != 4096 || got.Max != 1048576 {
+		t.Errorf("NOFILE %+v, want soft 4096, hard unchanged", got)
+	}
+}
+
+// A default minfds above the hard limit only warns and calls no Setrlimit.
+func TestRaiseLimitsDefaultMinfdsWarnsOnly(t *testing.T) {
+	f := &fakeLimits{lim: map[int]unix.Rlimit{unix.RLIMIT_NOFILE: {Cur: 512, Max: 512}, unix.RLIMIT_NPROC: {Cur: 4096, Max: 4096}}}
+	logger, out := logBuf()
+	if err := raiseLimits(f.ops("linux"), config.SupervisorConfig{Minfds: 1024, Minprocs: 200}, logger); err != nil || f.sets != 0 {
+		t.Fatalf("err %v, sets %d; want a warning only", err, f.sets)
+	}
+	if !strings.Contains(out.String(), "NOFILE is 512, below the default minfds 1024; set supervisor.minfds = 512 or lower to silence this") {
+		t.Errorf("log %q lacks the default warning", out)
 	}
 }

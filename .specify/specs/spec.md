@@ -3147,7 +3147,11 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 
 - **Given** `minfds = 4096` in daemon config and a NOFILE hard limit of 8192
   **When** Kahi starts
-  **Then** the limits are left alone: Go has raised the daemon's own soft limit to the hard limit, and children get their original soft limit back from `os/exec` (decided 2026-11-15)
+  **Then** Kahi sets the NOFILE soft limit to exactly 4096 with an explicit Setrlimit, also when it was higher, and every program inherits 4096 (decided 2026-11-15)
+
+- **Given** no `minfds` in the config
+  **When** Kahi starts
+  **Then** NOFILE is left alone and programs keep their original soft limit; only a hard limit below the default 1024 logs the default-value warning
 
 - **Given** `minfds = 4096` and a NOFILE hard limit of 2048, as root with CAP_SYS_RESOURCE
   **When** Kahi starts
@@ -3179,7 +3183,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 **Edge Cases:**
 
 - Default minfds=1024, minprocs=200 (matching supervisord defaults). A value is explicit when the key is present in `[supervisor]`, whatever its value. A default that cannot be met raises the soft limit to the hard limit and warns "{RLIMIT} is {n}, below the default {key} {default}; set supervisor.{key} = {n} or lower to silence this" (NOFILE/minfds, NPROC/minprocs)
-- The raise happens once at startup, before any process starts. NPROC: the soft limit is raised to minprocs and children inherit it. NOFILE: every Go program raises its own soft limit to the hard limit and `os/exec` gives children the original soft limit back unless the program calls Setrlimit; the original cannot be read, so minfds is a guarantee on the hard limit: kahi calls Setrlimit only when the hard limit is below minfds (then children inherit the raised limit), and otherwise children keep their original soft limit (decided 2026-11-15). Per-process limits (SEC-021) are applied on top in the child
+- The raise happens once at startup, before any process starts. NPROC: the soft limit is raised to minprocs and children inherit it. NOFILE: every Go program raises its own soft limit to the hard limit and `os/exec` gives children the original soft limit back unless the program calls Setrlimit; the original cannot be read. So an explicit `minfds` sets the soft limit to exactly minfds (lowering it when it was higher; raise minfds to give programs more), and without `minfds` NOFILE is left alone (decided 2026-11-15). A per-program `KAHI_RLIMIT_NOFILE` still sets an exact value for one program. Per-process limits (SEC-021) are applied on top in the child
 - A daemon with CAP_SYS_RESOURCE (root outside a restricted container) also raises the hard limit; without it only the soft limit is raised, up to the hard limit, and a hard limit below an explicit value is the error above
 - On containers, rlimits may be set by the container runtime; raise only if needed
 - On macOS an NPROC refusal does not exit; it warns "cannot set NPROC to {n}: {error}; continuing (macOS)". A NOFILE value above `kern.maxfilesperproc` fails with "cannot set NOFILE to {n}: exceeds kern.maxfilesperproc ({max}) (current soft={s}, hard={h})" (explicit: exit 1; default: warn)

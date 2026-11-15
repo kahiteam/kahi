@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -353,9 +354,23 @@ startsecs = 0
 	if err := client.Restart("a"); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(300 * time.Millisecond)
-	if out := waitTail(t, client, "a", "0027"); strings.Contains(out, "0007") {
-		t.Errorf("restarted program saw the reloaded umask: %q", out)
+	// The buffer keeps the first run's line: wait for the second, then make
+	// sure the reloaded umask never showed.
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		var buf bytes.Buffer
+		_ = client.Tail("a", "stdout", 4096, &buf)
+		out := buf.String()
+		if strings.Contains(out, "0007") {
+			t.Fatalf("restarted program saw the reloaded umask: %q", out)
+		}
+		if strings.Count(out, "0027") >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("restarted program printed no second umask line: %q", out)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
@@ -472,4 +487,34 @@ func TestDaemonSettings_ExplicitMinfdsAboveHard(t *testing.T) {
 	if err == nil || !strings.Contains(stderr.String(), "cannot set NOFILE to 4096: hard limit is 2048 (current soft=") || !strings.Contains(stderr.String(), ", hard=2048)") {
 		t.Errorf("err %v, stderr %q; want exit 1 and the NOFILE hard-limit error", err, stderr.String())
 	}
+}
+
+// With -d the parent checks a relative PID file against [supervisor]
+// directory, as the child resolves it, and refuses a second start.
+func TestDaemonSettings_DaemonizeWithDirectory(t *testing.T) {
+	t.Parallel()
+	start, d := realDir(t), realDir(t)
+	socket := filepath.Join(start, "k.sock")
+	path := filepath.Join(start, "kahi.toml")
+	cfg := fmt.Sprintf("[supervisor]\ndirectory = %q\nlogfile = %q\nshutdown_timeout = 5\n\n[server.unix]\nfile = %q\n", d, filepath.Join(start, "kahi.log"), socket)
+	if err := os.WriteFile(path, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, stderr, code := runKahi(t, start, "daemon", "-d", "-c", "kahi.toml", "-p", "kahi.pid")
+	if code != 0 {
+		t.Fatalf("daemon -d: exit %d, stdout %q, stderr %q", code, out, stderr)
+	}
+	pidfile := filepath.Join(d, "kahi.pid")
+	pid := readPID(t, pidfile)
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+	if _, err := os.Stat(filepath.Join(start, "kahi.pid")); err == nil {
+		t.Error("PID file written in the start directory, not in [supervisor] directory")
+	}
+	if _, stderr, code := runKahi(t, start, "daemon", "-d", "-c", "kahi.toml", "-p", "kahi.pid"); code != 1 || !strings.Contains(stderr, "another instance running") || !strings.Contains(stderr, pidfile) {
+		t.Errorf("second -d start: exit %d, stderr %q; want 1 and 'another instance running' naming %s", code, stderr, pidfile)
+	}
+	if _, stderr, code := runKahi(t, start, "ctl", "-s", socket, "shutdown"); code != 0 {
+		t.Fatalf("ctl shutdown: exit %d, %q", code, stderr)
+	}
+	waitForDeath(t, pid, 5*time.Second)
 }

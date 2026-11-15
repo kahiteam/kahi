@@ -76,10 +76,53 @@ func RaiseLimits(s config.SupervisorConfig, logger *slog.Logger) error {
 }
 
 func raiseLimits(ops rlimitOps, s config.SupervisorConfig, logger *slog.Logger) error {
-	if err := raiseLimit(ops, unix.RLIMIT_NOFILE, "NOFILE", "minfds", 1024, uint64(max(s.Minfds, 0)), s.MinfdsSet, logger); err != nil {
+	if err := setNofile(ops, uint64(max(s.Minfds, 0)), s.MinfdsSet, logger); err != nil {
 		return err
 	}
 	return raiseLimit(ops, unix.RLIMIT_NPROC, "NPROC", "minprocs", 200, uint64(max(s.Minprocs, 0)), s.MinprocsSet, logger)
+}
+
+// setNofile applies minfds (decided 2026-11-15). Every Go program raises its
+// own NOFILE soft limit to the hard limit at startup and os/exec gives
+// children the original soft limit back unless the program calls Setrlimit;
+// the original cannot be read. So an explicit minfds sets the soft limit to
+// exactly minfds (raising the hard limit when it is lower and the daemon may),
+// and programs inherit it. Without minfds the limits are left alone, so
+// programs keep their original soft limit; a hard limit below the default
+// only warns.
+func setNofile(ops rlimitOps, want uint64, explicit bool, logger *slog.Logger) error {
+	if want == 0 {
+		return nil
+	}
+	var cur unix.Rlimit
+	if err := ops.get(unix.RLIMIT_NOFILE, &cur); err != nil {
+		return fmt.Errorf("cannot read NOFILE limit: %w", err)
+	}
+	current := fmt.Sprintf("(current soft=%d, hard=%d)", cur.Cur, cur.Max)
+	if !explicit {
+		if cur.Max < want {
+			logger.Warn(fmt.Sprintf("NOFILE is %d, below the default minfds %d; set supervisor.minfds = %d or lower to silence this", cur.Max, want, cur.Max))
+		}
+		return nil
+	}
+	// macOS caps NOFILE at kern.maxfilesperproc even when the hard limit is
+	// unlimited, and refuses more with EINVAL.
+	if ops.goos == "darwin" && ops.maxFiles != nil {
+		if m, ok := ops.maxFiles(); ok && want > m {
+			return fmt.Errorf("cannot set NOFILE to %d: exceeds kern.maxfilesperproc (%d) %s", want, m, current)
+		}
+	}
+	lim := unix.Rlimit{Cur: want, Max: cur.Max}
+	if want > cur.Max {
+		lim.Max = want
+	}
+	if err := ops.set(unix.RLIMIT_NOFILE, &lim); err != nil {
+		if want > cur.Max {
+			return fmt.Errorf("cannot set NOFILE to %d: hard limit is %d %s", want, cur.Max, current)
+		}
+		return fmt.Errorf("cannot set NOFILE to %d: %v %s", want, err, current)
+	}
+	return nil
 }
 
 func raiseLimit(ops rlimitOps, resource int, name, key string, def, want uint64, explicit bool, logger *slog.Logger) error {

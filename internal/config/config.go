@@ -32,8 +32,8 @@ type SupervisorConfig struct {
 	// MinfdsSet and MinprocsSet report whether the key is in the file: an
 	// explicit value that cannot be met is an error, a default only warns
 	// (FUNC-068).
-	MinfdsSet   bool `toml:"-"`
-	MinprocsSet bool `toml:"-"`
+	MinfdsSet   bool `toml:"-" json:"-"`
+	MinprocsSet bool `toml:"-" json:"-"`
 }
 
 // ProgramConfig holds per-program settings.
