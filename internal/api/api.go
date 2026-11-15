@@ -54,6 +54,9 @@ type ProcessManager interface {
 	// offset, the offset it starts at, the total captured and the stream's
 	// generation, for resuming a log stream (ADR-033).
 	ReadLogFrom(name, stream string, offset int64) (data []byte, start, total int64, generation string, err error)
+	// SubscribeLog calls fn with each chunk captured on a stream from now on
+	// and its stream id, until cancel (ADR-040). fn must not block.
+	SubscribeLog(name, stream string, fn func(data []byte, id string)) (cancel func(), err error)
 
 	// Bulk actions over every configured process, in priority order
 	// (ascending for start, descending for stop). Each returns one result per
@@ -639,14 +642,6 @@ func (s *Server) handleStreamLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine the event type based on stream.
-	var eventType events.EventType
-	if stream == "stdout" {
-		eventType = events.ProcessLogStdout
-	} else {
-		eventType = events.ProcessLogStderr
-	}
-
 	// Subscribe before flushing the headers and before reading the replay: a
 	// client that reads its backlog once the stream is open (the Web UI log
 	// viewer) then cannot miss a chunk published in between. A channel
@@ -657,17 +652,21 @@ func (s *Server) handleStreamLog(w http.ResponseWriter, r *http.Request) {
 	ch := make(chan logChunk, 64)
 	overflow := make(chan struct{})
 	var overflowOnce sync.Once
-	sub := s.bus.Subscribe(eventType, func(e events.Event) {
-		if e.Data["name"] != name {
-			return
-		}
+	// The stream is fed by the capture writer, not the event bus (ADR-040),
+	// so it works whether or not the program enables log events.
+	cancel, err := s.processes.SubscribeLog(name, stream, func(data []byte, id string) {
 		select {
-		case ch <- logChunk{id: e.Data["id"], data: e.Data["data"]}:
+		case ch <- logChunk{id: id, data: string(data)}:
 		default:
 			overflowOnce.Do(func() { close(overflow) })
 		}
 	})
-	defer s.bus.Unsubscribe(sub)
+	if err != nil {
+		statusCode := classifyError(err)
+		writeError(w, statusCode, err.Error(), errorCode(statusCode))
+		return
+	}
+	defer cancel()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")

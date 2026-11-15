@@ -191,6 +191,30 @@ func TestQueueDropsOldest(t *testing.T) {
 	}
 }
 
+// A consumer that never dequeues still gets its drops reported, by the
+// timer, one interval after the last report.
+func TestStalledQueueReportsDrops(t *testing.T) {
+	old := overflowReportInterval
+	overflowReportInterval = 50 * time.Millisecond
+	defer func() { overflowReportInterval = old }()
+	bus := NewBus(testLogger())
+	block := make(chan struct{})
+	defer close(block)
+	reported := make(chan int, 4)
+	bus.SubscribeQueue("stalled", []EventType{ProcessStateRunning}, 2, func(e Event) { <-block }, func(n int) { reported <- n })
+	for range 6 {
+		bus.Publish(Event{Type: ProcessStateRunning})
+	}
+	select {
+	case n := <-reported:
+		if n < 3 {
+			t.Fatalf("reported %d drops, want at least 3", n)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("drops of a stalled queue never reported")
+	}
+}
+
 // One subscription over several types keeps their publish order.
 func TestSubscribeQueueOrderAcrossTypes(t *testing.T) {
 	bus := NewBus(testLogger())

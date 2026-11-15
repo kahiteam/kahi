@@ -370,8 +370,7 @@ func TestUIMountUnixSocket(t *testing.T) {
 // event type, then cancels the request so the streaming handler returns.
 type flushProbe struct {
 	*httptest.ResponseRecorder
-	bus    *events.Bus
-	et     events.EventType
+	subs   func() int
 	cancel context.CancelFunc
 	count  int
 	seen   bool
@@ -380,18 +379,20 @@ type flushProbe struct {
 func (f *flushProbe) Flush() {
 	if !f.seen {
 		f.seen = true
-		f.count = f.bus.SubscriberCount(f.et)
+		f.count = f.subs()
 		f.cancel()
 	}
 	f.ResponseRecorder.Flush()
 }
 
-func probeFirstFlush(t *testing.T, path string, et events.EventType) int {
+// probeFirstFlush serves path and returns the subscriber count subs reports
+// when the handler first flushes.
+func probeFirstFlush(t *testing.T, path string, subs func(*Server) int) int {
 	t.Helper()
 	srv := newTestServer(newBulkProcesses(), &mockDaemonInfo{}, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	probe := &flushProbe{ResponseRecorder: httptest.NewRecorder(), bus: srv.bus, et: et, cancel: cancel}
+	probe := &flushProbe{ResponseRecorder: httptest.NewRecorder(), subs: func() int { return subs(srv) }, cancel: cancel}
 	done := make(chan struct{})
 	req := httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx)
 	req.SetBasicAuth("admin", "secret")
@@ -411,13 +412,13 @@ func probeFirstFlush(t *testing.T, path string, et events.EventType) int {
 }
 
 func TestStreamLogSubscribesBeforeFlush(t *testing.T) {
-	if n := probeFirstFlush(t, "/api/v1/processes/web/log/stdout/stream", events.ProcessLogStdout); n != 1 {
+	if n := probeFirstFlush(t, "/api/v1/processes/web/log/stdout/stream", func(s *Server) int { return s.processes.(logFeeder).logSubs() }); n != 1 {
 		t.Errorf("subscribers at the first flush = %d, want 1: subscribe before flushing headers", n)
 	}
 }
 
 func TestEventStreamSubscribesBeforeFlush(t *testing.T) {
-	if n := probeFirstFlush(t, "/api/v1/events/stream", events.ProcessStateRunning); n != 1 {
+	if n := probeFirstFlush(t, "/api/v1/events/stream", func(s *Server) int { return s.bus.SubscriberCount(events.ProcessStateRunning) }); n != 1 {
 		t.Errorf("subscribers at the first flush = %d, want 1: subscribe before flushing headers", n)
 	}
 }

@@ -1580,7 +1580,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 - SSE includes `X-Accel-Buffering: no` header for nginx reverse proxy compatibility
 - Each log event is an unnamed SSE event (`id:` line, then `data:` lines, then a blank line) and carries `id: {generation}-{offset}`. {offset} is the number of bytes of that stream captured since the process was created, up to the end of the event's data; {generation} identifies that creation and changes whenever a reload, remove+add or daemon restart creates the process again (decided 2026-10-29, #155)
-- The log stream is fed by the capture writer directly, not by PROCESS_LOG bus events, so it works whatever `stdout_events_enabled` says (FUNC-051, v0.3.0 #160)
+- The log stream is fed by the capture writer directly, not by PROCESS_LOG bus events, so it works whatever `stdout_events_enabled` says (FUNC-051, ADR-040)
 - A request without `Last-Event-ID`, or with an empty one, streams live output only; clients read the backlog with `GET .../log/{stream}` (the Web UI does), so nothing is sent twice
 - A request with `Last-Event-ID: {generation}-{offset}` of the current generation first replays the bytes after that offset that the in-memory buffer (FUNC-082) still holds, then streams live output. An offset equal to the current one replays nothing
 - If part of the requested range is no longer held, the server first sends `event: gap` with `data: {"bytes": {n}}` ({n} = oldest held offset - requested offset), then replays from the oldest held byte. A named event, not a comment, so a browser EventSource sees it
@@ -2402,7 +2402,7 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 
 **Edge Cases:**
 
-- Publish never blocks: from v0.3.0 each subscriber has its own goroutine and bounded drop-oldest queue (ADR-041), so callbacks run after Publish returns, in publish order per subscriber. Until then notification is synchronous in the publisher's goroutine
+- Publish never blocks: each subscriber has its own goroutine and bounded drop-oldest queue (ADR-041), so callbacks run after Publish returns, in publish order per subscriber
 - Subscribers receive events from one publisher in the order they were published
 - Subscriber registration/unregistration is safe from any goroutine
 
@@ -2477,8 +2477,6 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 - High-throughput processes can generate many events; publishing never blocks the capture writer, because every subscriber enqueues into a bounded drop-oldest queue (FUNC-055 edge case)
 - Webhooks may not subscribe to PROCESS_LOG_* (one POST per output chunk); listing one in `[webhooks.x] events` is a config error "webhooks.{name}.events: PROCESS_LOG events cannot be sent to webhooks" (decided 2026-11-14). Listeners and the events API may subscribe
 - `kahi migrate` maps supervisord `stdout_events_enabled` / `stderr_events_enabled`
-
-**Until #160 (v0.3.0):** log events are published for every process, because the log stream is built on them.
 
 **Dependencies:** FUNC-049, FUNC-018, FUNC-027, FUNC-021
 
@@ -2636,7 +2634,7 @@ numprocs = 1            # every [programs.x] key is accepted (autorestart, user,
 - If response parsing fails or payload is unrecognized, log error and re-queue event for retry
 - A listener's stdout carries the protocol and is not captured as output; its stderr is captured like a program's. `redirect_stderr = true` on a listener is a config error "eventlisteners.{name}.redirect_stderr: not allowed, stdout carries the protocol"; the stdout output keys (`stdout_logfile*`, `stdout_syslog`, `stdout_events_enabled`, `stdout_capture_maxbytes`) are ignored with the warning "eventlisteners.{name}.{key} has no effect: stdout carries the protocol"
 - `events` takes exact event type names, as the events API does (FUNC-027); supervisord's supertypes such as `PROCESS_STATE` are not accepted, and `kahi migrate` expands them to their member types
-- Every bus subscriber (listener pools, webhooks, the events API) only enqueues into its own bounded queue that drops the oldest entry when full, so publishing never blocks the publisher: not the supervision loop and not a capture writer (FUNC-018). Drops are counted. A burst starts at the first drop and ends when the queue next has free space; the WARN is logged when the burst ends and every 10 s while it lasts, `{n}` counting the drops since the previous WARN for that subscriber: "event buffer overflow for {pool}, dropped {n} oldest events" for pools, "webhook queue full for {webhook}, dropped {n} oldest events" for webhooks, "events stream queue full, dropped {n} events" for the events API (decided 2026-11-14). Metrics are not a bus subscriber (ADR-049)
+- Every bus subscriber (listener pools, webhooks, the events API) only enqueues into its own bounded queue that drops the oldest entry when full, so publishing never blocks the publisher: not the supervision loop and not a capture writer (FUNC-018). Drops are counted. The WARN is logged at most once per 10 s per subscriber: when the queue has room again after drops, or 10 s after the previous report while the queue stays full (a consumer that never reads still gets its drops reported); `{n}` counts the drops since the previous WARN: "event buffer overflow for {pool}, dropped {n} oldest events" for pools, "webhook queue full for {webhook}, dropped {n} oldest events" for webhooks, "events stream queue full, dropped {n} events" for the events API (decided 2026-11-14). Metrics are not a bus subscriber (ADR-049)
 - A pool's bus subscription queue is its event buffer: one queue of `buffer_size`; the in-flight event is held outside it. A re-queued event goes to the head of the buffer and is never the one dropped on overflow
 - Listener processes appear in `kahi ctl status` and the API like programs and can be started, stopped and restarted the same way
 - A reload adds, changes and removes pools like programs (FUNC-014); events queued for a removed pool are discarded; a changed pool restarts its members and keeps its buffered events in order, the in-flight event is re-queued without counting as a failure

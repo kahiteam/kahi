@@ -8,8 +8,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/kahiteam/kahi/internal/events"
 )
 
 // streamFor runs the log stream handler with Last-Event-ID lastID until
@@ -64,8 +62,14 @@ func (l *lockedRecorder) body() string {
 	return l.rec.Body.String()
 }
 
+// logFeeder is the mock process manager's side of the log stream (ADR-040).
+type logFeeder interface {
+	feedLog(data, id string)
+	logSubs() int
+}
+
 func publishLog(srv *Server, id, data string) {
-	srv.bus.Publish(events.Event{Type: events.ProcessLogStdout, Data: map[string]string{"name": "web", "id": id, "data": data}})
+	srv.processes.(logFeeder).feedLog(data, id)
 }
 
 func TestStreamLogResumeInvalidID(t *testing.T) {
@@ -169,9 +173,9 @@ func TestStreamLogOverflowCloses(t *testing.T) {
 // A client that disconnects leaves no subscription behind.
 func TestStreamLogUnsubscribesOnDisconnect(t *testing.T) {
 	srv, _, _ := testServer()
-	before := srv.bus.SubscriberCount(events.ProcessLogStdout)
+	before := srv.processes.(logFeeder).logSubs()
 	streamFor(t, srv, "", nil)
-	if after := srv.bus.SubscriberCount(events.ProcessLogStdout); after != before {
+	if after := srv.processes.(logFeeder).logSubs(); after != before {
 		t.Fatalf("subscribers %d after the client left, want %d", after, before)
 	}
 }

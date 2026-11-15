@@ -49,8 +49,8 @@ var programMappings = map[string]OptionMapping{
 	"stderr_logfile_backups":  {Type: "int"},
 	"stderr_capture_maxbytes": {Unsupported: true},
 	"stderr_syslog":           {Unsupported: true},
-	"stdout_events_enabled":   {Unsupported: true},
-	"stderr_events_enabled":   {Unsupported: true},
+	"stdout_events_enabled":   {Type: "bool"},
+	"stderr_events_enabled":   {Type: "bool"},
 	"serverurl":               {Unsupported: true},
 }
 

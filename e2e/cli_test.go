@@ -347,12 +347,13 @@ func TestCLI_MigrateToStdout(t *testing.T) {
 			web.Environment["A"] != "1" || web.Environment["B"] != "two" {
 			t.Fatalf("%v: web = %+v, want command, SIGINT and environment mapped", args, web)
 		}
+		// The events flags map since v0.3.0 (FUNC-051, #160).
+		if !web.StdoutEventsEnabled || !web.StderrEventsEnabled {
+			t.Fatalf("%v: events flags not mapped: %+v", args, web)
+		}
 		for _, opt := range []string{"stdout_events_enabled", "stderr_events_enabled"} {
-			if !strings.Contains(stderr, `unsupported option "`+opt+`"`) {
-				t.Fatalf("%v: no warning for unsupported %s on stderr: %q", args, opt, stderr)
-			}
-			if !strings.Contains(out, "# UNSUPPORTED: "+opt) {
-				t.Fatalf("%v: no TOML comment for unsupported %s:\n%s", args, opt, out)
+			if !strings.Contains(out, opt+" = true") || strings.Contains(out, "# UNSUPPORTED: "+opt) || strings.Contains(stderr, `unsupported option "`+opt+`"`) {
+				t.Fatalf("%v: %s not mapped as '%s = true':\n%s\nstderr: %s", args, opt, opt, out, stderr)
 			}
 		}
 	}

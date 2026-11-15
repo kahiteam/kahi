@@ -84,6 +84,7 @@ type subscription struct {
 	busy    bool // the handler is running
 	dropped int  // drops not reported yet
 	lastRep time.Time
+	timer   *time.Timer // pending report of drops while the queue stays full
 	done    chan struct{}
 	stop    chan struct{} // closed by Unsubscribe; handlers that block select on it
 }
@@ -172,6 +173,10 @@ func (b *Bus) Unsubscribe(id uint64) {
 	}
 	s.mu.Lock()
 	s.closed = true
+	if s.timer != nil {
+		s.timer.Stop()
+		s.timer = nil
+	}
 	close(s.stop)
 	s.cond.Broadcast()
 	s.mu.Unlock()
@@ -191,25 +196,35 @@ func (b *Bus) Publish(event Event) {
 			continue
 		}
 		s.mu.Lock()
-		report := 0
 		if s.n == len(s.queue) {
-			// Full: drop the oldest.
+			// Full: drop the oldest. A stalled consumer never dequeues, so a
+			// timer reports the drops one interval after the last report.
 			s.head = (s.head + 1) % len(s.queue)
 			s.n--
 			s.dropped++
-			if s.onOverflow != nil && time.Since(s.lastRep) >= overflowReportInterval {
-				report = s.dropped
-				s.dropped = 0
-				s.lastRep = time.Now()
+			if s.onOverflow != nil && s.timer == nil && !s.closed {
+				wait := max(overflowReportInterval-time.Since(s.lastRep), 0)
+				s.timer = time.AfterFunc(wait, s.reportDrops)
 			}
 		}
 		s.queue[(s.head+s.n)%len(s.queue)] = event
 		s.n++
 		s.cond.Signal()
 		s.mu.Unlock()
-		if report > 0 {
-			go s.onOverflow(report)
-		}
+	}
+}
+
+// reportDrops hands the drops counted so far to onOverflow (timer path).
+func (s *subscription) reportDrops() {
+	s.mu.Lock()
+	n := s.dropped
+	s.dropped = 0
+	s.lastRep = time.Now()
+	s.timer = nil
+	closed := s.closed
+	s.mu.Unlock()
+	if n > 0 && !closed {
+		s.onOverflow(n)
 	}
 }
 
@@ -235,6 +250,10 @@ func (b *Bus) run(s *subscription) {
 			report = s.dropped
 			s.dropped = 0
 			s.lastRep = time.Now()
+			if s.timer != nil {
+				s.timer.Stop()
+				s.timer = nil
+			}
 		}
 		s.busy = true
 		s.mu.Unlock()
