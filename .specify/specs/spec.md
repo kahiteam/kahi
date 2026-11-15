@@ -1331,7 +1331,7 @@ syslog_priority = "INFO"     # EMERG, ALERT, CRIT, ERR, WARNING, NOTICE, INFO, D
 - SIGUSR2 (FUNC-022) does not touch syslog connections; forwarding continues without interruption
 - `kahi migrate` maps supervisord `stdout_syslog` / `stderr_syslog` to the same keys
 
-**Dependencies:** FUNC-018
+**Dependencies:** FUNC-018, FUNC-021, FUNC-022
 
 ---
 
@@ -1878,7 +1878,7 @@ API: a successful upgrade is 101 Switching Protocols with `Upgrade: kahi-attach`
 - With `redirect_stderr = true` the process has no separate stderr stream; everything arrives on stdout
 - Output already in the ring buffer is not replayed; the session shows output produced after it opens
 
-**Dependencies:** FUNC-031, FUNC-077, FUNC-051
+**Dependencies:** FUNC-031, FUNC-077, FUNC-051, SEC-015, SEC-025
 
 ---
 
@@ -2264,7 +2264,7 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 
 **Until #159 (v0.3.0):** the user comes only from `kahi daemon -u uid[:gid]`, numeric. A name fails with "cannot resolve user \"{name}\": invalid uid: {name}". The supplementary groups are reset to the target gid alone.
 
-**Dependencies:** FUNC-044, FUNC-047, FUNC-067, FUNC-068
+**Dependencies:** FUNC-044, FUNC-047, FUNC-067, FUNC-068, FUNC-046 (name resolver, for the `[supervisor] user` part)
 
 ---
 
@@ -2343,7 +2343,7 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 - `kahi migrate` maps supervisord `[supervisord] umask`
 - Supersedes the earlier "default daemon umask is 0022": Kahi sets a daemon umask only when configured (decided 2026-11-14)
 
-**Dependencies:** FUNC-002
+**Dependencies:** FUNC-002, FUNC-017, SEC-023, FUNC-014
 
 ---
 
@@ -2480,7 +2480,7 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 
 **Until #160 (v0.3.0):** log events are published for every process, because the log stream is built on them.
 
-**Dependencies:** FUNC-049, FUNC-018
+**Dependencies:** FUNC-049, FUNC-018, FUNC-027, FUNC-021
 
 ---
 
@@ -2646,7 +2646,7 @@ numprocs = 1            # every [programs.x] key is accepted (autorestart, user,
 - `kahi migrate` maps supervisord `[eventlistener:x]` to `[eventlisteners.x]`
 - Buffer overflow dropped events are counted via the `kahi_event_buffer_drops_total{pool=listener_name}` counter (FUNC-060; served only when `[server.metrics] enabled = true`)
 
-**Dependencies:** FUNC-049, FUNC-050, FUNC-002, FUNC-051
+**Dependencies:** FUNC-049, FUNC-050, FUNC-002, FUNC-051, FUNC-004, FUNC-007, FUNC-014, FUNC-031
 
 ---
 
@@ -2709,7 +2709,7 @@ routing_key = ""            # PagerDuty integration key; required with template 
 - A reload rebuilds the webhook set: added webhooks start, removed ones stop after in-flight deliveries finish, changed ones restart with a closed breaker
 - Expose the `kahi_webhook_circuit_breaker{webhook,status=open|closed}` gauge metric (FUNC-060). The `webhook` label is the config table name (`[webhooks.slack]` gives `webhook="slack"`), never the URL: webhook URLs often embed credentials (a Slack incoming-webhook URL is the secret) and `/metrics` must not disclose them
 
-**Dependencies:** FUNC-049, FUNC-051
+**Dependencies:** FUNC-049, FUNC-051, FUNC-014, FUNC-050
 
 ---
 
@@ -2776,7 +2776,7 @@ routing_key = ""            # PagerDuty integration key; required with template 
 - Expansion happens at config load time, not at delivery time, through the same `${VAR}` expansion as the rest of the config (FUNC-012): `url`, `headers` values and `routing_key`
 - Webhook URLs/headers containing secrets are not logged (redacted in debug output)
 
-**Dependencies:** FUNC-056, FUNC-012
+**Dependencies:** FUNC-056, FUNC-012, SEC-014
 
 ---
 
@@ -2865,7 +2865,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 - Metric names follow Prometheus naming conventions (snake_case, `_total` for counters)
 - Also served: `kahi_event_buffer_drops_total{pool}` (FUNC-055 edge case) and `kahi_webhook_circuit_breaker{webhook,status}` (FUNC-056 edge case; labelled by webhook name, never URL; two series per webhook, the current status 1 and the other 0)
 
-**Dependencies:** FUNC-025, SEC-015, FUNC-055, FUNC-056 (pool and breaker series)
+**Dependencies:** FUNC-025, SEC-015, FUNC-055, FUNC-056 (pool and breaker series), FUNC-028, FUNC-024
 
 ---
 
@@ -2907,7 +2907,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 - A spawn that fails before exec counts as a start and as an unexpected exit
 - Removed processes, including those dropped by a numprocs decrease, have their series deleted at removal; there is no retention period or config key. Prometheus marks the series stale and keeps already-scraped history
 
-**Dependencies:** FUNC-060
+**Dependencies:** FUNC-060, FUNC-014, FUNC-004, FUNC-007
 
 ---
 
@@ -2939,7 +2939,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 - `kahi_supervisor_uptime_seconds` is computed at scrape time
 - `kahi_supervisor_config_reload_total` counts every reload attempt, applied or rejected, excluding `dry_run` previews; `update <group>` counts as one attempt; a filtered reload refused before loading (unknown or member name) counts as one attempt and one error. A rejected reload also increments `kahi_supervisor_config_reload_errors_total`
 
-**Dependencies:** FUNC-060
+**Dependencies:** FUNC-060, FUNC-014
 
 ---
 
@@ -3137,7 +3137,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 - Changing `[supervisor] directory` on reload logs "supervisor.directory change takes effect after restart"
 - `kahi migrate` maps supervisord `[supervisord] directory`
 
-**Dependencies:** FUNC-002, FUNC-012
+**Dependencies:** FUNC-002, FUNC-012, FUNC-014
 
 ---
 
@@ -3185,7 +3185,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 - The daemon-level raise is the exception ADR-024 allows: it changes the daemon's own limits, once, at startup
 - `kahi migrate` maps supervisord `minfds` and `minprocs`
 
-**Dependencies:** INFRA-001, FUNC-002
+**Dependencies:** INFRA-001, FUNC-002, FUNC-014
 
 ---
 
@@ -3513,7 +3513,7 @@ API status codes: "process not running" is 400, "stdin pipe broken" is 409, and 
 - Every process gets a stdin pipe; there is no per-process option to turn it off (decided 2026-10-26: the spawner always creates one, so "does not accept stdin" cannot occur)
 - Data must include explicit newlines if needed
 
-**Dependencies:** FUNC-026, FUNC-002
+**Dependencies:** FUNC-026, FUNC-002, FUNC-031
 
 ---
 
@@ -3950,7 +3950,7 @@ static_dir = ""      # optional per-file overlay for /ui/static/ (FUNC-080)
 - `avail` prints fields separated by single spaces, without padding
 - e2e proof runs `avail`, `update <group>`, `add` and `remove` through the binary
 
-**Dependencies:** FUNC-035, FUNC-014
+**Dependencies:** FUNC-035, FUNC-014, FUNC-010, FUNC-011, FUNC-055
 
 ---
 
@@ -3988,7 +3988,7 @@ static_dir = ""      # optional per-file overlay for /ui/static/ (FUNC-080)
 - Memory use is buffer size x 2 streams x numprocs; the 16 MB cap bounds a single stream
 - supervisord's `capture_maxbytes` means "capture mode" for PROCESS_COMMUNICATION events, not a ring buffer; `kahi migrate` keeps it as `# UNSUPPORTED: stdout_capture_maxbytes = {value} (supervisord capture mode for PROCESS_COMMUNICATION events, not a buffer size)` instead of mapping it
 
-**Dependencies:** FUNC-082
+**Dependencies:** FUNC-082, SEC-001, FUNC-079
 
 ---
 
@@ -4752,7 +4752,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 - The READY/RESULT handshake framing is preserved; only the payload body gains a length prefix
 - Empty payloads are framed with length 0
 
-**Dependencies:** FUNC-055
+**Dependencies:** FUNC-055, FUNC-051
 
 ---
 

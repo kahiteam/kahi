@@ -1114,7 +1114,8 @@
         "e2e: no daemon: 'kahi __complete ctl start \"\"' returns no names and exits 0",
         "e2e: -s points at a Unix socket the test accepts but never answers; 'kahi __complete ctl -s S start \"\"' returns no names and exits 0 within 3 s",
         "e2e: daemon on non-default socket S; 'kahi __complete ctl -s S start \"\"' returns its names, without -s none",
-        "e2e: 'kahi __complete ctl start --' output contains '--help'"
+        "e2e: 'kahi __complete ctl start --' output contains '--help'",
+        "e2e: completion honours -c {config} and the TCP flags (--addr with credentials) typed on the command line: names come from that daemon"
       ],
       "passes": false,
       "dependencies": [
@@ -1350,7 +1351,8 @@
         "container: startretries = 10, user = \"late\"; after the first 'spawn error: user not found: late' the test podman-cp's a replacement /etc/passwd adding late:x:1002:1002; the program reaches RUNNING (kahi ctl status via exec) within 30 s",
         "e2e (non-root): user = \"nosuchuser\"; stderr contains 'programs.p.user: user not found: nosuchuser' before 'supervisor running'",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): daemon -u kahi and a program with user = \"www-data\"; logs contain 'user switching unavailable (not running as root), running as current user' and '/orphaner id' prints uid=1000",
-        "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): daemon -u kahi and a program with user = \"kahi\"; no non-root warning for it and '/orphaner id' prints uid=1000"
+        "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): daemon -u kahi and a program with user = \"kahi\"; no non-root warning for it and '/orphaner id' prints uid=1000",
+        "e2e (non-root): change user to \"nosuchuser2\" and kahi ctl reload; output contains 'programs.p.user: user not found: nosuchuser2'"
       ],
       "passes": false,
       "dependencies": ["per-process-user-switching", "backoff-retries"]
@@ -1589,7 +1591,8 @@
         "e2e: [webhooks.a] and [webhooks.b] on PROCESS_STATE_FATAL each record exactly one POST with process = p",
         "e2e: add [webhooks.n] and reload; the next FATAL is POSTed to n and the daemon pid is unchanged; remove n and reload, drive another FATAL: webhook a receives it and n's count is unchanged",
         "e2e: events = [\"PROCESS_LOG_STDOUT\"]: daemon exits 1 and stderr contains 'webhooks.t.events: PROCESS_LOG events cannot be sent to webhooks'",
-        "e2e (shortened breaker interval): open t's breaker, change t's timeout and reload; the next FATAL is POSTed (breaker closed after a change)"
+        "e2e (shortened breaker interval): open t's breaker, change t's timeout and reload; the next FATAL is POSTed (breaker closed after a change)",
+        "Unit (extra check): Retry-After in HTTP-date form is honoured like the seconds form"
       ],
       "passes": false,
       "dependencies": [
@@ -1689,7 +1692,8 @@
         "e2e: remove p from the file and reload: no kahi_process_* series with name=\"p\" in the next scrape",
         "e2e: STOPPED gives kahi_process_uptime_seconds 0; two scrapes 2 s apart while RUNNING differ by at least 1",
         "e2e: command = /nonexistent, startretries = 2: at FATAL start_total 3 and exit_total{expected=\"false\"} 3",
-        "e2e: numprocs 2 to 1 and reload: no series with name=\"web_1\" and web_0 still present"
+        "e2e: numprocs 2 to 1 and reload: no series with name=\"web_1\" and web_0 still present",
+        "e2e: exitcodes = [0, 3]; p exits 3 from RUNNING; kahi_process_exit_total{expected=\"true\",name=\"p\"} increments by 1"
       ],
       "passes": false,
       "dependencies": [
@@ -1854,7 +1858,7 @@
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): runArgs --ulimit nofile=512:4096, no minfds: '/orphaner limits' prints 'NOFILE 1024 4096'",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): runArgs --ulimit nofile=8192:8192, no minfds: '/orphaner limits' prints 'NOFILE 8192 8192' (untouched)",
         "e2e: change minfds and kahi ctl reload; stderr contains 'supervisor.minfds change takes effect after restart'",
-        "e2e: kahi migrate on 'minfds=4096' prints 'minfds = 4096' under [supervisor]; daemon stderr has no ignored-key warning for minfds",
+        "e2e: kahi migrate on 'minfds=4096' prints 'minfds = 4096' under [supervisor]; after 'supervisor running' the output contains no 'supervisor.minfds' not-implemented warning",
         "container as root with CAP_SYS_RESOURCE: runArgs --ulimit nofile=1024:2048, minfds = 4096; '/orphaner limits' prints 'NOFILE 4096 4096' and the daemon keeps running"
       ],
       "passes": false,
