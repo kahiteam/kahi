@@ -58,17 +58,42 @@ type Event struct {
 // HandlerFunc processes an event.
 type HandlerFunc func(Event)
 
-// subscription tracks a single subscriber.
+// QueueSize is the queue length Subscribe gives a subscriber that names no
+// size.
+const QueueSize = 1024
+
+// overflowReportInterval is how often a subscriber whose queue stays full
+// reports its drops (ADR-041). Tests shorten it.
+var overflowReportInterval = 10 * time.Second
+
+// subscription is one subscriber: the event types it wants, a bounded queue
+// and the goroutine that runs its handler (ADR-041).
 type subscription struct {
-	id      uint64
-	handler HandlerFunc
+	id         uint64
+	name       string
+	types      map[EventType]bool
+	handler    HandlerFunc
+	onOverflow func(dropped int)
+
+	mu      sync.Mutex
+	cond    *sync.Cond
+	queue   []Event // ring of len cap
+	head    int
+	n       int
+	closed  bool
+	busy    bool // the handler is running
+	dropped int  // drops not reported yet
+	lastRep time.Time
+	done    chan struct{}
+	stop    chan struct{} // closed by Unsubscribe; handlers that block select on it
 }
 
 // Bus is the central event dispatcher. It is safe for concurrent use.
-// When no subscribers exist, Publish is a no-op with zero allocations.
+// Publish never blocks: every subscriber has its own bounded queue that
+// drops its oldest entry when full, and its own goroutine (ADR-041).
 type Bus struct {
 	mu     sync.RWMutex
-	subs   map[EventType][]subscription
+	subs   map[uint64]*subscription
 	nextID uint64
 	logger *slog.Logger
 }
@@ -76,64 +101,170 @@ type Bus struct {
 // NewBus creates a new event bus.
 func NewBus(logger *slog.Logger) *Bus {
 	return &Bus{
-		subs:   make(map[EventType][]subscription),
+		subs:   make(map[uint64]*subscription),
 		logger: logger,
 	}
 }
 
-// Subscribe registers a handler for the given event type.
-// Returns a subscription ID that can be used to unsubscribe.
+// Subscribe registers a handler for one event type with the default queue
+// size and no overflow report. It is SubscribeQueue for the common case.
 func (b *Bus) Subscribe(eventType EventType, handler HandlerFunc) uint64 {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.nextID++
-	id := b.nextID
-	b.subs[eventType] = append(b.subs[eventType], subscription{
-		id:      id,
-		handler: handler,
-	})
-	return id
+	return b.SubscribeQueue("", []EventType{eventType}, QueueSize, handler, nil)
 }
 
-// Unsubscribe removes a subscription by ID.
+// SubscribeQueue registers one subscriber for several event types (ADR-041).
+// Events reach handler in publish order, on the subscriber's own goroutine,
+// after Publish returns. When the queue holds size events the oldest is
+// dropped; onOverflow, if set, receives the number of drops when the queue
+// next has room and every overflowReportInterval while it stays full, never
+// once per event. It runs outside the bus lock.
+func (b *Bus) SubscribeQueue(name string, types []EventType, size int, handler HandlerFunc, onOverflow func(dropped int)) uint64 {
+	if size < 1 {
+		size = 1
+	}
+	s := &subscription{
+		name:       name,
+		types:      make(map[EventType]bool, len(types)),
+		handler:    handler,
+		onOverflow: onOverflow,
+		queue:      make([]Event, size),
+		done:       make(chan struct{}),
+		stop:       make(chan struct{}),
+		lastRep:    time.Now(),
+	}
+	s.cond = sync.NewCond(&s.mu)
+	for _, t := range types {
+		s.types[t] = true
+	}
+	b.mu.Lock()
+	b.nextID++
+	s.id = b.nextID
+	b.subs[s.id] = s
+	b.mu.Unlock()
+	go b.run(s)
+	return s.id
+}
+
+// Stopped returns a channel that is closed when the subscription is removed.
+// A handler that blocks (handing an event to an HTTP writer, say) selects on
+// it so Unsubscribe never waits on it forever.
+func (b *Bus) Stopped(id uint64) <-chan struct{} {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	if s, ok := b.subs[id]; ok {
+		return s.stop
+	}
+	c := make(chan struct{})
+	close(c)
+	return c
+}
+
+// Unsubscribe removes a subscription. Queued events are discarded. It waits
+// for a running handler to return; a handler that may block must select on
+// Stopped(id).
 func (b *Bus) Unsubscribe(id uint64) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
-	for eventType, subs := range b.subs {
-		for i, s := range subs {
-			if s.id == id {
-				b.subs[eventType] = append(subs[:i], subs[i+1:]...)
-				if len(b.subs[eventType]) == 0 {
-					delete(b.subs, eventType)
-				}
-				return
-			}
-		}
+	s, ok := b.subs[id]
+	delete(b.subs, id)
+	b.mu.Unlock()
+	if !ok {
+		return
 	}
+	s.mu.Lock()
+	s.closed = true
+	close(s.stop)
+	s.cond.Broadcast()
+	s.mu.Unlock()
+	<-s.done
 }
 
-// Publish dispatches an event to all subscribers of the event type.
-// Handlers are called synchronously in registration order.
-// A panicking handler is recovered and logged; remaining handlers
-// still execute.
+// Publish queues an event for every subscriber of its type. It never blocks
+// on a handler and is O(subscribers).
 func (b *Bus) Publish(event Event) {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()
 	}
-
 	b.mu.RLock()
-	subs := b.subs[event.Type]
-	if len(subs) == 0 {
-		b.mu.RUnlock()
-		return
+	defer b.mu.RUnlock()
+	for _, s := range b.subs {
+		if !s.types[event.Type] {
+			continue
+		}
+		s.mu.Lock()
+		report := 0
+		if s.n == len(s.queue) {
+			// Full: drop the oldest.
+			s.head = (s.head + 1) % len(s.queue)
+			s.n--
+			s.dropped++
+			if s.onOverflow != nil && time.Since(s.lastRep) >= overflowReportInterval {
+				report = s.dropped
+				s.dropped = 0
+				s.lastRep = time.Now()
+			}
+		}
+		s.queue[(s.head+s.n)%len(s.queue)] = event
+		s.n++
+		s.cond.Signal()
+		s.mu.Unlock()
+		if report > 0 {
+			go s.onOverflow(report)
+		}
 	}
-	// Copy the slice so we can release the lock before calling handlers.
-	handlers := make([]subscription, len(subs))
-	copy(handlers, subs)
-	b.mu.RUnlock()
+}
 
-	for _, s := range handlers {
-		b.safeCall(s.handler, event)
+func (b *Bus) run(s *subscription) {
+	defer close(s.done)
+	for {
+		s.mu.Lock()
+		for s.n == 0 && !s.closed {
+			s.cond.Wait()
+		}
+		if s.closed {
+			s.mu.Unlock()
+			return
+		}
+		e := s.queue[s.head]
+		s.queue[s.head] = Event{}
+		s.head = (s.head + 1) % len(s.queue)
+		s.n--
+		// The queue has room again: a burst of drops ends. Report it at most
+		// once per interval, so a slow consumer does not log once per event.
+		report := 0
+		if s.dropped > 0 && s.onOverflow != nil && time.Since(s.lastRep) >= overflowReportInterval {
+			report = s.dropped
+			s.dropped = 0
+			s.lastRep = time.Now()
+		}
+		s.busy = true
+		s.mu.Unlock()
+		if report > 0 {
+			s.onOverflow(report)
+		}
+		b.safeCall(s.handler, e)
+		s.mu.Lock()
+		s.busy = false
+		s.cond.Broadcast()
+		s.mu.Unlock()
+	}
+}
+
+// Flush waits until every subscriber has handled every event queued so far.
+// Tests use it in place of the synchronous delivery the bus had before
+// ADR-041.
+func (b *Bus) Flush() {
+	b.mu.RLock()
+	subs := make([]*subscription, 0, len(b.subs))
+	for _, s := range b.subs {
+		subs = append(subs, s)
+	}
+	b.mu.RUnlock()
+	for _, s := range subs {
+		s.mu.Lock()
+		for (s.n > 0 || s.busy) && !s.closed {
+			s.cond.Wait()
+		}
+		s.mu.Unlock()
 	}
 }
 
@@ -155,7 +286,13 @@ func (b *Bus) safeCall(handler HandlerFunc, event Event) {
 func (b *Bus) SubscriberCount(eventType EventType) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	return len(b.subs[eventType])
+	n := 0
+	for _, s := range b.subs {
+		if s.types[eventType] {
+			n++
+		}
+	}
+	return n
 }
 
 // Ticker emits periodic TICK events. Call Stop to shut it down.

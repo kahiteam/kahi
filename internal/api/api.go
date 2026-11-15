@@ -893,39 +893,42 @@ func (s *Server) handleEventStream(w http.ResponseWriter, r *http.Request) {
 		events.SupervisorStateRunning, events.SupervisorStateStopping,
 		events.ProcessGroupAdded, events.ProcessGroupRemoved,
 	}
-	// Ticks come only when asked for by name, so the default stream stays
-	// quiet (FUNC-054, #147).
+	// Ticks and log events come only when asked for by name, so the default
+	// stream stays quiet (FUNC-054, #147; FUNC-051).
 	if typeFilter != nil {
-		allTypes = append(allTypes, events.Tick5, events.Tick60, events.Tick3600)
+		allTypes = append(allTypes, events.Tick5, events.Tick60, events.Tick3600,
+			events.ProcessLogStdout, events.ProcessLogStderr)
 	}
 
-	// Use a channel to serialize writes to the response writer.
+	// One subscription for every type keeps the publish order (ADR-041).
+	// Its bounded queue drops the oldest event when the client falls behind;
+	// the handler hands each event to this goroutine, which writes the
+	// response, and gives up when the subscription or the request ends.
 	type sseEvent struct {
 		eventType string
 		data      []byte
 	}
-	ch := make(chan sseEvent, 64)
-
-	var ids []uint64
+	ch := make(chan sseEvent)
+	var want []events.EventType
 	for _, et := range allTypes {
-		if typeFilter != nil && !typeFilter[et] {
-			continue
+		if typeFilter == nil || typeFilter[et] {
+			want = append(want, et)
 		}
-		id := s.bus.Subscribe(et, func(e events.Event) {
-			data, _ := json.Marshal(e.Data)
-			select {
-			case ch <- sseEvent{eventType: string(e.Type), data: data}:
-			default:
-			}
-		})
-		ids = append(ids, id)
 	}
-
-	defer func() {
-		for _, id := range ids {
-			s.bus.Unsubscribe(id)
+	quit := make(chan struct{})
+	id := s.bus.SubscribeQueue("events stream", want, 64, func(e events.Event) {
+		data, _ := json.Marshal(e.Data)
+		select {
+		case ch <- sseEvent{eventType: string(e.Type), data: data}:
+		case <-quit:
 		}
-	}()
+	}, func(dropped int) {
+		s.logger.Warn(fmt.Sprintf("events stream queue full, dropped %d events", dropped))
+	})
+	// Deferred in this order, quit closes first, so a handler blocked on ch
+	// returns before Unsubscribe waits for it.
+	defer s.bus.Unsubscribe(id)
+	defer close(quit)
 
 	// Headers go out only after subscribing, so an event published once the
 	// client sees the stream open is delivered (FUNC-078 refreshes on open).

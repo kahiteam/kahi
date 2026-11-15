@@ -27,6 +27,7 @@ func TestSubscribeAndPublish(t *testing.T) {
 		Type: ProcessStateRunning,
 		Data: map[string]string{"name": "web", "group": "web"},
 	})
+	bus.Flush()
 
 	if received.Type != ProcessStateRunning {
 		t.Fatalf("expected %s, got %s", ProcessStateRunning, received.Type)
@@ -41,15 +42,16 @@ func TestSubscribeAndPublish(t *testing.T) {
 
 func TestMultipleSubscribers(t *testing.T) {
 	bus := NewBus(testLogger())
-	var count int
-	bus.Subscribe(ProcessStateFatal, func(e Event) { count++ })
-	bus.Subscribe(ProcessStateFatal, func(e Event) { count++ })
-	bus.Subscribe(ProcessStateFatal, func(e Event) { count++ })
+	var count atomic.Int64
+	bus.Subscribe(ProcessStateFatal, func(e Event) { count.Add(1) })
+	bus.Subscribe(ProcessStateFatal, func(e Event) { count.Add(1) })
+	bus.Subscribe(ProcessStateFatal, func(e Event) { count.Add(1) })
 
 	bus.Publish(Event{Type: ProcessStateFatal})
+	bus.Flush()
 
-	if count != 3 {
-		t.Fatalf("expected 3 notifications, got %d", count)
+	if n := count.Load(); n != 3 {
+		t.Fatalf("expected 3 notifications, got %d", n)
 	}
 }
 
@@ -59,12 +61,14 @@ func TestUnsubscribe(t *testing.T) {
 	id := bus.Subscribe(ProcessStateExited, func(e Event) { count++ })
 
 	bus.Publish(Event{Type: ProcessStateExited})
+	bus.Flush()
 	if count != 1 {
 		t.Fatalf("expected 1, got %d", count)
 	}
 
 	bus.Unsubscribe(id)
 	bus.Publish(Event{Type: ProcessStateExited})
+	bus.Flush()
 	if count != 1 {
 		t.Fatalf("expected 1 after unsubscribe, got %d", count)
 	}
@@ -88,6 +92,7 @@ func TestPanicRecovery(t *testing.T) {
 	})
 
 	bus.Publish(Event{Type: ProcessStateFatal})
+	bus.Flush()
 
 	if !afterPanic {
 		t.Fatal("handler after panic was not called")
@@ -100,6 +105,7 @@ func TestPanicRecoveryLogged(t *testing.T) {
 	bus := NewBus(slog.New(slog.NewTextHandler(&buf, nil)))
 	bus.Subscribe(ProcessStateFatal, func(e Event) { panic("boom") })
 	bus.Publish(Event{Type: ProcessStateFatal})
+	bus.Flush()
 	out := buf.String()
 	for _, want := range []string{`msg="event handler panicked"`, "event=PROCESS_STATE_FATAL", "panic=boom"} {
 		if !strings.Contains(out, want) {
@@ -116,19 +122,107 @@ func TestNoSubscribersNoAlloc(t *testing.T) {
 	}
 }
 
-// Publish is synchronous: every callback has run when it returns (FUNC-049).
-func TestPublishSynchronous(t *testing.T) {
+// Publish never blocks: a handler that blocks holds up only its own
+// subscriber, whose full queue drops the oldest event (ADR-041).
+func TestPublishNeverBlocks(t *testing.T) {
 	bus := NewBus(testLogger())
-	var calls int
-	for range 3 {
-		bus.Subscribe(ProcessStateRunning, func(e Event) {
-			time.Sleep(10 * time.Millisecond)
-			calls++
-		})
+	release := make(chan struct{})
+	id := bus.SubscribeQueue("stuck", []EventType{ProcessStateRunning}, 2, func(e Event) { <-release }, nil)
+	var got []string
+	bus.SubscribeQueue("live", []EventType{ProcessStateRunning}, 16, func(e Event) { got = append(got, e.Data["n"]) }, nil)
+	done := make(chan struct{})
+	go func() {
+		for n := range 10 {
+			bus.Publish(Event{Type: ProcessStateRunning, Data: map[string]string{"n": strconv.Itoa(n)}})
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Publish blocked on a stuck subscriber")
 	}
+	close(release)
+	bus.Flush()
+	if len(got) != 10 {
+		t.Fatalf("live subscriber got %d events, want 10", len(got))
+	}
+	bus.Unsubscribe(id)
+}
+
+// A full queue drops its oldest event; the newest survive in order, and the
+// overflow callback reports the drops once the queue has room again.
+func TestQueueDropsOldest(t *testing.T) {
+	old := overflowReportInterval
+	overflowReportInterval = 0
+	defer func() { overflowReportInterval = old }()
+	bus := NewBus(testLogger())
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var got []string
+	dropped := 0
+	bus.SubscribeQueue("q", []EventType{ProcessStateRunning}, 3, func(e Event) {
+		<-release
+		mu.Lock()
+		got = append(got, e.Data["n"])
+		mu.Unlock()
+	}, func(n int) {
+		mu.Lock()
+		dropped += n
+		mu.Unlock()
+	})
+	// The first event is taken by the handler (blocked); 3 more fill the
+	// queue; the next 4 each drop the oldest queued one.
+	bus.Publish(Event{Type: ProcessStateRunning, Data: map[string]string{"n": "0"}})
+	time.Sleep(50 * time.Millisecond)
+	for n := 1; n <= 7; n++ {
+		bus.Publish(Event{Type: ProcessStateRunning, Data: map[string]string{"n": strconv.Itoa(n)}})
+	}
+	close(release)
+	bus.Flush()
+	time.Sleep(50 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Join(got, ",") != "0,5,6,7" {
+		t.Fatalf("delivered %v, want 0,5,6,7", got)
+	}
+	if dropped != 4 {
+		t.Fatalf("overflow reported %d drops, want 4", dropped)
+	}
+}
+
+// One subscription over several types keeps their publish order.
+func TestSubscribeQueueOrderAcrossTypes(t *testing.T) {
+	bus := NewBus(testLogger())
+	var got []EventType
+	bus.SubscribeQueue("multi", []EventType{ProcessStateStarting, ProcessStateRunning}, 16, func(e Event) { got = append(got, e.Type) }, nil)
+	bus.Publish(Event{Type: ProcessStateStarting})
+	bus.Publish(Event{Type: ProcessStateStopped}) // not subscribed
 	bus.Publish(Event{Type: ProcessStateRunning})
-	if calls != 3 {
-		t.Fatalf("%d of 3 callbacks had run when Publish returned", calls)
+	bus.Flush()
+	if len(got) != 2 || got[0] != ProcessStateStarting || got[1] != ProcessStateRunning {
+		t.Fatalf("got %v, want STARTING then RUNNING", got)
+	}
+}
+
+// Unsubscribe does not hang on a handler that blocks on Stopped.
+func TestUnsubscribeReleasesBlockedHandler(t *testing.T) {
+	bus := NewBus(testLogger())
+	ids := make(chan uint64, 1)
+	entered := make(chan struct{})
+	id := bus.SubscribeQueue("blocked", []EventType{ProcessStateRunning}, 4, func(e Event) {
+		close(entered)
+		<-bus.Stopped(<-ids)
+	}, nil)
+	ids <- id
+	bus.Publish(Event{Type: ProcessStateRunning})
+	<-entered
+	done := make(chan struct{})
+	go func() { bus.Unsubscribe(id); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Unsubscribe hung on a blocked handler")
 	}
 }
 
@@ -144,6 +238,7 @@ func TestPublishOrderPerSubscriber(t *testing.T) {
 	}
 	for n := range 1000 {
 		bus.Publish(Event{Type: ProcessStateRunning, Data: map[string]string{"n": strconv.Itoa(n)}})
+		bus.Flush()
 	}
 	for i, seq := range got {
 		if len(seq) != 1000 {
@@ -167,34 +262,13 @@ func TestDifferentEventTypes(t *testing.T) {
 	bus.Publish(Event{Type: ProcessStateRunning})
 	bus.Publish(Event{Type: ProcessStateRunning})
 	bus.Publish(Event{Type: ProcessStateStopped})
+	bus.Flush()
 
 	if runningCount != 2 {
 		t.Fatalf("expected 2 running events, got %d", runningCount)
 	}
 	if stoppedCount != 1 {
 		t.Fatalf("expected 1 stopped event, got %d", stoppedCount)
-	}
-}
-
-func TestOrderedDelivery(t *testing.T) {
-	bus := NewBus(testLogger())
-	var order []int
-
-	for i := range 1000 {
-		bus.Subscribe(ProcessStateRunning, func(e Event) {
-			order = append(order, i)
-		})
-	}
-
-	bus.Publish(Event{Type: ProcessStateRunning})
-
-	if len(order) != 1000 {
-		t.Fatalf("expected 1000, got %d", len(order))
-	}
-	for i, v := range order {
-		if v != i {
-			t.Fatalf("out of order at index %d: got %d", i, v)
-		}
 	}
 }
 
@@ -257,6 +331,7 @@ func TestAllStateEventTypes(t *testing.T) {
 
 	for _, et := range types {
 		bus.Publish(Event{Type: et, Data: map[string]string{"name": "test"}})
+		bus.Flush()
 	}
 
 	for _, et := range types {
@@ -275,6 +350,7 @@ func TestSupervisorStateEvents(t *testing.T) {
 
 	bus.Publish(Event{Type: SupervisorStateRunning})
 	bus.Publish(Event{Type: SupervisorStateStopping})
+	bus.Flush()
 
 	if !running {
 		t.Fatal("expected SUPERVISOR_STATE_RUNNING event")
@@ -303,6 +379,7 @@ func TestProcessGroupEvents(t *testing.T) {
 		Data: map[string]string{"group": "web"},
 	})
 	bus.Publish(Event{Type: ProcessGroupRemoved})
+	bus.Flush()
 
 	if !added {
 		t.Fatal("expected PROCESS_GROUP_ADDED event")
@@ -340,6 +417,7 @@ func TestEventTimestampAutoSet(t *testing.T) {
 
 	before := time.Now()
 	bus.Publish(Event{Type: ProcessStateRunning})
+	bus.Flush()
 
 	if received.Timestamp.Before(before) {
 		t.Fatal("timestamp should not be before publish time")
@@ -353,6 +431,7 @@ func TestEventTimestampPreserved(t *testing.T) {
 
 	ts := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	bus.Publish(Event{Type: ProcessStateRunning, Timestamp: ts})
+	bus.Flush()
 
 	if !received.Timestamp.Equal(ts) {
 		t.Fatalf("expected preserved timestamp, got %v", received.Timestamp)
@@ -378,6 +457,7 @@ func TestTickerPeriods(t *testing.T) {
 	time.Sleep(400 * time.Millisecond)
 	tk.Stop()
 	tk.Stop()
+	bus.Flush()
 
 	mu.Lock()
 	c5, c60, c3600, w := counts[Tick5], counts[Tick60], counts[Tick3600], when
