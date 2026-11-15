@@ -2070,11 +2070,11 @@
         "Verify integration tests are tagged with //go:build integration",
         "Run 'task test-integration' and verify integration tests run with the correct build tag",
         "Write an integration test that starts a real Kahi daemon on a random Unix socket using StartTestDaemon helper",
-        "Write an integration test that uses 'kahi ctl' to start and stop a process",
+        "Write an integration test that starts and stops a process through the ctl client (internal/ctl) against the real daemon socket",
         "Verify all integration tests clean up processes and sockets on completion",
         "Verify integration test temp directories are cleaned up via TempDir helper"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": ["unit-test-infrastructure", "unix-socket-server"]
     },
     {
@@ -2164,29 +2164,12 @@
       "dependencies": ["module-path-migration"]
     },
     {
-      "id": "portfolio-landing-page",
-      "category": "style",
-      "title": "Portfolio Landing Page (schwichtgit/kahi)",
-      "description": "Convert schwichtgit/kahi into a minimal README-only landing page. Accurately describes Kahi as a process supervisor, author's role, and links to canonical repo at kahiteam/kahi.",
-      "testing_steps": [
-        "Verify schwichtgit/kahi contains only a README.md (no source code, no workflows, no Go files)",
-        "Verify README title identifies Kahi as a process supervisor",
-        "Verify README contains prominent link to https://github.com/kahiteam/kahi",
-        "Verify README describes author's role (architecture, implementation, DX/CI)",
-        "Verify README has 'What Kahi does' section accurate to the project",
-        "Verify README has 'Where to find the code' section with source, releases, and Go import path links",
-        "Verify README contains no emoji"
-      ],
-      "passes": false,
-      "dependencies": ["repo-migration"]
-    },
-    {
       "id": "semver-alpha-releases",
       "category": "infrastructure",
       "title": "Semantic Versioning and Alpha Releases",
       "description": "SemVer 2.0.0 release strategy with alpha/beta/rc pre-release support. GoReleaser auto-detects pre-release tags. Pre-releases not marked Latest. Archives include README, LICENSE, example config. Changelog from conventional commits.",
       "testing_steps": [
-        "Verify .goreleaser.yml sets make_latest to prevent pre-releases from being marked latest",
+        "Verify .goreleaser.yml sets prerelease: auto and make_latest: false, and that release.yml marks Latest only for a full release that is the highest version",
         "Verify .goreleaser.yml has a changelog section using conventional commits",
         "Verify .goreleaser.yml archives include extra_files: README.md, LICENSE, cmd/kahi/kahi.toml",
         "Verify .goreleaser.yml ldflags include GoVersion injection",
@@ -2194,7 +2177,7 @@
         "Run 'goreleaser build --snapshot --clean' and verify it produces binaries",
         "Verify kahi version output shows version, commit, date, Go version, and FIPS status"
       ],
-      "passes": false,
+      "passes": true,
       "dependencies": []
     },
     {
