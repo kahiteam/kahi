@@ -55,18 +55,18 @@ kahi/
 
 ### Backend
 
-| Component          | Choice                     | Version | Rationale                                                                                       |
-| ------------------ | -------------------------- | ------- | ----------------------------------------------------------------------------------------------- |
-| Language           | Go                         | go.mod  | Constitution requirement. Static binary, cross-compilation, goroutines for process supervision. |
-| HTTP Server        | net/http (stdlib)          | go.mod  | Go 1.22+ enhanced routing (method+path patterns). No framework needed.                          |
-| Structured Logging | log/slog (stdlib)          | go.mod  | Native structured logging with JSON/text handlers. Zero dependency.                             |
-| CLI Framework      | spf13/cobra                | latest  | Subcommand routing, help generation, bash/zsh completion.                                       |
-| TOML Parser        | BurntSushi/toml            | latest  | De facto Go TOML library. Full TOML v1.0 support.                                               |
-| Metrics            | prometheus/client_golang   | latest  | Prometheus exposition format. Industry standard.                                                |
-| Password Hashing   | golang.org/x/crypto/bcrypt | latest  | bcrypt not in stdlib. FIPS-compatible via GOFIPS140.                                            |
-| Terminal I/O       | golang.org/x/term          | latest  | Raw input mode for `kahi ctl attach` (ADR-044).                                                 |
-| Process Exec       | os/exec + syscall (stdlib) | go.mod  | Direct exec with SysProcAttr for setpgid, setuid, umask.                                        |
-| Signal Handling    | os/signal (stdlib)         | go.mod  | signal.Notify for queued signal processing.                                                     |
+| Component          | Choice                     | Version | Rationale                                                                                        |
+| ------------------ | -------------------------- | ------- | ------------------------------------------------------------------------------------------------ |
+| Language           | Go                         | go.mod  | Constitution requirement. Static binary, cross-compilation, goroutines for process supervision.  |
+| HTTP Server        | net/http (stdlib)          | go.mod  | Go 1.22+ enhanced routing (method+path patterns). No framework needed.                           |
+| Structured Logging | log/slog (stdlib)          | go.mod  | Native structured logging with JSON/text handlers. Zero dependency.                              |
+| CLI Framework      | spf13/cobra                | latest  | Subcommand routing, help generation, bash/zsh completion.                                        |
+| TOML Parser        | BurntSushi/toml            | latest  | De facto Go TOML library. Full TOML v1.0 support.                                                |
+| Metrics            | prometheus/client_golang   | latest  | Prometheus exposition format. Industry standard.                                                 |
+| Password Hashing   | golang.org/x/crypto/bcrypt | latest  | bcrypt not in stdlib. FIPS-compatible via GOFIPS140.                                             |
+| Terminal I/O       | golang.org/x/term          | latest  | `term.IsTerminal` for `kahi ctl attach`; input-only raw mode via `x/sys/unix` termios (ADR-044). |
+| Process Exec       | os/exec + syscall (stdlib) | go.mod  | Direct exec with SysProcAttr for setpgid, setuid, umask.                                         |
+| Signal Handling    | os/signal (stdlib)         | go.mod  | signal.Notify for queued signal processing.                                                      |
 
 ### Frontend (Web UI)
 
@@ -1210,6 +1210,7 @@ Each step is one PR, tested red first, with e2e proof against the binary and the
 - #136 must also be merged before the flips in step 6 (cli-config-operations -> config-hot-reload) and step 10 (config-api-secret-redaction, api-cross-origin-protection, web-ui-auth-output-encoding -> http-basic-auth); it runs alongside steps 2-5
 - group-lifecycle uses `kahi ctl update`, but config-hot-reload depends on group-lifecycle, so no reverse dependency is recorded; step 6 covers the reload steps it needs
 - accepted, infrastructure on infrastructure: e2e-test-infrastructure -> integration-test-infrastructure, release-pipeline-hardening -> semver-alpha-releases
+- accepted, infrastructure on functional: api-input-bounds-validation (and static-analysis-allocation-bounds through it) -> process-output-ring-buffer, rest-api-endpoints: the guard bounds those endpoints and cannot be tested without them
 
 v0.2.4 is tagged only when every pair outside the accepted line is resolved.
 
@@ -1247,6 +1248,8 @@ Spec changes on `docs/v030-spec` (2026-11-14/15), decisions recorded in the spec
 
 1. **Async publish per event (goroutine per handler call):** Rejected -- unbounded goroutines, no ordering.
 
+**Details (analyze 2026-11-15):** `Subscribe(name, size, onOverflow)`; the callback receives the drop count once per burst (a burst ends when the queue next has free space), so pools and webhooks log their FUNC-055/056 texts and the events API logs "events stream queue full, dropped {n} events". The events API stream drops the oldest entry instead of the newest it drops today; its size stays 64. A pool's subscription queue is its buffer (ADR-042), not a second queue. Metrics never subscribe (ADR-049).
+
 **Consequences:** Event order is kept per subscriber; a dropped event is visible in the log and, for pools, in `kahi_event_buffer_drops_total`.
 
 ### ADR-042: Event Listener Pools as Managed Programs
@@ -1262,6 +1265,8 @@ Spec changes on `docs/v030-spec` (2026-11-14/15), decisions recorded in the spec
 
 1. **`events = [...]` on `[programs.x]`:** Rejected by the user (V7).
 
+**Details (analyze 2026-11-15):** one queue: the bus subscription of size `buffer_size` is the pool buffer; the in-flight event is held per member outside it, a re-queued event goes to the head, and a member exiting with an event counts as one of its 3 failures. The process needs a `WithStdoutReader` option to hand the raw pipe to the pool instead of a capture writer. `kahi migrate` expands supervisord supertypes to the member types Kahi has and warns for the rest.
+
 **Consequences:** Listeners are visible and controllable like programs; `kahi migrate` maps `[eventlistener:x]`, expanding supervisord supertypes to exact names.
 
 ### ADR-043: Webhook Delivery
@@ -1272,6 +1277,8 @@ Spec changes on `docs/v030-spec` (2026-11-14/15), decisions recorded in the spec
 **Context:** FUNC-056..059 / #106. `events.WebhookManager` has no caller; its retry, breaker and templates differ from the spec, and it logs URLs.
 
 **Decision:** Config gains `template`, `allow_insecure`, `max_retries` (`retries` as a deprecated alias) and `routing_key`; validation (HTTPS rule with localhost/127.0.0.1/::1 exempt, template names, pagerduty needs `routing_key`, no PROCESS_LOG events, `timeout >= 1`, `max_retries >= 0`) moves to `internal/config/validate.go`, and `${VAR}` expansion to `config.ExpandVariables` (dropping `events.ExpandWebhookEnv`). One worker per webhook drains its 100-entry queue serially: POST with a per-request timeout, a shared `http.Client` that never follows redirects and uses the system trust store, retry on transport errors, 5xx, 408 and 429 (honouring `Retry-After` up to 60 s) with `min(1s*2^attempt, 60s) +/-10%`. Five consecutive failed deliveries open the breaker; events are dropped while open; the first event after each 5-minute interval is the probe. Log lines carry the webhook name and the unwrapped cause, never the URL or headers. A reload rebuilds the set by name.
+
+**Details (analyze 2026-11-15):** undefined `${VAR}` errors from `config.ExpandVariables` are wrapped with the key path ("webhooks.{name}.{field}: ..."). The breaker interval, backoff cap and Retry-After cap are package-level variables that e2e and unit tests shorten (as `readHeaderTimeout` in internal/api), so no test waits minutes. Generic `details` = the event data without `name` and `group`.
 
 **Consequences:** Delivery never blocks the bus (ADR-041). The breaker gauge is labelled by webhook name (ADR-049).
 
@@ -1289,6 +1296,8 @@ Spec changes on `docs/v030-spec` (2026-11-14/15), decisions recorded in the spec
 1. **SSE + per-chunk POST with a heartbeat lease:** Rejected (V15) -- per-keystroke latency and a timeout-based lock.
 2. **WebSocket:** Rejected -- needs a dependency or a hand-written framer for no gain over a hijacked connection that only `kahi ctl` speaks.
 
+**Details (analyze 2026-11-15):** termios get/set sits behind a small interface with build-tagged files (darwin TIOCGETA/TIOCSETA, linux TCGETS/TCSETS, as x/term does), so a fake terminal unit-tests the mode changes. The handler hijacks with `http.NewResponseController(w).Hijack()` after the auth and cross-origin middleware. Error statuses before the upgrade follow FUNC-034 (404, 400, 409).
+
 **Consequences:** `x/term` stays the only terminal dependency; e2e drives the non-TTY path through the binary; a pty test is not required.
 
 ### ADR-045: Privilege Drop Hands Its Files to the Target User
@@ -1298,7 +1307,7 @@ Spec changes on `docs/v030-spec` (2026-11-14/15), decisions recorded in the spec
 
 **Context:** FUNC-045 / SEC-022 (V14). After `-u`, the control socket, PID file and daemon log stay root-owned: the target user cannot use `kahi ctl`, and the daemon cannot remove the socket at shutdown. No chown exists in the code.
 
-**Decision:** `supervisor.DropPrivileges` takes the list of paths the daemon created as root (socket, PID file, daemon log) and calls `os.Lchown` on each, and on the socket directory when the daemon created it, to the target uid/gid before `setgroups`/`setgid`/`setuid`; a chown failure aborts startup like a setgroups failure (ADR-013). The socket mode stays 0700. Startup order follows the FUNC-045 edge case (config, resolve user, chdir, umask, rlimits, PID, bind, chown, drop, start).
+**Decision:** `supervisor.DropPrivileges(cred Credential, paths []string, logger)` takes the resolved credential (ADR-046) and the paths the daemon created as root (socket, socket directory when created, PID file, daemon log) and calls `os.Lchown` on each to the target uid/gid before `setgroups`/`setgid`/`setuid`; a chown failure exits 1 with "privilege drop failed: chown {path}: {error}" (ADR-013 style). The socket mode stays 0700. `WritePIDFile` moves out of `Supervisor.Run` into `cmd/kahi/daemon.go` before the bind, so the PID file exists before the drop; `Run` keeps `RemovePIDFile`. Startup order follows the FUNC-045 edge case.
 
 **Consequences:** SEC-022 holds ("owned by the service UID" means the identity the daemon runs as). Proven in the ADR-037 container.
 
@@ -1311,7 +1320,7 @@ Spec changes on `docs/v030-spec` (2026-11-14/15), decisions recorded in the spec
 
 **Decision:** One resolver in `internal/process/credential.go` parses `user[:group]` (numeric = id), uses `os/user` (which, with `CGO_ENABLED=0`, reads `/etc/passwd` and `/etc/group` only) for `Lookup`, `LookupGroup` and `GroupIds`, and returns uid, primary gid and the supplementary list (initgroups set plus an override gid). Both the daemon drop (setgroups with that list, amending ADR-013's "target gid only") and `BuildSysProcAttr` (`Credential.Groups`) use it. Per-process users resolve at spawn; a resolution error is a spawn error (BACKOFF, FATAL after startretries, V16). A numeric uid without a passwd entry keeps gid=uid and groups=[gid].
 
-**Consequences:** No NSS/LDAP; on macOS only `/etc/passwd` accounts resolve by name (documented). ADR-013's intent (discard inherited groups) is unchanged.
+**Consequences:** On Linux no NSS/LDAP (files only); on macOS `os/user` goes through the system library even without CGO, so Directory Services users resolve. ADR-013's intent (discard inherited groups) is unchanged.
 
 ### ADR-047: Daemon Process Settings at Startup
 
@@ -1320,7 +1329,9 @@ Spec changes on `docs/v030-spec` (2026-11-14/15), decisions recorded in the spec
 
 **Context:** FUNC-047/067/068 (#113, #160). `[supervisor] directory`, `umask`, `minfds`, `minprocs` are parsed and ignored. ADR-024 keeps per-process limits and umask in the child.
 
-**Decision:** A `supervisor.applyProcessSettings` step runs once at startup in the FUNC-045 order: `os.Chdir(directory)` (exit 1 on error), `syscall.Umask` only when `umask` is set, `syscall.Setrlimit` for NOFILE/NPROC when the soft limit is below the minimum (root may raise the hard limit; an explicit value that cannot be met exits 1, the defaults warn, macOS NPROC warns). Explicit Setrlimit also stops Go from restoring the original NOFILE soft limit in children. Umask values (daemon and per-process) are validated at load. On reload, a change to any of these logs "supervisor.{key} change takes effect after restart". This is the exception ADR-024 allows: the daemon changes its own settings once, before any child exists.
+**Decision:** A `supervisor.applyProcessSettings` step runs once at startup in the FUNC-045 order (load config, resolve user, chdir, umask, then `OpenDaemonLog`, which moves after them, then rlimits, PID file, bind): `os.Chdir(directory)` (exit 1 on error, to stderr), `syscall.Umask` only when `umask` is set, `syscall.Setrlimit` for NOFILE/NPROC when the soft limit is below the minimum (root may raise the hard limit; an explicit value that cannot be met exits 1, the defaults warn, macOS NPROC warns). Explicit Setrlimit also stops Go from restoring the original NOFILE soft limit in children. Umask values (daemon and per-process) are validated at load. On reload, a change to any of these logs "supervisor.{key} change takes effect after restart". This is the exception ADR-024 allows: the daemon changes its own settings once, before any child exists.
+
+**Details (analyze 2026-11-15):** "explicit" = the key is present in the file, detected with `toml.MetaData.IsDefined` during load (the int fields keep their defaults). `SupervisorConfig` gains `Umask` here, `User` in step 5 and `SyslogAddress` in step 9.
 
 **Consequences:** `ignored.go` loses these warnings; `nocleanup` keeps one with the new text (FUNC-023 withdrawn).
 
@@ -1344,6 +1355,8 @@ Spec changes on `docs/v030-spec` (2026-11-14/15), decisions recorded in the spec
 
 **Decision:** `[server.metrics] enabled` (requires `server.http.enabled`) registers `GET /metrics` on the shared mux behind `requireAuth` (open on the Unix socket like the rest). Counters are incremented directly by the process manager and the reload path, not through the bus, so a full queue can never lose a count: start (every spawn, spawn errors included), exit with `expected`, reload attempts and errors. State, uptime and per-state counts are computed at scrape time by a custom collector reading the manager. Removing a process deletes its series. The Collector gains `kahi_event_buffer_drops_total{pool}` and `kahi_webhook_circuit_breaker{webhook,status}`, fed by the pools and webhook workers. A collector construction failure leaves the daemon running and `/metrics` answering 503.
 
+**Details (analyze 2026-11-15):** `metrics.New` returns an error instead of panicking (`Register` instead of `MustRegister`), so the 503 path is reachable; it is proven by a unit test that injects the failure, not by e2e. The stored gauges for state, uptime and per-state counts are replaced by a custom collector.
+
 **Consequences:** Supersedes the "no auth" line in this plan's endpoint map (fixed above). Follows ADR-042/043 in sequencing.
 
 ### ADR-050: Syslog Forwarding Through a Line Handler
@@ -1355,6 +1368,8 @@ Spec changes on `docs/v030-spec` (2026-11-14/15), decisions recorded in the spec
 
 **Decision:** A per-line handler (the `WithLineHandler` path the passthrough uses) per process and stream writes each line, after ANSI stripping, to a `log/syslog` writer dialled to `[supervisor] syslog_address` ("" = `syslog.New`, the local socket; `unix://`, `udp://`, `tcp://` = `syslog.Dial`) with the program's facility and priority and the process name as tag. Lines over 2048 bytes are split. A dial or write failure switches the handler to disconnected: lines are dropped, a reconnect runs with backoff 1 s..60 s, WARN once per outage and INFO on recovery. `ReopenLogs` (SIGUSR2) does not touch the writers. `log/syslog` is frozen but pure Go and POSIX-only, matching the constitution.
 
+**Details (analyze 2026-11-15):** `unix://` dials `unixgram` first and falls back to `unix`. `WithLineHandler` holds one handler today (the passthrough); it becomes a list, and the syslog handler strips ANSI itself when `strip_ansi` is set, since line handlers receive raw lines.
+
 **Consequences:** e2e binds a unixgram socket and sets `syslog_address = "unix://..."`.
 
 ### ADR-051: Partial Reload and avail
@@ -1365,6 +1380,8 @@ Spec changes on `docs/v030-spec` (2026-11-14/15), decisions recorded in the spec
 **Context:** FUNC-085 / FUNC-035 (#161, V17). `update` and `reload` call the same full reload; there is no group filter and no avail.
 
 **Decision:** `POST /api/v1/config/reload` accepts `groups=a,b`: the daemon loads and validates the whole new config, computes the full `ConfigDiff`, then applies only the entries of the named groups (an unknown name is 400 "no such group: {name}" before anything changes); `[supervisor]` settings are applied only without a filter. The daemon's "current config" is then the old config with the named groups replaced, so a later `reread` still reports the others. `GET /api/v1/config/avail` returns one entry per program and pool in the new config file with `in_use`, `autostart` and `priority`. `reload` stays an alias of `update` without arguments.
+
+**Details (analyze 2026-11-15):** each avail entry carries `group` (the table name, or the program's own name). Only an unfiltered update rebuilds webhooks, the same rule as `[supervisor]`. Names accepted by `?groups=`: programs outside tables, table names, pool names.
 
 **Consequences:** `kahi ctl update <group>...`, `reread <group>...` and `avail` are thin clients; completion (ADR-052) reuses avail for `add`.
 
@@ -1399,10 +1416,10 @@ Each step is one PR, tested red first, with e2e proof through the binary and the
 1. **Spec, plan, features** (this change, `docs/v030-spec`): spec sections, ADR-040..053, feature_list.
 2. **#259 stdin broken pipe** (FUNC-077): smallest, unblocks process-stdin-writing.
 3. **Bus queues and log-stream decoupling** (ADR-041, ADR-040) with **#160** events flags (FUNC-051): foundation for #106 and attach.
-4. **#113 daemon settings and capture buffer** (ADR-047, ADR-048) with **#160** daemon umask: working-directory, resource-limits, process-umask, configurable-capture-buffer (FUNC-086); FUNC-023 withdrawal (log-cleanup-startup removed). Resolves the passing->failing pair spawn-rlimit-umask-application -> resource-limits, process-umask.
+4. **#113 daemon settings** (ADR-047) with **#160** daemon umask, then **4b capture buffer** (ADR-048) as a separate PR: working-directory, resource-limits, process-umask, configurable-capture-buffer (FUNC-086); FUNC-023 withdrawal (log-cleanup-startup removed). Resolves the passing->failing pair spawn-rlimit-umask-application -> resource-limits, process-umask.
 5. **#159 users, groups and the file hand-over** (ADR-046, ADR-045): process-user-names, supervisor-user-config; container e2e.
 6. **#106a webhooks** (ADR-043): webhook-notifications, webhook-templates, webhook-env-expansion, webhook-tls-requirement.
-7. **#106b listener pools** (ADR-042): event-listener-pools, event-listener-payload-framing.
+7. **#106b listener pools** (ADR-042) in two PRs: 7a config, validation, migrate and the envelope/framing (event-listener-payload-framing); 7b the manager-run pool (event-listener-pools).
 8. **#153 metrics** (ADR-049): prometheus-metrics-endpoint, process-metrics, supervisor-metrics (needs 6 and 7 for the pool and breaker series).
 9. **#152 syslog** (ADR-050): syslog-forwarding.
 10. **#157 attach** (ADR-044; needs 3): cli-foreground-attach.
@@ -1410,4 +1427,8 @@ Each step is one PR, tested red first, with e2e proof through the binary and the
 12. **#156 completion** (ADR-052; needs 11): cli-tab-completion.
 13. **#158 migrate comments** (ADR-053): migrate-comment-preservation.
 
-Steps 2, 9 and 13 are independent of the rest and can run in parallel with any step. v0.3.0 is tagged when every v0.3.0 entry passes with e2e `verified_by`.
+Steps 2, 4b, 9 and 13 are independent of the rest and can run in parallel with any step.
+
+**Passing entries that a step changes.** The step that changes the code rewrites these entries' steps in the same PR, so they stay passing and never describe behaviour the code does not have: step 3 sse-streaming and web-ui-log-viewer (log stream fed by the broadcaster, ADR-040; TestStreamLogSubscribesBeforeFlush counts broadcaster subscribers); step 4b process-output-ring-buffer and api-input-bounds-validation (clamp and the 16777216 cap, ADR-048); step 5 privilege-dropping and per-process-user-switching (names, the user's groups, spawn errors back off, ADR-046).
+
+**E2E rules for v0.3.0 steps.** Backoff and delay assertions use lower bounds only; eventual outcomes get deadlines of at least 5 s; every negative assertion ("no event", "not POSTed") waits for a sentinel that must arrive after it; the 1 s attach idle rule and the 5-minute breaker probe are never asserted in e2e (unit tests with shortened variables cover them). Error-text steps assert "daemon exits 1, stderr contains '<text>'" for config errors. Root-only steps use the ADR-037 helper: the test supplies `/etc/passwd` and `/etc/group` through the files map, runs `kahi ctl` as the target user with `exec --user`, and inspects files after shutdown with `podman cp` from the stopped container; orphaner gains `stat path` (uid gid mode) and `cwd`. Without a local podman machine these steps are proven in CI. CI installs zsh for the completion syntax check (`zsh -n`), which skips locally when zsh is missing. v0.3.0 is tagged when every v0.3.0 entry passes with e2e `verified_by`.
