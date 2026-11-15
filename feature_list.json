@@ -647,24 +647,28 @@
         "e2e: syslog_facility = \"LOCAL3\", syslog_priority = \"NOTICE\"; the received message starts with '<157>'",
         "e2e: facility and priority unset; the received message starts with '<134>'",
         "e2e: numprocs = 2; messages are tagged web_0 and web_1",
-        "e2e: stderr_syslog = true alone; the program writes 'err' to fd 2 and a message ending in 'err' arrives; nothing from stdout arrives",
-        "e2e: syslog_address points at a path with no listener, the program prints 'n=<i>' every 100 ms; after the 3rd line is in the stdout log file, daemon stderr has exactly one 'syslog connection failed for' line for that process and stream",
-        "e2e: then bind the listener; within 5 s a message 'n=<i>' arrives and stderr has 'syslog connection restored for'",
+        "e2e: stderr_syslog = true alone; program 'echo out; sleep 0.2; echo err >&2; sleep 0.2; echo end >&2'; after a message ending 'end' arrives, no received message ends in 'out'",
+        "e2e: no listener, the program prints 'n=<i>' every 100 ms; within 5 s output has 'syslog connection failed for p stdout'; after 10 more lines are in the log file it still has exactly one such line",
+        "e2e: then bind the listener; within 65 s a message 'n=<i>' arrives and output has 'syslog connection restored for p stdout'",
         "e2e: the program prints one line of 5000 'x'; three messages arrive with bodies of 2048, 2048 and 904 bytes whose concatenation equals the line",
         "e2e: strip_ansi = true, the program prints '\\x1b[31mred\\x1b[0m'; the body ends in 'red' and contains no 0x1b byte",
         "e2e: the program runs printf 'tail' (no newline) and exits; a message ending in 'tail' arrives",
         "e2e: redirect_stderr = true with stderr_syslog = true; stderr contains 'programs.p.stderr_syslog has no effect with redirect_stderr' and a line written to fd 2 arrives through stdout_syslog",
         "e2e: syslog_facility = \"BOGUS\": daemon exits 1 and stderr contains 'programs.p.syslog_facility: unknown facility BOGUS'; syslog_priority = \"BOGUS\": 'programs.p.syslog_priority: unknown priority BOGUS'; syslog_address = \"ftp://x\": 'supervisor.syslog_address: invalid address ftp://x'",
-        "e2e: udp://127.0.0.1:{port} and tcp://127.0.0.1:{port} listeners each receive a forwarded line (tcp newline-framed)",
-        "e2e: the program prints 'n=<i>' every 100 ms; send SIGUSR2 to the daemon; within 2 s a message with a higher n than the last one before the signal arrives and no new 'syslog connection failed' line appears",
+        "e2e: udp://127.0.0.1:{port} and tcp://127.0.0.1:{port} listeners each receive a message starting '<134>' and ending 'hello' (the tcp message ends with a newline); a unix stream listener with unix:// receives it through the fallback",
+        "e2e: the program prints 'n=<i>' every 100 ms; send SIGUSR2 to the daemon; within 5 s a message with a higher n than the last one before the signal arrives and no new 'syslog connection failed' line appears",
         "e2e: change syslog_address and kahi ctl reload; stderr contains 'supervisor.syslog_address change takes effect after restart'",
-        "e2e: daemon stderr has no ignored-key warning for stdout_syslog; kahi migrate on 'stdout_syslog=true' prints 'stdout_syslog = true' under [programs.p] and no '# UNSUPPORTED' line for it"
+        "e2e: after 'supervisor running', output contains no 'stdout_syslog is not implemented yet' line; kahi migrate on 'stdout_syslog=true' prints 'stdout_syslog = true' under [programs.p] and no '# UNSUPPORTED' line for it",
+        "e2e: with a tcp:// listener receiving, close it; within 5 s output has exactly one 'syslog connection failed for p stdout' and the stdout log file keeps growing; rebind and 'syslog connection restored for p stdout' appears within 65 s",
+        "e2e: change syslog_facility and reload; the program's pid changes (program change)"
       ],
       "passes": false,
       "dependencies": [
         "process-output-capture",
         "ansi-escape-stripping",
-        "log-reopen-sigusr2"
+        "log-reopen-sigusr2",
+        "config-hot-reload",
+        "numprocs-instances"
       ]
     },
     {
@@ -1032,13 +1036,13 @@
         "e2e: while one attach holds cat (stdin a pipe kept open), a second attach exits 1 with 'process cat: already attached'",
         "e2e: during a session, 'kahi ctl send cat x' exits 1 with 'process cat: attached' (API 409)",
         "e2e: attach to a STOPPED process exits 1 with 'process not running: p'; an unknown name exits 1 with 'no such process: nosuch'",
-        "e2e: the attached process exits; the client prints 'process p exited' to stderr and exits 0",
-        "e2e: SIGKILL a client holding the session; within 3 s a new 'printf \"x\\n\" | kahi ctl attach cat' succeeds",
-        "e2e: the program prints OUT on stdout and ERR on stderr; the client's stdout contains OUT and not ERR, its stderr contains ERR",
-        "e2e: redirect_stderr = true; both OUT and ERR arrive on the client's stdout",
-        "e2e: after 'printf \"\" | kahi ctl attach cat' exits, 'kahi ctl send cat hello' exits 0 and kahi ctl tail cat shows 'hello'",
-        "e2e: stop the daemon during a non-TTY session; the client exits 1 with 'attach to cat lost:'",
-        "e2e via the terminal helper (runKahiTTY): stderr shows 'attached to cat (Ctrl+] to detach)'; writing 0x03 reaches cat as a byte; writing 0x1d prints 'detached from cat', exits 0, and 'stty -a' on the same terminal shows 'icanon' 'echo' 'isig'",
+        "e2e: program sh -c 'read l; exit 3'; the client sends a line through a stdin pipe; it prints 'process p exited' to stderr and exits 0",
+        "e2e: SIGKILL a client holding the session; within 5 s a new 'printf \"x\\n\" | kahi ctl attach cat' exits 0 and prints 'x'",
+        "e2e: program sh -c 'read l; echo OUT; echo ERR >&2; sleep 30'; after the client sends a line, its stdout contains OUT and not ERR, its stderr contains ERR",
+        "e2e: the same program with redirect_stderr = true; both OUT and ERR arrive on the client's stdout",
+        "e2e: after 'printf \"\" | kahi ctl attach cat' exits, within 5 s (retrying on 409) 'kahi ctl send cat hello' exits 0 and kahi ctl tail cat shows 'hello'",
+        "e2e: SIGKILL the daemon during a non-TTY session; within 5 s the client exits 1 with 'attach to cat lost:'",
+        "e2e via the terminal helper (runKahiTTY, one-shot): 'kahi ctl attach cat' on a terminal with no input prints 'attached to cat (Ctrl+] to detach)' to stderr; keystroke handling (0x03 forwarded, 0x1d detaches with 'detached from cat', termios restored) is covered by the fake-terminal unit check",
         "e2e: non-TTY input containing 0x1d is forwarded to the process (no detach) and no 'attached' banner is printed",
         "e2e: POST /api/v1/processes/cat/attach with Upgrade: kahi-attach over TCP without credentials returns 401; over the Unix socket it returns 101; without the Upgrade header it returns 400 'attach requires Upgrade: kahi-attach'",
         "e2e: attach to an event listener process returns 400 'process l: stdin carries the event listener protocol'",
@@ -1050,7 +1054,8 @@
         "process-stdin-writing",
         "process-log-events",
         "api-cross-origin-protection",
-        "tcp-listener-fail-closed-auth"
+        "tcp-listener-fail-closed-auth",
+        "event-listener-pools"
       ]
     },
     {
@@ -1100,16 +1105,16 @@
       "description": "Dynamic completion of process, group and signal names from the running daemon with a 1-second budget (FUNC-037, #156, ADR-052).",
       "testing_steps": [
         "e2e: 'kahi completion bash | bash -n' exits 0; 'kahi completion zsh | zsh -n' exits 0 (skipped when zsh is missing; CI installs it)",
-        "e2e: 'kahi __complete \"\"' returns daemon, ctl, migrate, version, init, completion, hash-password (and help) with directive NoFileComp",
+        "e2e: 'kahi __complete \"\"' returns exactly completion, ctl, daemon, hash-password, help, init, migrate, version and a last line ':4'",
         "e2e: against a daemon with web and worker (numprocs 2), 'kahi __complete ctl start \"\"' returns exactly web, worker_0, worker_1, web:*, worker:*, all and directive NoFileComp",
         "e2e: 'kahi __complete ctl attach \"\"', 'tail', 'pid' and 'send' return process names only",
         "e2e: 'kahi __complete ctl signal \"\"' returns SIGTERM SIGHUP SIGINT SIGQUIT SIGKILL SIGUSR1 SIGUSR2 SIGSTOP SIGCONT; 'kahi __complete ctl signal SIGTERM \"\"' returns process names, name:* and all",
         "e2e: with a [groups.g] table not running and a program x in no table not running, 'kahi __complete ctl add \"\"' returns g and x only",
-        "e2e: 'kahi __complete ctl remove \"\"' returns running groups; 'update \"\"' returns running groups plus groups only in the file",
+        "e2e: with running groups web, worker and a group new only in the file: 'remove \"\"' returns exactly web, worker; 'update \"\"' and 'reread \"\"' return exactly new, web, worker",
         "e2e: no daemon: 'kahi __complete ctl start \"\"' returns no names and exits 0",
-        "e2e: -s points at a Unix socket the test accepts but never answers; 'kahi __complete -s S ctl start \"\"' returns no names, exits 0, within 2 s",
+        "e2e: -s points at a Unix socket the test accepts but never answers; 'kahi __complete ctl -s S start \"\"' returns no names and exits 0 within 3 s",
         "e2e: daemon on non-default socket S; 'kahi __complete ctl -s S start \"\"' returns its names, without -s none",
-        "e2e: 'kahi __complete ctl start --' lists the command's flags"
+        "e2e: 'kahi __complete ctl start --' output contains '--help'"
       ],
       "passes": false,
       "dependencies": [
@@ -1290,16 +1295,18 @@
       "testing_steps": [
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): [supervisor] user = \"kahi\"; a program '/orphaner id' without user prints 'uid=1000 euid=1000 gid=1000' and groups containing 4",
         "e2e (non-root): [supervisor] user = \"x\"; stderr contains 'supervisor.user ignored: dropping privileges needs root (running as uid' and 'supervisor running'",
-        "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): user = \"nosuch\": the container exits 1, its logs contain 'user not found: nosuch', and podman cp of the socket path from the stopped container fails",
+        "container: user = \"nosuch\": the container exits 1, its logs contain 'user not found: nosuch', and cp of the socket path from the stopped container exits non-zero",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): user = \"kahi:nosuch\": exit 1 with 'group not found: nosuch'",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): user = \"kahi:adm\": '/orphaner id' prints gid=4 and groups containing 1000 and 4",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): daemon -u app with [supervisor] user = \"kahi\": '/orphaner id' prints uid=1001 and logs contain 'kahi daemon -u app overrides supervisor.user'",
-        "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): after the drop, 'podman exec --user 1000 {ctr} /kahi ctl -s /run/kahi.sock status' exits 0; '/orphaner stat' on the socket, its directory, the PID file and the log prints '1000 1000 ...' (socket mode 0700)",
-        "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): root started with an extra supplementary group 999 (setpriv --groups 999 or --group-add); after the drop, '/orphaner id' groups do not contain 999",
-        "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): podman stop, then podman cp of the socket and PID file from the stopped container fails with 'no such file'",
-        "Unit (injectable seam): an Lchown failure exits 1 with 'privilege drop failed: chown {path}: {error}' and setuid is never called",
+        "container: socket file /run/kahi/kahi.sock (the daemon creates /run/kahi), logfile /run/kahi/kahi.log, pidfile /run/kahi/kahi.pid; after the drop 'exec --user 1000 /kahi ctl -s /run/kahi/kahi.sock status' exits 0 and '/orphaner stat' prints '1000 1000 0700' for the socket and the directory, '1000 1000' for the PID file and the log",
+        "container: runArgs --group-add 999; after the drop to kahi, '/orphaner id' groups do not contain 999",
+        "container: stop the container, then cp of /run/kahi/kahi.sock and /run/kahi/kahi.pid from the stopped container exits non-zero",
+        "Unit (injectable seam, extra check): an Lchown failure exits 1 with 'privilege drop failed: chown {path}: {error}' and setuid is never called",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): change user in kahi.toml (podman cp) and kahi ctl reload; logs contain 'supervisor.user change takes effect after restart'",
-        "e2e: kahi migrate on '[supervisord] user=kahi' prints 'user = \"kahi\"' under [supervisor]"
+        "e2e: kahi migrate on '[supervisord] user=kahi' prints 'user = \"kahi\"' under [supervisor]",
+        "container: user = \"1000:adm\" gives '/orphaner id' uid=1000 gid=4 with groups containing 1000 and 4; user = \"1000\" gives gid=1000 with groups containing 4",
+        "container: root, no -u and no user key: logs contain 'running as root without user config; set [supervisor] user or kahi daemon -u <user> for privilege dropping' once; [supervisor] user = \"kahi\" alone gives no root warning"
       ],
       "passes": false,
       "dependencies": [
@@ -1336,17 +1343,17 @@
       "title": "Per-Process User Names and Supplementary Groups",
       "description": "Per-process user names and supplementary groups via os/user in pure-Go mode (FUNC-046, SEC-010, #159, ADR-046); resolution errors are spawn errors.",
       "testing_steps": [
-        "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): user = \"www-data\"; '/orphaner id' prints 'uid=33 euid=33 gid=33' and the groups /etc/group lists for www-data",
-        "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): user = \"nosuch\", startretries = 1; logs contain 'spawn error: user not found: nosuch' and the state ends FATAL after 2 attempts",
+        "container: user = \"www-data\"; '/orphaner id' prints 'uid=33 euid=33 gid=33 egid=33 groups=[33]'",
+        "container: user = \"nosuch\", startretries = 1; logs contain exactly 2 'spawn error: user not found: nosuch' lines and kahi ctl status (exec) shows FATAL",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): user = \"www-data:nosuch\" gives 'spawn error: group not found: nosuch'",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): user = \"4242\" (no passwd entry); '/orphaner id' prints 'uid=4242 euid=4242 gid=4242 egid=4242 groups=[4242]'",
-        "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): startretries = 10, user = \"late\"; after the first 'user not found: late' the test adds late to /etc/passwd (podman exec); the program reaches RUNNING within 30 s",
+        "container: startretries = 10, user = \"late\"; after the first 'spawn error: user not found: late' the test podman-cp's a replacement /etc/passwd adding late:x:1002:1002; the program reaches RUNNING (kahi ctl status via exec) within 30 s",
         "e2e (non-root): user = \"nosuchuser\"; stderr contains 'programs.p.user: user not found: nosuchuser' before 'supervisor running'",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): daemon -u kahi and a program with user = \"www-data\"; logs contain 'user switching unavailable (not running as root), running as current user' and '/orphaner id' prints uid=1000",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): daemon -u kahi and a program with user = \"kahi\"; no non-root warning for it and '/orphaner id' prints uid=1000"
       ],
       "passes": false,
-      "dependencies": ["per-process-user-switching"]
+      "dependencies": ["per-process-user-switching", "backoff-retries"]
     },
     {
       "id": "process-umask",
@@ -1354,11 +1361,11 @@
       "title": "Per-Process and Daemon Umask Configuration",
       "description": "Daemon-level umask via [supervisor] umask, set at startup only when configured, and load-time validation of daemon and per-process umasks (FUNC-047, #160, ADR-047).",
       "testing_steps": [
-        "e2e: [supervisor] umask = \"0027\", logfile = L; a program without umask runs '/orphaner umask' and prints 'umask 0027'; os.Stat(L).Mode().Perm() is 0640",
-        "e2e: process umask = \"0077\" prints 'umask 0077' while a sibling without umask prints the daemon's",
+        "e2e: [supervisor] umask = \"0027\", logfile = L; a program '/bin/sh -c umask' without umask prints '0027'; os.Stat(L).Mode().Perm() is 0640",
+        "e2e: a program with umask = \"0077\" running '/bin/sh -c umask' prints '0077' while a sibling without umask prints the daemon's",
         "e2e: umask = \"0999\", \"abc\" or \"01777\" in [supervisor] or a program: daemon exits 1 and stderr contains 'invalid umask: {value}'",
-        "e2e: daemon started from a shell with 'umask 0002' and no [supervisor] umask; a program prints 'umask 0002'",
-        "e2e: one program with umask \"022\" and one with \"0022\" both print 'umask 0022'; a reload changing \"022\" to \"0022\" reports changed=[]",
+        "e2e: daemon started from a shell with 'umask 0002' and no [supervisor] umask; '/bin/sh -c umask' in a program prints '0002'",
+        "e2e: programs with umask \"022\" and \"0022\" both print '0022'; a reload changing \"022\" to \"0022\" prints 'added=[] changed=[] removed=[]' and both pids are unchanged",
         "e2e: change [supervisor] umask and kahi ctl reload; stderr contains 'supervisor.umask change takes effect after restart' and a newly started program still prints the old umask",
         "e2e: [supervisor] umask = \"000\"; os.Stat(socket).Mode().Perm() is 0700",
         "e2e: kahi migrate on '[supervisord] umask=022' prints 'umask = \"022\"' under [supervisor]"
@@ -1449,11 +1456,11 @@
       "testing_steps": [
         "e2e: stdout_events_enabled = true, events stream ?types=PROCESS_LOG_STDOUT; the program prints 'x' and an event with data 'x\\n' arrives within 5 s",
         "e2e: default (false), stream ?types=PROCESS_LOG_STDOUT,PROCESS_STATE_EXITED; the program prints 'x' and exits; the EXITED event arrives and no PROCESS_LOG_STDOUT arrives before it; kahi ctl tail p shows 'x'",
-        "e2e: events disabled; GET /api/v1/processes/p/log/stdout/stream still carries the output",
+        "e2e: events disabled, the program prints 'tick' every 200 ms; GET /api/v1/processes/p/log/stdout/stream yields a 'tick' line within 5 s",
         "e2e: strip_ansi = true, the program prints '\\x1b[1mbold\\x1b[0m'; the event data equals 'bold\\n', the same bytes as GET .../log/stdout",
         "e2e: stderr_events_enabled = true; a line on fd 2 arrives as PROCESS_LOG_STDERR",
         "e2e: redirect_stderr = true with stdout_events_enabled; a line on fd 2 arrives as PROCESS_LOG_STDOUT, and adding stderr_events_enabled logs 'programs.p.stderr_events_enabled has no effect with redirect_stderr'",
-        "e2e: open the events stream and never read it; the program writes 50 MB in 1 KB lines then prints 'done'; 'done' reaches the stdout log file within 30 s and stderr has at least one 'events stream queue full, dropped' line",
+        "e2e: stdout_events_enabled = true; open GET /api/v1/events/stream?types=PROCESS_LOG_STDOUT and never read it; the program writes 50 MB in 1 KB lines then prints 'done'; 'done' reaches the stdout log file within 30 s and within 15 s more the output has 'events stream queue full, dropped'",
         "e2e: kahi migrate on 'stdout_events_enabled=true' prints 'stdout_events_enabled = true' under [programs.p]"
       ],
       "passes": false,
@@ -1528,20 +1535,24 @@
       "testing_steps": [
         "e2e: [eventlisteners.l] script listener that copies each header line to stderr, events = [\"PROCESS_STATE_EXITED\"]; a program exits; within 5 s l's stderr log shows 'eventname:PROCESS_STATE_EXITED'",
         "e2e: the header line has ver:3.0 server:kahi serial: pool:l poolserial: eventname: len: and the listener reads exactly len payload bytes",
-        "e2e: the listener answers 'RESULT 2\\nOK'; the next event's serial arrives next",
+        "e2e: the listener answers 'RESULT 2\\nOK'; two events: listener stderr shows serial N then N+1, each exactly once",
         "e2e: the listener answers 'RESULT 4\\nFAIL' and logs serial:N per delivery; N appears 3 times, then stderr 'event N for l dropped after 3 failures', then serial N+1",
         "e2e: the listener exits while holding event N; daemon stderr 'event listener l exited unexpectedly', the new member (new pid) receives serial N",
-        "e2e: the listener sleeps 30 s before READY (startsecs = 0), buffer_size = 2; three programs exit; stderr contains 'event buffer overflow for l, dropped 1 oldest events'",
+        "e2e: the listener sleeps 30 s before READY (startsecs = 0), buffer_size = 2; three programs exit; within 15 s output contains 'event buffer overflow for l, dropped'",
         "e2e: the listener answers 'garbage\\n'; stderr 'invalid result from listener l: garbage' and N is redelivered",
         "e2e: result_timeout = 1 and a listener that never answers; stderr 'listener l timed out on event N', within 10 s the pid changes and the new member's stderr shows serial N",
-        "e2e: numprocs = 3, wait until all members are READY per status; emit 3 events; each member's stderr shows exactly one serial",
+        "e2e: numprocs = 3, wait until all members are READY per status; emit 3 events, each member logs one serial; a 4th event goes to the first member again",
         "e2e: events = [\"PROCESS_STATE_EXITED\", \"PROCESS_STATE_FATAL\"]; both types arrive",
         "e2e: redirect_stderr = true on a listener: daemon exits 1 and stderr contains 'eventlisteners.l.redirect_stderr: not allowed, stdout carries the protocol'; stdout_logfile set warns 'eventlisteners.l.stdout_logfile has no effect: stdout carries the protocol'",
         "e2e: events = [\"BOGUS\"]: daemon exits 1 and stderr contains 'eventlisteners.l.events: unknown event type BOGUS'; a name shared with [programs.l]: 'eventlisteners.l: name already used by programs.l'; buffer_size = 0: 'eventlisteners.l.buffer_size must be >= 1'",
         "e2e: kahi ctl status lists the pool's process; kahi ctl stop then start toggles STOPPED and RUNNING",
-        "e2e: a reload adds, changes and removes pools; a changed pool restarts its members and keeps buffered events; a removed pool's events are discarded",
+        "e2e: add [eventlisteners.m] and reload: output 'added=[m]' and m is RUNNING",
         "e2e: keys omitted; GET /api/v1/config shows buffer_size 10 and result_timeout 60",
-        "e2e: kahi migrate on '[eventlistener:x]' with 'events=PROCESS_STATE' prints [eventlisteners.x] with the PROCESS_STATE_* member types"
+        "e2e: kahi migrate on '[eventlistener:x]' with 'events=PROCESS_STATE' prints '[eventlisteners.x]' with 'events = [' listing PROCESS_STATE_STARTING, PROCESS_STATE_RUNNING, PROCESS_STATE_BACKOFF, PROCESS_STATE_STOPPING, PROCESS_STATE_EXITED, PROCESS_STATE_STOPPED, PROCESS_STATE_FATAL",
+        "e2e: change l while its member sleeps before READY with 2 buffered events and reload: the pid changes and the new member's stderr shows both serials",
+        "e2e: remove l with buffered events and reload: l is gone from status and no other member receives those serials (sentinel: a later event reaches m)",
+        "e2e: result_timeout = 0: daemon exits 1 and stderr contains 'eventlisteners.l.result_timeout must be >= 1'",
+        "e2e: POST /api/v1/processes/l_0/stdin and 'kahi ctl send' to the listener return 400 / exit 1 with 'stdin carries the event listener protocol'"
       ],
       "passes": false,
       "dependencies": [
@@ -1564,19 +1575,21 @@
         "e2e: test server on http://127.0.0.1, [webhooks.t] events = [\"PROCESS_STATE_FATAL\"]; drive p to FATAL; the server records one POST whose JSON has event, process = p, group, timestamp",
         "e2e: the server answers 500, 500, 200 and records arrival times; three POSTs with gap1 >= 0.9 s, gap2 >= 1.8 s and gap2 > gap1; stderr has two 'webhook delivery failed for t: ' lines ending ', retrying'",
         "e2e: always 500 with max_retries = 1: two POSTs and stderr 'webhook delivery failed permanently for t'",
-        "e2e: the server answers 404: exactly one POST",
+        "e2e: the server answers 404; after 'webhook delivery failed permanently for t' the server has exactly one POST",
         "e2e: 429 with 'Retry-After: 3' and max_retries = 1: the second POST arrives >= 2.7 s after the first",
         "e2e: 408 then 200: two POSTs",
         "e2e: max_retries = 0, always 500; 5 programs go FATAL; stderr has 'webhook circuit breaker open for t'; a 6th FATAL with a sentinel webhook u on the same event: u receives it and t's count stays 5",
         "Unit (shortened interval, extra check): the probe succeeds and 'webhook circuit breaker closed for t' is logged at INFO; a failed probe keeps it open",
-        "e2e: the server answers 302 to a second server; the second server receives nothing",
-        "e2e: the server accepts and never answers (timeout = 30); while a delivery is in flight, kahi ctl stop p and start p each exit 0 within 2 s",
+        "e2e: max_retries = 0, the server answers 302 to a second server; after 'webhook delivery failed permanently for t' the second server has 0 requests",
+        "e2e: the server accepts and never answers (timeout = 30); while a delivery is in flight, kahi ctl stop p and start p each exit 0 within 3 s",
         "e2e: url = http://127.0.0.1:1/MARKER123; after 'webhook delivery failed permanently for t', daemon stderr does not contain MARKER123",
-        "e2e: 101 events against a stalled server: stderr contains 'webhook queue full for t, dropped'",
+        "e2e: a stalled server and 150 PROCESS_STATE_STARTING events from a flapping program (startsecs = 0, autorestart); within 30 s output contains 'webhook queue full for t, dropped'",
         "e2e: timeout = 0: daemon exits 1 and stderr contains 'webhooks.t.timeout must be >= 1'; max_retries = -1: 'webhooks.t.max_retries must be >= 0'",
         "e2e: retries = 1 (alias): stderr contains 'webhooks.t.retries is deprecated; use max_retries' and two POSTs are made",
         "e2e: [webhooks.a] and [webhooks.b] on PROCESS_STATE_FATAL each record exactly one POST with process = p",
-        "e2e: add [webhooks.n] to the file and kahi ctl reload; the next FATAL is POSTed to n and the daemon pid is unchanged; removing n and reloading stops its POSTs"
+        "e2e: add [webhooks.n] and reload; the next FATAL is POSTed to n and the daemon pid is unchanged; remove n and reload, drive another FATAL: webhook a receives it and n's count is unchanged",
+        "e2e: events = [\"PROCESS_LOG_STDOUT\"]: daemon exits 1 and stderr contains 'webhooks.t.events: PROCESS_LOG events cannot be sent to webhooks'",
+        "e2e (shortened breaker interval): open t's breaker, change t's timeout and reload; the next FATAL is POSTed (breaker closed after a change)"
       ],
       "passes": false,
       "dependencies": [
@@ -1612,7 +1625,7 @@
         "e2e: headers = { Authorization = \"Bearer ${API_TOKEN}\" }; the server receives 'Bearer <token>'",
         "e2e: url = \"${NOPE}\" unset: daemon exits 1 and stderr contains 'webhooks.t.url: undefined environment variable: ${NOPE}'",
         "e2e: routing_key = \"${RK}\" with template pagerduty; the POST body routing_key equals RK's value",
-        "e2e: GET /api/v1/config shows url, header values and routing_key redacted and the token string is absent from the body"
+        "e2e: GET /api/v1/config shows url, headers.Authorization and routing_key with the redaction placeholder of FUNC-079/SEC-014 and the body contains neither the token nor RK's value"
       ],
       "passes": false,
       "dependencies": [
@@ -1628,10 +1641,10 @@
       "description": "Enforce TLS for webhook destinations by default, with allow_insecure override and localhost exemption (FUNC-059, #106, ADR-043).",
       "testing_steps": [
         "e2e: url = \"http://example.com/hook\": daemon exits 1 and stderr contains 'webhooks.t: URL must use HTTPS (set allow_insecure = true to override)'",
-        "e2e: allow_insecure = true with a plain-HTTP test server on a non-loopback address alias or hostname; stderr contains 'webhooks.t: allow_insecure set, sending over plain HTTP' and a POST arrives",
-        "e2e: http://localhost, http://127.0.0.1 and http://[::1] start without allow_insecure",
+        "e2e: the test server listens on 0.0.0.0 and the url uses the first non-loopback IPv4 from net.InterfaceAddrs (skip if none), allow_insecure = true; output contains 'webhooks.t: allow_insecure set, sending over plain HTTP' and the server records one POST within 5 s",
+        "e2e: for http://localhost, http://127.0.0.1 and http://[::1] the daemon reaches 'supervisor running' with no allow_insecure warning, and the 127.0.0.1 server receives a POST on FATAL ([::1] skips without IPv6 loopback)",
         "e2e: url = \"ftp://x\" or \"https://\": daemon exits 1 and stderr contains 'invalid webhook URL: t' and the URL text is not printed",
-        "e2e: httptest TLS server with a self-signed certificate; it receives no request and stderr has 'webhook delivery failed permanently for t' with a certificate error"
+        "e2e: httptest TLS server with a self-signed certificate; output has 'webhook delivery failed for t: ' containing 'certificate' and then 'webhook delivery failed permanently for t'; the server records 0 requests"
       ],
       "passes": false,
       "dependencies": ["webhook-notifications"]
@@ -1672,10 +1685,11 @@
         "e2e: RUNNING web: 'kahi_process_state{group=\"web\",name=\"web\"} 20'",
         "e2e: program sh -c 'exit 1', startsecs = 0, autorestart = true, startretries = 4, until FATAL: kahi_process_start_total{name=\"p\"} 5",
         "e2e: an unexpected exit increments kahi_process_exit_total{expected=\"false\",name=\"p\"} by 1; kahi ctl stop increments expected=\"true\" by 1",
-        "e2e: counters read before a reload that changes p equal or exceed the values after it (not reset)",
-        "e2e: remove p from the file and reload (or lower numprocs from 2 to 1): its kahi_process_* series (web_1) are absent from the next scrape",
+        "e2e: after a reload that changes p, start_total and exit_total are >= their values before the reload (start_total = before + 1, not reset)",
+        "e2e: remove p from the file and reload: no kahi_process_* series with name=\"p\" in the next scrape",
         "e2e: STOPPED gives kahi_process_uptime_seconds 0; two scrapes 2 s apart while RUNNING differ by at least 1",
-        "e2e: command = /nonexistent, startretries = 2: at FATAL start_total 3 and exit_total{expected=\"false\"} 3"
+        "e2e: command = /nonexistent, startretries = 2: at FATAL start_total 3 and exit_total{expected=\"false\"} 3",
+        "e2e: numprocs 2 to 1 and reload: no series with name=\"web_1\" and web_0 still present"
       ],
       "passes": false,
       "dependencies": [
@@ -1803,19 +1817,21 @@
       "title": "Working Directory Configuration",
       "description": "Daemon working directory via [supervisor] directory, applied at startup before any bind (FUNC-067, #113, ADR-047), and per-process directory checked at spawn as a spawn error (FUNC-067, #113, ADR-047).",
       "testing_steps": [
-        "e2e: [supervisor] directory = D, a program with command './hello.sh' located in D; the program starts and prints its output",
+        "e2e: [supervisor] directory = D, a program with command './hello.sh' in D echoing 'hello-from-D'; within 5 s kahi ctl tail shows 'hello-from-D'",
         "e2e (non-root): command '/bin/sh -c pwd', directory = T; kahi ctl tail shows the realpath of T",
         "e2e: [supervisor] directory = \"/nonexistent\": daemon exits 1 and stderr contains 'directory does not exist: /nonexistent' and the socket path does not exist",
         "e2e (non-root, skip as root): [supervisor] directory with a mode-0000 parent: exit 1 with 'cannot access directory: {path}: permission denied'",
         "e2e: a process directory = '/nonexistent', startretries = 2; stderr contains 'spawn error: directory does not exist: /nonexistent' and the state ends FATAL after 3 attempts",
         "e2e: startretries = 10; after the first 'spawn error: directory does not exist', the test creates the directory; the process reaches RUNNING within 30 s",
         "e2e (non-root, skip as root): process directory under a mode-0000 parent gives 'spawn error: cannot access directory: {path}: permission denied'",
-        "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): process directory owned by root mode 0700 with user = \"www-data\" gives 'spawn error: cannot access directory' (checked as the target user)",
+        "container: /srv/locked root-owned 0700 (files-map mode), a program with user = \"33\" and directory = \"/srv/locked\": logs contain 'spawn error: cannot access directory: /srv/locked: permission denied' (checked as the target user)",
         "e2e: without [supervisor] directory, a child's pwd equals the directory the daemon was started in",
         "e2e: directory = '%(here)s/%(program_name)s' and pwd prints '<configdir>/p'",
         "e2e: relative pidfile 'kahi.pid' with [supervisor] directory = D creates D/kahi.pid",
         "e2e: change [supervisor] directory and kahi ctl reload; stderr contains 'supervisor.directory change takes effect after restart'",
-        "e2e: kahi migrate on '[supervisord] directory=/srv' prints 'directory = \"/srv\"' under [supervisor]"
+        "e2e: kahi migrate on '[supervisord] directory=/srv' prints 'directory = \"/srv\"' under [supervisor]",
+        "e2e: relative -c kahi.toml plus [supervisor] directory = D; kahi ctl reload succeeds and re-reads the same file",
+        "e2e: [supervisor] nocleanup = true; output contains 'supervisor.nocleanup has no effect: kahi does not auto-name child logs'; kahi migrate on 'nocleanup=true' and 'childlogdir=/x' prints the note and no active key"
       ],
       "passes": false,
       "dependencies": [
@@ -1833,12 +1849,13 @@
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): runArgs --ulimit nofile=1024:8192, minfds = 4096; '/orphaner limits' in a program prints 'NOFILE 4096 8192'",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): runArgs --ulimit nproc=100:1024, minprocs = 512, program runs as uid 1001; '/orphaner limits' prints 'NPROC 512 1024'",
         "e2e (Linux, prlimit, skip elsewhere): under 'prlimit --nofile=1024:2048' with minfds = 4096: exit 1, stderr 'cannot set NOFILE to 4096: hard limit is 2048 (current soft=1024, hard=2048)'",
-        "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): runArgs --ulimit nproc=100:100, explicit minprocs = 512, daemon -u 1001: exit 1 with 'cannot set NPROC to 512: ...' and '(current soft=100, hard=100)'",
-        "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): runArgs --ulimit nproc=100:100, no minprocs: stderr has 'NPROC is 100, below the default minprocs 200; set supervisor.minprocs to silence this' and 'supervisor running'",
+        "container: runArgs --ulimit nproc=100:100 --cap-drop SYS_RESOURCE, explicit minprocs = 512: exit 1 with 'cannot set NPROC to 512: hard limit is 100 (current soft=100, hard=100)'",
+        "container: runArgs --ulimit nproc=100:100 --cap-drop SYS_RESOURCE, no minprocs: output has 'NPROC is 100, below the default minprocs 200; set supervisor.minprocs = 100 or lower to silence this' and 'supervisor running'",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): runArgs --ulimit nofile=512:4096, no minfds: '/orphaner limits' prints 'NOFILE 1024 4096'",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): runArgs --ulimit nofile=8192:8192, no minfds: '/orphaner limits' prints 'NOFILE 8192 8192' (untouched)",
         "e2e: change minfds and kahi ctl reload; stderr contains 'supervisor.minfds change takes effect after restart'",
-        "e2e: kahi migrate on 'minfds=4096' prints 'minfds = 4096' under [supervisor]; daemon stderr has no ignored-key warning for minfds"
+        "e2e: kahi migrate on 'minfds=4096' prints 'minfds = 4096' under [supervisor]; daemon stderr has no ignored-key warning for minfds",
+        "container as root with CAP_SYS_RESOURCE: runArgs --ulimit nofile=1024:2048, minfds = 4096; '/orphaner limits' prints 'NOFILE 4096 4096' and the daemon keeps running"
       ],
       "passes": false,
       "dependencies": [
@@ -1880,7 +1897,7 @@
       "id": "migrate-comment-preservation",
       "category": "functional",
       "title": "Migration Comment Preservation",
-      "description": "Carry comments from supervisord.conf into the generated kahi.toml where they still apply (moved out of config-migration-tool; decision D5, #158, v0.3.0). Not implemented: the migrator strips comments today, and TestMigrate_Values and TestMigrateCommentsPreserved assert that.",
+      "description": "Carry comments from supervisord.conf into the generated kahi.toml where they still apply (moved out of config-migration-tool; decision D5, #158, v0.3.0). Not implemented: the migrator strips comments today, and TestMigrate_Values and TestMigrateCommentsPreserved assert that (FUNC-069, FUNC-070, ADR-053).",
       "testing_steps": [
         "e2e TestMigrate_CommentsGolden: kahi migrate on e2e/testdata/commented.conf matches e2e/testdata/commented.toml byte for byte",
         "Golden case: full-line ';' comments above [program:web] and above startsecs appear as '#' comments above [programs.web] and above startsecs",
@@ -1891,7 +1908,7 @@
         "Golden case: comments travel with their item under sorted output and the [supervisord] -> [supervisor] rename",
         "Golden case: a comment followed by a blank line stays above the next item; an end-of-section comment follows that section's last key",
         "Golden case: '[program:web] ; note' gives '[programs.web] # note'; a comment on environment= goes above [programs.web.environment]",
-        "e2e: TestMigrate_Values is updated to expect the comments it now keeps"
+        "e2e: TestMigrate_Values expects the comments it now keeps; Unit (extra check): TestMigrateCommentsPreserved asserts kept comments"
       ],
       "passes": false,
       "dependencies": [
@@ -2011,10 +2028,10 @@
       "id": "process-stdin-writing",
       "category": "functional",
       "title": "Process stdin Writing via API and CLI",
-      "description": "Write data to a process's standard input via REST API or CLI, with error handling for non-running processes and processes without stdin (FUNC-077, #259).",
+      "description": "Write data to a process's standard input via REST API or CLI, with errors for non-running processes, a broken stdin pipe, an open attach session and event listener processes (FUNC-077, #259).",
       "testing_steps": [
         "e2e: POST /api/v1/processes/web/stdin {\"data\":\"quit\\n\"}; the program echoes and kahi ctl tail shows 'quit'",
-        "e2e: 'kahi ctl send web quit' writes 'quit\\n'",
+        "e2e: 'kahi ctl send web quit' exits 0 and within 5 s kahi ctl tail web shows 'quit'",
         "e2e: stdin to a STOPPED process returns 400 'process not running: web' and ctl send exits 1",
         "e2e: program sh -c 'exec 0<&-; echo closed; sleep 30'; after the stdout log shows 'closed', POST stdin returns 409 'stdin pipe broken for web'",
         "e2e: after that, daemon stderr has a line with 'stdin pipe broken for web' and 'broken pipe'"
@@ -2799,10 +2816,10 @@
       "description": "Event listener payloads must be length-prefixed so process output containing newlines cannot inject forged protocol lines into a listener's stdin, matching supervisord's framing. The READY/RESULT handshake is unchanged (SEC-020, ADR-023, ADR-042, #106).",
       "testing_steps": [
         "e2e: a program with stdout_events_enabled = true prints 'x\\nver:3.0 server:kahi serial:999 len:0\\n'; a listener on PROCESS_LOG_STDOUT reads the header, then exactly len bytes, and writes 'body=<hex>' to stderr; one header line appears for that event and the hex body contains the forged line",
-        "e2e: an event with an empty payload arrives with 'len:0' and the listener reads no body bytes",
+        "e2e: a program with stdout_events_enabled prints an empty line; the listener receives 'len:1' and body '0a'",
         "e2e: the READY / RESULT handshake is unchanged: a supervisord-style listener script answers 'RESULT 2\\nOK' and keeps receiving events",
-        "e2e: an ordinary single-line payload is read identically by a listener that reads len bytes",
-        "Unit (extra check): go test -run TestFormatEventPayload ./internal/events/... covers the framing; a failed stdin write to a member marks it failed, logs, and re-queues the event"
+        "e2e: the program prints 'hello'; the listener's 'body=<hex>' equals the hex of the payload whose data line is 'hello\\n'",
+        "Unit (extra check): TestFormatEventPayload covers the framing including an empty payload framed len:0; a failed stdin write to a member marks it failed, logs, and re-queues the event"
       ],
       "passes": false,
       "dependencies": ["event-listener-pools", "process-log-events"]
@@ -3093,18 +3110,20 @@
       "title": "CLI Available Programs and Group Update",
       "description": "kahi ctl avail and kahi ctl update/reread <group>... via GET /api/v1/config/avail and ?groups= on the reload API (FUNC-085, #161, ADR-051).",
       "testing_steps": [
-        "e2e: kahi ctl avail prints '{name} {in use|avail} {auto|manual} {priority}' lines sorted by name",
+        "e2e: kahi ctl avail prints 'web in use auto 999' before 'worker in use auto 999' (single spaces, no padding)",
         "e2e: a program added to the file after start shows 'avail'; one removed with kahi ctl remove shows 'avail'",
         "e2e: change web and worker; 'kahi ctl update web' prints 'updated: added=[] changed=[web] removed=[]' and only web's pid changes",
-        "e2e: after 'update web', kahi ctl reread still reports worker as changed",
+        "e2e: after 'update web', kahi ctl reread prints 'changed=[worker]'",
         "e2e: 'kahi ctl update nosuch' exits 1 with 'no such group: nosuch' and no pid changes",
-        "e2e: a group removed from the file: 'kahi ctl update old' stops and removes it",
+        "e2e: a group removed from the file: 'kahi ctl update old' prints 'updated: added=[] changed=[] removed=[old]' and status no longer lists old",
         "e2e: 'kahi ctl update all' prints 'updated: added=[x] changed=[web worker] removed=[]' and a following reread reports no changes",
-        "e2e: 'kahi ctl reread web' previews only web",
-        "e2e: [groups.g] programs = [\"web\"]; 'kahi ctl update web' exits 1 with 'no such group: web'",
+        "e2e: 'kahi ctl reread web' prints 'added=[] changed=[web] removed=[]' although worker also changed",
+        "e2e: [groups.g] programs = [\"web\"]; 'kahi ctl update web' exits 1 with 'web is in group g; use g'",
         "e2e: with a syntax error in the file, 'kahi ctl update web' exits 1 with 'config error:' and nothing changes",
         "e2e: avail lists an [eventlisteners.l] pool like a program and each API entry carries group",
-        "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): root-owned 0600 config, daemon -u kahi; 'podman exec --user 1000 {ctr} /kahi ctl -s /run/kahi.sock avail' lists the programs"
+        "container: root-owned 0600 config (files-map mode), daemon -u kahi; 'exec --user 1000 /kahi ctl -s /run/kahi/kahi.sock avail' output contains 'web in use auto 999'",
+        "e2e: [groups.g] programs = [\"a\",\"b\"]: avail prints lines for a and b and no line for g",
+        "e2e: change [webhooks.t] and web, run 'kahi ctl update web': t still POSTs with its old config; a plain 'kahi ctl update' then applies it"
       ],
       "passes": false,
       "dependencies": [
@@ -3112,7 +3131,8 @@
         "config-hot-reload",
         "group-lifecycle",
         "heterogeneous-groups",
-        "event-listener-pools"
+        "event-listener-pools",
+        "supervisor-user-config"
       ]
     },
     {
@@ -3129,13 +3149,14 @@
         "e2e: after 10 KB of output, change the size and reload; the pid changes and a GET before the program prints again returns 0 bytes (program waits for stdin before printing)",
         "e2e: redirect_stderr = true with stderr_capture_maxbytes: stderr contains 'programs.p.stderr_capture_maxbytes has no effect with redirect_stderr'",
         "e2e: 4KB buffer and 10 KB of output; GET /ui/process/p/log returns 200 and its log contains the final line and not the first line",
-        "e2e: kahi migrate on 'stdout_capture_maxbytes=1MB' prints '# UNSUPPORTED: stdout_capture_maxbytes' with the capture-mode note"
+        "e2e: kahi migrate on 'stdout_capture_maxbytes=1MB' prints '# UNSUPPORTED: stdout_capture_maxbytes = 1MB (supervisord capture mode for PROCESS_COMMUNICATION events, not a buffer size)'"
       ],
       "passes": false,
       "dependencies": [
         "process-output-ring-buffer",
         "api-input-bounds-validation",
-        "web-ui-log-viewer"
+        "web-ui-log-viewer",
+        "config-hot-reload"
       ]
     }
   ]
