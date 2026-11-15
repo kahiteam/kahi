@@ -197,10 +197,18 @@ func (p *MockProcess) StdinPipe() io.WriteCloser { return p.stdin }
 func (p *MockProcess) StdoutPipe() io.ReadCloser { return p.stdout }
 func (p *MockProcess) StderrPipe() io.ReadCloser { return p.stderr }
 
-type mockPipeWriter struct{ closed bool }
+type mockPipeWriter struct {
+	closed bool
+	err    error // returned by Write when set
+}
 
-func (w *mockPipeWriter) Write(p []byte) (int, error) { return len(p), nil }
-func (w *mockPipeWriter) Close() error                { w.closed = true; return nil }
+func (w *mockPipeWriter) Write(p []byte) (int, error) {
+	if w.err != nil {
+		return 0, w.err
+	}
+	return len(p), nil
+}
+func (w *mockPipeWriter) Close() error { w.closed = true; return nil }
 
 type mockPipeReader struct{ closed bool }
 

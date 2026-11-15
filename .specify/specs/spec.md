@@ -3504,7 +3504,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 | Attach session open          | Return error (409) | "process {name}: attached"                                  |
 | Process is an event listener | Return error (400) | "process {name}: stdin carries the event listener protocol" |
 
-API status codes: "process not running" is 400, "stdin pipe broken" is 409, and "process {name}: attached" (an attach session is open, FUNC-034) is 409; all are JSON errors (the listener case is 400, FUNC-055) like every other API error, and `kahi ctl send` prints the message and exits 1. The broken-pipe mapping is v0.3.0 (#259); until then the raw write error is returned as a 500.
+API status codes: "process not running" is 400, "stdin pipe broken" is 409, and "process {name}: attached" (an attach session is open, FUNC-034) is 409; all are JSON errors (the listener case is 400, FUNC-055) like every other API error, and `kahi ctl send` prints the message and exits 1.
 
 **Edge Cases:**
 

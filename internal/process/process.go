@@ -2,6 +2,7 @@
 package process
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -542,9 +543,27 @@ func (p *Process) WriteStdin(data []byte) error {
 		return fmt.Errorf("process %s: does not accept stdin", p.name)
 	}
 
-	_, err := pipe.Write(data)
-	return err
+	if _, err := pipe.Write(data); err != nil {
+		if errors.Is(err, syscall.EPIPE) || errors.Is(err, os.ErrClosed) || errors.Is(err, io.ErrClosedPipe) {
+			p.logger.Warn("stdin pipe broken for "+p.name, "error", err)
+			return &StdinBrokenError{Name: p.name, Err: err}
+		}
+		return err
+	}
+	return nil
 }
+
+// StdinBrokenError reports a write to a running process whose stdin is
+// closed (#259). Its text is the user-facing message; the cause (EPIPE or a
+// closed-file error) stays wrapped for errors.Is and the daemon log.
+type StdinBrokenError struct {
+	Name string
+	Err  error
+}
+
+func (e *StdinBrokenError) Error() string { return "stdin pipe broken for " + e.Name }
+
+func (e *StdinBrokenError) Unwrap() error { return e.Err }
 
 // HandleExit processes the exit of a child process with the given exit code.
 func (p *Process) HandleExit(exitCode int) {

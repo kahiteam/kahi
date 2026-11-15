@@ -109,6 +109,14 @@ type processInfo struct {
 // The socketPath is injected into the config automatically.
 func startDaemon(t *testing.T, configTOML string) (*ctl.Client, string) {
 	t.Helper()
+	client, socketPath, _ := startDaemonOut(t, configTOML)
+	return client, socketPath
+}
+
+// startDaemonOut is startDaemon that also returns the file holding the
+// daemon's stdout and stderr, for tests that assert on its log lines.
+func startDaemonOut(t *testing.T, configTOML string) (*ctl.Client, string, *os.File) {
+	t.Helper()
 
 	// Use a short temp dir to stay under macOS 104-char Unix socket path limit.
 	dir, err := os.MkdirTemp("", "k-")
@@ -165,7 +173,7 @@ func startDaemon(t *testing.T, configTOML string) (*ctl.Client, string) {
 	// Stage 2: Wait for health endpoint (3s, 50ms interval).
 	waitForHealth(t, client, 3*time.Second)
 
-	return client, socketPath
+	return client, socketPath, out
 }
 
 // daemonOutput returns a file for a daemon's stdout and stderr and logs its
