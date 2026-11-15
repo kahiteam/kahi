@@ -399,7 +399,7 @@ startretries = 0
 	for name, want := range map[string]string{
 		"nobinary": "spawn error: " + missing + ": no such file or directory",
 		"noexec":   "spawn error: " + notExec + ": permission denied",
-		"nodir":    "spawn error: directory " + missing + " does not exist",
+		"nodir":    "spawn error: directory does not exist: " + missing,
 	} {
 		waitForState(t, client, name, "FATAL", 10*time.Second)
 		info, err := getProcessInfo(client, name)

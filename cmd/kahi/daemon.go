@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -76,6 +78,11 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 	if err != nil {
 		return err
 	}
+	// Absolute before [supervisor] directory changes the working directory,
+	// so a reload re-reads the same file (FUNC-045 startup order).
+	if cfgPath, err = filepath.Abs(cfgPath); err != nil {
+		return err
+	}
 
 	// Load config with includes and variable expansion.
 	// Warnings come first, also for a refused config: the all-interfaces
@@ -85,6 +92,36 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 	}
 	if err != nil {
+		return err
+	}
+
+	// -d: the foreground process checks the PID file, then starts the
+	// daemon in the background and returns once it runs, with its error if
+	// it fails (FUNC-064). Only the child applies directory, umask, log,
+	// rlimits, PID file and bind (FUNC-045 startup order).
+	if daemonizeFlag && report == nil {
+		// A relative PID file is resolved after [supervisor] directory, as
+		// the child will.
+		pidPath := pidfileFlag
+		if pidPath != "" && !filepath.IsAbs(pidPath) && cfg.Supervisor.Directory != "" {
+			pidPath = filepath.Join(cfg.Supervisor.Directory, pidPath)
+		}
+		stderrLog := slog.New(slog.NewTextHandler(os.Stderr, nil))
+		if err := supervisor.CheckPIDFile(pidPath, stderrLog); err != nil {
+			return err
+		}
+		if cfg.Supervisor.Logfile == "" {
+			fmt.Fprintln(os.Stderr, "warning: with -d and no [supervisor] logfile the daemon log goes to /dev/null")
+		}
+		return daemonize(cmd.OutOrStdout())
+	}
+
+	// Startup order (FUNC-045, 047, 067, 068): directory and umask before
+	// the daemon creates any file; their errors go to stderr.
+	if err := supervisor.ChangeDirectory(cfg.Supervisor.Directory); err != nil {
+		return err
+	}
+	if err := supervisor.SetUmask(cfg.Supervisor.Umask); err != nil {
 		return err
 	}
 
@@ -100,6 +137,12 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 	defer func() { _ = daemonLog.Close() }()
 	logger := daemonLog.Logger
 
+	// Raise rlimits once, before any process starts, so children inherit
+	// them (FUNC-068, ADR-047).
+	if err := supervisor.RaiseLimits(cfg.Supervisor, logger); err != nil {
+		return err
+	}
+
 	// Validate socket directory is writable.
 	socketPath := cfg.Server.Unix.File
 	if socketPath != "" {
@@ -112,15 +155,6 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 	// is touched; a stale file is replaced (FUNC-064).
 	if err := supervisor.CheckPIDFile(pidfileFlag, logger); err != nil {
 		return err
-	}
-
-	// -d: the foreground process starts the daemon in the background and
-	// returns once it runs, with its error if it fails (FUNC-064).
-	if daemonizeFlag && report == nil {
-		if cfg.Supervisor.Logfile == "" {
-			fmt.Fprintln(os.Stderr, "warning: with -d and no [supervisor] logfile the daemon log goes to /dev/null")
-		}
-		return daemonize(cmd.OutOrStdout())
 	}
 
 	// Warn if running as root without privilege drop configured. Only the

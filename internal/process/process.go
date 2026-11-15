@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/user"
@@ -17,6 +18,7 @@ import (
 	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/events"
 	"github.com/kahiteam/kahi/internal/logging"
+	"golang.org/x/sys/unix"
 )
 
 // Process represents a managed child process.
@@ -247,10 +249,20 @@ var geteuid = os.Geteuid
 // Called by startLocked (after RequestStart) and retryAfterBackoff (after RetryFromBackoff).
 func (p *Process) spawnLocked() error {
 	// exec reports a missing working directory as an error about the
-	// command, so check it first and name it (FUNC-002).
+	// command, so check it first and name it (FUNC-002, FUNC-067). Both are
+	// spawn errors: BACKOFF, then FATAL after startretries, so a directory
+	// that appears later (a mount) is picked up by a retry.
 	if dir := p.config.Directory; dir != "" {
-		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-			return p.failSpawnLocked(fmt.Errorf("directory %s does not exist", dir))
+		fi, err := os.Stat(dir)
+		switch {
+		case errors.Is(err, fs.ErrNotExist) || (err == nil && !fi.IsDir()):
+			return p.failSpawnLocked(fmt.Errorf("directory does not exist: %s", dir))
+		case err != nil:
+			var pe *fs.PathError
+			if errors.As(err, &pe) {
+				err = pe.Err
+			}
+			return p.failSpawnLocked(fmt.Errorf("cannot access directory: %s: %v", dir, err))
 		}
 	}
 	if p.preSpawn != nil {
@@ -302,6 +314,12 @@ func (p *Process) spawnLocked() error {
 
 	spawned, err := p.spawner.Spawn(spawnCfg)
 	if err != nil {
+		// The child changes to the directory as the target user and exec
+		// reports a refusal as an error about the command. When the command
+		// itself is executable, the directory is what was refused.
+		if dir := spawnCfg.Dir; dir != "" && errors.Is(err, syscall.EACCES) && unix.Access(cmd, unix.X_OK) == nil {
+			return p.failSpawnLocked(fmt.Errorf("cannot access directory: %s: permission denied", dir))
+		}
 		return p.failSpawnLocked(err)
 	}
 

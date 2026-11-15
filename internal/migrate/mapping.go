@@ -14,6 +14,7 @@ type OptionMapping struct {
 	Type        string // "string", "int", "bool", "stringlist", "intlist", "bytes"
 	Unsupported bool   // true if not supported in Kahi
 	Renamed     string // original supervisord name if renamed
+	Note        string // reason appended to an UNSUPPORTED comment
 }
 
 // programMappings maps supervisord [program:x] options to Kahi equivalents.
@@ -63,13 +64,15 @@ var supervisordMappings = map[string]OptionMapping{
 	"pidfile":          {Unsupported: true},
 	"nodaemon":         {Unsupported: true},
 	"silent":           {Unsupported: true},
-	// Ignored by the daemon until #113 implements them.
-	"minfds":      {Unsupported: true},
-	"minprocs":    {Unsupported: true},
-	"nocleanup":   {Unsupported: true},
-	"childlogdir": {Unsupported: true},
+	// Applied at daemon startup since v0.3.0 (#113, #160).
+	"minfds":    {Type: "int"},
+	"minprocs":  {Type: "int"},
+	"directory": {Type: "string"},
+	"umask":     {Type: "string"},
+	// FUNC-023 is withdrawn: kahi never names child logs itself.
+	"nocleanup":   {Unsupported: true, Note: "has no effect: kahi does not auto-name child logs"},
+	"childlogdir": {Unsupported: true, Note: "has no effect: kahi does not auto-name child logs"},
 	"user":        {Unsupported: true},
-	"directory":   {Unsupported: true},
 	"strip_ansi":  {Unsupported: true},
 	"environment": {Unsupported: true},
 	"identifier":  {Unsupported: true},
@@ -116,10 +119,14 @@ func mapOption(key, value string, mappings map[string]OptionMapping) MappedOptio
 	}
 
 	if mapping.Unsupported {
+		comment := fmt.Sprintf("UNSUPPORTED: %s = %s", key, value)
+		if mapping.Note != "" {
+			comment += " (" + mapping.Note + ")"
+		}
 		return MappedOption{
 			Key:         key,
 			Value:       value,
-			Comment:     fmt.Sprintf("UNSUPPORTED: %s = %s", key, value),
+			Comment:     comment,
 			Unsupported: true,
 		}
 	}

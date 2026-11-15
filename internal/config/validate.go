@@ -56,6 +56,10 @@ func Validate(cfg *Config) []error {
 			errs = append(errs, fmt.Errorf("%s: killasgroup cannot be false when stopasgroup is true", prefix))
 		}
 
+		if p.Umask != "" && !ValidUmask(p.Umask) {
+			errs = append(errs, fmt.Errorf("%s.umask: invalid umask: %s", prefix, p.Umask))
+		}
+
 		if p.Numprocs < 1 {
 			errs = append(errs, fmt.Errorf("%s: numprocs must be >= 1, got %d", prefix, p.Numprocs))
 		}
@@ -96,6 +100,9 @@ func Validate(cfg *Config) []error {
 	// shutdown begins (#138).
 	if cfg.Supervisor.ShutdownTimeout < 1 {
 		errs = append(errs, fmt.Errorf("supervisor.shutdown_timeout must be >= 1, got %d", cfg.Supervisor.ShutdownTimeout))
+	}
+	if u := cfg.Supervisor.Umask; u != "" && !ValidUmask(u) {
+		errs = append(errs, fmt.Errorf("supervisor.umask: invalid umask: %s", u))
 	}
 	if cfg.Supervisor.Minfds < 0 {
 		errs = append(errs, fmt.Errorf("supervisor.minfds must be >= 0, got %d", cfg.Supervisor.Minfds))
@@ -258,4 +265,14 @@ func listenWarnings(cfg *Config) []string {
 		return nil
 	}
 	return []string{fmt.Sprintf("server.http.listen %s binds all interfaces; the API is reachable from the network", cfg.Server.HTTP.Listen)}
+}
+
+// ValidUmask reports whether s is a umask: 1 to 4 octal digits with a value
+// up to 0777 ("022" and "0022" are equal) (FUNC-047).
+func ValidUmask(s string) bool {
+	if len(s) < 1 || len(s) > 4 {
+		return false
+	}
+	v, err := strconv.ParseUint(s, 8, 32)
+	return err == nil && v <= 0o777
 }
