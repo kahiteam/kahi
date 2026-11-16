@@ -34,75 +34,9 @@ func Validate(cfg *Config) []error {
 	var errs []error
 
 	for name, p := range cfg.Programs {
-		prefix := fmt.Sprintf("programs.%s", name)
-
-		if strings.TrimSpace(p.Command) == "" {
-			errs = append(errs, fmt.Errorf("%s: command is required", prefix))
-		}
-
-		if p.Priority < 0 || p.Priority > 999 {
-			errs = append(errs, fmt.Errorf("%s: priority must be between 0 and 999, got %d", prefix, p.Priority))
-		}
-
-		if !validAutorestartValues[string(p.Autorestart)] {
-			errs = append(errs, fmt.Errorf("%s: autorestart must be true, false, or unexpected, got %q", prefix, p.Autorestart))
-		}
-
-		if !IsStopSignal(p.Stopsignal) {
-			errs = append(errs, fmt.Errorf("%s: invalid stopsignal %q", prefix, p.Stopsignal))
-		}
-
-		if p.Stopasgroup && !p.Killasgroup {
-			errs = append(errs, fmt.Errorf("%s: killasgroup cannot be false when stopasgroup is true", prefix))
-		}
-
-		if p.Umask != "" && !ValidUmask(p.Umask) {
-			errs = append(errs, fmt.Errorf("%s.umask: invalid umask: %s", prefix, p.Umask))
-		}
-
-		if p.Numprocs < 1 {
-			errs = append(errs, fmt.Errorf("%s: numprocs must be >= 1, got %d", prefix, p.Numprocs))
-		}
-
-		// A stop timeout of 0 or less sends SIGKILL right after the stop
-		// signal, with no grace period (#138).
-		if p.Stopwaitsecs < 1 {
-			errs = append(errs, fmt.Errorf("%s: stopwaitsecs must be >= 1, got %d; use stopsignal = \"KILL\" for an immediate kill", prefix, p.Stopwaitsecs))
-		}
-		for _, f := range []struct {
-			key string
-			v   int
-		}{
-			{"startsecs", p.Startsecs},
-			{"startretries", p.Startretries},
-			{"stdout_logfile_backups", p.StdoutLogfileBackups},
-			{"stderr_logfile_backups", p.StderrLogfileBackups},
-		} {
-			if f.v < 0 {
-				errs = append(errs, fmt.Errorf("%s: %s must be >= 0, got %d", prefix, f.key, f.v))
-			}
-		}
-
-		for _, f := range []struct{ key, v string }{
-			{"stdout_logfile_maxbytes", p.StdoutLogfileMaxbytes},
-			{"stderr_logfile_maxbytes", p.StderrLogfileMaxbytes},
-		} {
-			// An unparseable size used to mean no limit (#187).
-			if err := logging.CheckSize(f.v); err != nil {
-				errs = append(errs, fmt.Errorf("%s: %s %v", prefix, f.key, err))
-			}
-		}
-		for _, f := range []struct{ key, v string }{
-			{"stdout_capture_maxbytes", p.StdoutCaptureMaxbytes},
-			{"stderr_capture_maxbytes", p.StderrCaptureMaxbytes},
-		} {
-			if _, err := logging.ParseBufferSize(f.v); err != nil {
-				errs = append(errs, fmt.Errorf("%s.%s: %v", prefix, f.key, err))
-			}
-		}
-
-		errs = append(errs, validateRLimits(prefix, p.Environment)...)
+		errs = append(errs, checkProgram("programs."+name, p)...)
 	}
+	errs = append(errs, validateEventListeners(cfg)...)
 
 	// shutdown_timeout 0 or less would SIGKILL every process the moment
 	// shutdown begins (#138).
@@ -284,4 +218,78 @@ func ValidUmask(s string) bool {
 	}
 	v, err := strconv.ParseUint(s, 8, 32)
 	return err == nil && v <= 0o777
+}
+
+// checkProgram checks one program's settings; prefix names it in errors
+// ("programs.x", or "eventlisteners.x" for a pool, which is a program too).
+func checkProgram(prefix string, p ProgramConfig) []error {
+	var errs []error
+
+	if strings.TrimSpace(p.Command) == "" {
+		errs = append(errs, fmt.Errorf("%s: command is required", prefix))
+	}
+
+	if p.Priority < 0 || p.Priority > 999 {
+		errs = append(errs, fmt.Errorf("%s: priority must be between 0 and 999, got %d", prefix, p.Priority))
+	}
+
+	if !validAutorestartValues[string(p.Autorestart)] {
+		errs = append(errs, fmt.Errorf("%s: autorestart must be true, false, or unexpected, got %q", prefix, p.Autorestart))
+	}
+
+	if !IsStopSignal(p.Stopsignal) {
+		errs = append(errs, fmt.Errorf("%s: invalid stopsignal %q", prefix, p.Stopsignal))
+	}
+
+	if p.Stopasgroup && !p.Killasgroup {
+		errs = append(errs, fmt.Errorf("%s: killasgroup cannot be false when stopasgroup is true", prefix))
+	}
+
+	if p.Umask != "" && !ValidUmask(p.Umask) {
+		errs = append(errs, fmt.Errorf("%s.umask: invalid umask: %s", prefix, p.Umask))
+	}
+
+	if p.Numprocs < 1 {
+		errs = append(errs, fmt.Errorf("%s: numprocs must be >= 1, got %d", prefix, p.Numprocs))
+	}
+
+	// A stop timeout of 0 or less sends SIGKILL right after the stop
+	// signal, with no grace period (#138).
+	if p.Stopwaitsecs < 1 {
+		errs = append(errs, fmt.Errorf("%s: stopwaitsecs must be >= 1, got %d; use stopsignal = \"KILL\" for an immediate kill", prefix, p.Stopwaitsecs))
+	}
+	for _, f := range []struct {
+		key string
+		v   int
+	}{
+		{"startsecs", p.Startsecs},
+		{"startretries", p.Startretries},
+		{"stdout_logfile_backups", p.StdoutLogfileBackups},
+		{"stderr_logfile_backups", p.StderrLogfileBackups},
+	} {
+		if f.v < 0 {
+			errs = append(errs, fmt.Errorf("%s: %s must be >= 0, got %d", prefix, f.key, f.v))
+		}
+	}
+
+	for _, f := range []struct{ key, v string }{
+		{"stdout_logfile_maxbytes", p.StdoutLogfileMaxbytes},
+		{"stderr_logfile_maxbytes", p.StderrLogfileMaxbytes},
+	} {
+		// An unparseable size used to mean no limit (#187).
+		if err := logging.CheckSize(f.v); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %s %v", prefix, f.key, err))
+		}
+	}
+	for _, f := range []struct{ key, v string }{
+		{"stdout_capture_maxbytes", p.StdoutCaptureMaxbytes},
+		{"stderr_capture_maxbytes", p.StderrCaptureMaxbytes},
+	} {
+		if _, err := logging.ParseBufferSize(f.v); err != nil {
+			errs = append(errs, fmt.Errorf("%s.%s: %v", prefix, f.key, err))
+		}
+	}
+
+	errs = append(errs, validateRLimits(prefix, p.Environment)...)
+	return errs
 }
