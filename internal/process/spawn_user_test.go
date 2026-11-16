@@ -161,3 +161,35 @@ func TestBuildEnvForNamedUser(t *testing.T) {
 		t.Error("the supervisor's environment was inherited")
 	}
 }
+
+// One spawn resolves the user once: the environment and the credential come
+// from the same answer. A lookup that fails and then succeeds (a user being
+// added) must not start a child as that user with the daemon's environment
+// (SEC-016).
+func TestSpawnResolvesUserOnce(t *testing.T) {
+	asRoot(t, 0)
+	orig := resolveUser
+	t.Cleanup(func() { resolveUser = orig })
+	calls := 0
+	resolveUser = func(spec string) (userspec.Credential, error) {
+		calls++
+		if calls == 1 {
+			return userspec.Credential{}, fmt.Errorf("user not found: %s", spec)
+		}
+		return userspec.Credential{Uid: 1002, Gid: 1002, Groups: []uint32{1002}, HasEntry: true}, nil
+	}
+	cfg := defaultProgramConfig()
+	cfg.Startretries = 0
+	cfg.User = "late"
+	spawner := &MockSpawner{}
+	p := NewProcess("test", "test", cfg, spawner, testBus(), testLogger())
+	if err := p.Start(); err == nil {
+		t.Fatal("Start succeeded although the user did not resolve")
+	}
+	if len(spawner.SpawnCalls) != 0 {
+		t.Fatalf("spawned %d times", len(spawner.SpawnCalls))
+	}
+	if calls != 1 {
+		t.Errorf("resolved %d times in one spawn, want 1", calls)
+	}
+}

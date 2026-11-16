@@ -72,13 +72,18 @@ func TestRootContainer_ProcessUserNames(t *testing.T) {
 		return fmt.Sprintf("[programs.%s]\ncommand = \"/orphaner id\"\nuser = %q\nstartsecs = 0\nautorestart = \"false\"\n%s\n", name, user, extra)
 	}
 	c := startRootContainer(t, usersImage("[supervisor]\nshutdown_timeout = 5\n\n[server.unix]\nfile = \"/run/kahi.sock\"\n\n"+
+		"[programs.rootid]\ncommand = \"/orphaner id\"\nstartsecs = 0\nautorestart = \"false\"\n\n"+
 		prog("www", "www-data", "")+
 		prog("kahiid", "kahi", "")+
 		prog("kahiadm", "kahi:adm", "")+
 		prog("numeric", "4242", "")+
 		prog("nosuch", "nosuch", "startretries = 1")+
-		prog("badgroup", "www-data:nosuch", "startretries = 0")), nil, nil)
+		prog("badgroup", "www-data:nosuch", "startretries = 0")), []string{"--group-add", "999"}, nil)
 	c.waitLogs(`"msg":"supervisor running"`)
+	// Control: the root daemon has 999, so its absence below is the switch.
+	if got := c.waitOutput("rootid", "uid="); !strings.Contains(got, "999") {
+		t.Errorf("rootid: %q, want group 999 from --group-add", got)
+	}
 	for name, want := range map[string]string{
 		"www":     "uid=33 euid=33 gid=33 egid=33 groups=[33]",
 		"kahiid":  "uid=1000 euid=1000 gid=1000 egid=1000 groups=[4 1000]",
@@ -126,7 +131,13 @@ startsecs = 0
 startretries = 10
 autorestart = "false"
 `), nil, nil)
-	c.waitLogs("user not found: late")
+	// Wait for a failed spawn, not the load warning that names the same
+	// user: the replacement passwd must arrive after the first attempt.
+	for deadline := time.Now().Add(20 * time.Second); linesWith(c.logs(), `"msg":"spawn failed"`, "user not found: late") == 0; time.Sleep(200 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no failed spawn for late; logs:\n%s", c.logs())
+		}
+	}
 	passwd := filepath.Join(t.TempDir(), "passwd")
 	if err := os.WriteFile(passwd, []byte(testPasswd+"late:x:1002:1002::/home/late:/sbin/nologin\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -208,8 +219,8 @@ func TestRootContainer_DropUnknownUser(t *testing.T) {
 		if !strings.Contains(logs, want) {
 			t.Errorf("-u %s: logs lack %q:\n%s", flag, want, logs)
 		}
-		if err := exec.Command(c.rt, "cp", c.name+":/run/kahi.sock", t.TempDir()).Run(); err == nil {
-			t.Errorf("-u %s: the socket was bound before the refusal", flag)
+		if strings.Contains(logs, `"msg":"unix socket server started"`) {
+			t.Errorf("-u %s: the socket was bound before the refusal; logs:\n%s", flag, logs)
 		}
 	}
 }

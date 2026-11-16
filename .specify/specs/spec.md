@@ -2262,7 +2262,7 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 - Changing `[supervisor] user` on reload logs "supervisor.user change takes effect after restart"
 - `kahi migrate` maps supervisord `[supervisord] user` to `[supervisor] user`
 
-**Until the second half of #159 (step 5b):** `kahi daemon -u` takes names, groups and the user's supplementary groups as above, but `[supervisor] user` is not read yet (it is reported as an unknown config key), and the socket, PID file and daemon log are not handed over to the target user.
+**Until the second half of #159 (plan step 5b):** `kahi daemon -u` takes names, groups and the user's supplementary groups as above, but `[supervisor] user` is not read yet (it is reported as an unknown config key), and the socket, PID file and daemon log are not handed over to the target user.
 
 **Dependencies:** FUNC-044, FUNC-047, FUNC-067, FUNC-068, FUNC-046 (name resolver, for the `[supervisor] user` part)
 
