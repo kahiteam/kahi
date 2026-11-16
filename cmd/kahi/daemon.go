@@ -15,6 +15,7 @@ import (
 	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/logging"
 	"github.com/kahiteam/kahi/internal/supervisor"
+	"github.com/kahiteam/kahi/internal/userspec"
 	"github.com/kahiteam/kahi/internal/web"
 	"github.com/spf13/cobra"
 )
@@ -39,7 +40,7 @@ func init() {
 	daemonCmd.Flags().StringVarP(&configFlag, "config", "c", "", "config file path (default: search paths)")
 	daemonCmd.Flags().StringVarP(&pidfileFlag, "pidfile", "p", "", "PID file path")
 	daemonCmd.Flags().BoolVarP(&daemonizeFlag, "daemonize", "d", false, "run in the background; returns once the daemon runs")
-	daemonCmd.Flags().StringVarP(&userFlag, "user", "u", "", "drop privileges to user (uid or uid:gid)")
+	daemonCmd.Flags().StringVarP(&userFlag, "user", "u", "", "drop privileges to user (name or uid, optionally :group)")
 	rootCmd.AddCommand(daemonCmd)
 }
 
@@ -62,10 +63,11 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 		}()
 	}
 
-	// -u is checked before anything is bound: it needs root and a numeric
-	// uid[:gid] (#159 adds names).
+	// -u is resolved and checked before anything is bound: the user must
+	// exist and the daemon must run as root (FUNC-045, ADR-046).
+	var dropCred userspec.Credential
 	if userFlag != "" {
-		if err := supervisor.CheckPrivilegeDrop(userFlag); err != nil {
+		if dropCred, err = supervisor.CheckPrivilegeDrop(userFlag); err != nil {
 			return err
 		}
 	}
@@ -221,7 +223,7 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 
 	// Optional privilege drop (after binding sockets).
 	if userFlag != "" {
-		if err := supervisor.DropPrivileges(userFlag, logger); err != nil {
+		if err := supervisor.DropPrivileges(dropCred, logger); err != nil {
 			return err
 		}
 	}

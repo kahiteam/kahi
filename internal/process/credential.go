@@ -1,36 +1,38 @@
 package process
 
 import (
-	"fmt"
-	"strconv"
-	"strings"
 	"syscall"
+
+	"github.com/kahiteam/kahi/internal/userspec"
 )
 
-// ParseCredential parses a "uid:gid" or "uid" string into SysProcAttr Credential.
+// resolveUser resolves a per-process user setting (ADR-046). Tests replace
+// it so they never read the host's user database.
+var resolveUser = userspec.Resolve
+
+// ParseCredential resolves a user setting ("name", "uid", with an optional
+// ":group") to the credential a child runs with: uid, primary gid and the
+// user's supplementary groups (FUNC-046, SEC-010). An empty setting returns
+// nil.
 func ParseCredential(user string) (*syscall.Credential, error) {
 	if user == "" {
 		return nil, nil
 	}
-
-	parts := strings.SplitN(user, ":", 2)
-	uid, err := strconv.ParseUint(parts[0], 10, 32)
+	c, err := resolveUser(user)
 	if err != nil {
-		return nil, fmt.Errorf("invalid uid in user %q: %w", user, err)
+		return nil, err
 	}
+	return toSyscall(c), nil
+}
 
-	gid := uid // default gid = uid
-	if len(parts) > 1 {
-		gid, err = strconv.ParseUint(parts[1], 10, 32)
-		if err != nil {
-			return nil, fmt.Errorf("invalid gid in user %q: %w", user, err)
-		}
+// toSyscall converts a resolved credential. Groups is always set, so the
+// child never keeps the supervisor's supplementary groups.
+func toSyscall(c userspec.Credential) *syscall.Credential {
+	groups := c.Groups
+	if groups == nil {
+		groups = []uint32{c.Gid}
 	}
-
-	return &syscall.Credential{
-		Uid: uint32(uid),
-		Gid: uint32(gid),
-	}, nil
+	return &syscall.Credential{Uid: c.Uid, Gid: c.Gid, Groups: groups}
 }
 
 // BuildSysProcAttr creates SysProcAttr with process group isolation

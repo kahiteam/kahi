@@ -175,7 +175,7 @@ kahi daemon [flags]
 | `-c, --config`    | Config file path (default: search order below)                                                                                  |
 | `-p, --pidfile`   | PID file path; a start is refused while the PID in the file is alive, a stale file is replaced                                  |
 | `-d, --daemonize` | Run in the background; returns once the daemon runs, or with its startup error. Set `[supervisor] logfile`: stdout is /dev/null |
-| `-u, --user`      | Drop privileges to user (`uid` or `uid:gid`)                                                                                    |
+| `-u, --user`      | Drop privileges to user (name or `uid`, optionally `:group`)                                                                    |
 
 ### ctl
 
@@ -313,7 +313,7 @@ kahi init --stdout            # print to stdout
 # stopwaitsecs = 10            # seconds to wait before SIGKILL; a slow stop holds up the next priority level
 # stopasgroup = false          # send stop signal to process group
 # killasgroup = false          # send SIGKILL to process group
-# user = ""                    # numeric uid or uid:gid; needs a root daemon
+# user = ""                    # name or uid, optionally :group; needs a root daemon
 # directory = ""               # working directory
 # umask = ""                   # file creation mask
 # clean_environment = false    # pass only supervisor + explicit env vars (no inheritance)
@@ -451,9 +451,13 @@ Kahi is secure by default:
 - **Config secrets.** `GET /api/v1/config` returns a redacted view: passwords,
   process environment values, and webhook auth headers are masked.
 - **Privilege separation.** The daemon can drop privileges (`-u`), and per-process
-  `umask` and resource limits are applied at spawn. Per-process `user` (numeric
-  `uid` or `uid:gid`) is applied only when the daemon runs as root; otherwise it
-  is ignored with a warning in the daemon log. A process that runs as a
+  `umask` and resource limits are applied at spawn. Users are names or numeric
+  ids, optionally with `:group`, and get their supplementary groups from
+  `/etc/group` (Linux release binaries read `/etc/passwd` and `/etc/group` only:
+  no NSS or LDAP). The daemon's own inherited groups are never kept. Per-process
+  `user` is applied only when the daemon runs as root; otherwise it is ignored
+  with a warning in the daemon log. A user that does not exist is a spawn error:
+  the program backs off and goes FATAL, it never runs as root. A process that runs as a
   different user starts from a minimal environment by default, so supervisor
   secrets are not inherited downward (opt in with `inherit_environment`).
 - **No shell.** Commands are `exec`'d directly, never via `sh -c`.

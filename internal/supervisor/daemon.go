@@ -3,6 +3,7 @@ package supervisor
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/kahiteam/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/userspec"
 )
 
 // Syscall seams for the privilege drop, overridable in tests so the call
@@ -124,77 +126,77 @@ func CheckPIDFile(path string, logger *slog.Logger) error {
 	return nil
 }
 
-// CheckPrivilegeDrop reports, before anything is bound, whether kahi daemon
-// -u user can be applied: user must be a numeric uid[:gid] (names are #159)
+// resolveDropUser resolves the user to drop to (ADR-046). Tests replace it
+// so they never read the host's user database.
+var resolveDropUser = userspec.Resolve
+
+// CheckPrivilegeDrop resolves the kahi daemon -u user and reports, before
+// anything is bound, whether the drop can be applied: the user must resolve
 // and the daemon must run as root. Failing here, not after the socket is
 // bound, gives a clear error and leaves nothing behind.
-func CheckPrivilegeDrop(user string) error {
-	if _, _, err := resolveUser(user); err != nil {
-		return fmt.Errorf("cannot resolve user %q: %w", user, err)
+func CheckPrivilegeDrop(user string) (userspec.Credential, error) {
+	cred, err := resolveDropUser(user)
+	if err != nil {
+		return userspec.Credential{}, err
 	}
 	if uid := getuid(); uid != 0 {
-		return fmt.Errorf("kahi daemon -u %s: dropping privileges needs root (running as uid %d)", user, uid)
+		return userspec.Credential{}, fmt.Errorf("kahi daemon -u %s: dropping privileges needs root (running as uid %d)", user, uid)
 	}
-	return nil
+	return cred, nil
 }
 
-// DropPrivileges switches the process to the given user/group.
-func DropPrivileges(user string, logger *slog.Logger) error {
-	if user == "" {
-		return nil
+// idToInt converts a uid or gid for the setuid/setgid/setgroups calls, which
+// take int. On 32-bit targets an id above MaxInt32 would wrap negative, so it
+// is refused on every target alike.
+func idToInt(kind string, id uint32) (int, error) {
+	if id > math.MaxInt32 {
+		return 0, fmt.Errorf("privilege drop failed: %s %d out of range", kind, id)
 	}
+	return int(id), nil
+}
 
-	uid, gid, err := resolveUser(user)
+// DropPrivileges switches the process to the resolved user: its uid, primary
+// gid and supplementary groups (SEC-010).
+func DropPrivileges(cred userspec.Credential, logger *slog.Logger) error {
+	ids := cred.Groups
+	if len(ids) == 0 {
+		ids = []uint32{cred.Gid}
+	}
+	groups := make([]int, len(ids))
+	for i, g := range ids {
+		v, err := idToInt("gid", g)
+		if err != nil {
+			return err
+		}
+		groups[i] = v
+	}
+	uid, err := idToInt("uid", cred.Uid)
 	if err != nil {
-		return fmt.Errorf("cannot resolve user %q: %w", user, err)
+		return err
+	}
+	gid, err := idToInt("gid", cred.Gid)
+	if err != nil {
+		return err
 	}
 
-	// Reset supplementary groups before changing gid/uid so the dropped process
-	// does not retain the launching user's group memberships (e.g. docker, wheel,
-	// which can be root-equivalent). Order matters: setgroups, then setgid, then
-	// setuid -- once uid is dropped the process can no longer call setgroups. Any
-	// failure aborts rather than leaving privileges partially dropped.
-	if err := setgroups([]int{gid}); err != nil {
-		return fmt.Errorf("setgroups failed: %w", err)
+	// Replace the supplementary groups before changing gid/uid so the dropped
+	// process keeps none of the launching user's memberships (e.g. docker,
+	// wheel, which can be root-equivalent), only the target user's own.
+	// Order matters: setgroups, then setgid, then setuid -- once uid is
+	// dropped the process can no longer call setgroups. Any failure aborts
+	// rather than leaving privileges partially dropped.
+	if err := setgroups(groups); err != nil {
+		return fmt.Errorf("privilege drop failed: setgroups failed: %w", err)
 	}
 	if err := setgid(gid); err != nil {
-		return fmt.Errorf("setgid(%d) failed: %w", gid, err)
+		return fmt.Errorf("privilege drop failed: setgid(%d) failed: %w", gid, err)
 	}
 	if err := setuid(uid); err != nil {
-		return fmt.Errorf("setuid(%d) failed: %w", uid, err)
+		return fmt.Errorf("privilege drop failed: setuid(%d) failed: %w", uid, err)
 	}
 
-	logger.Info("dropped privileges", "uid", uid, "gid", gid)
+	logger.Info("dropped privileges", "uid", uid, "gid", gid, "groups", groups)
 	return nil
-}
-
-// resolveUser parses "user" or "user:group" into uid and gid.
-func resolveUser(user string) (int, int, error) {
-	parts := splitUserGroup(user)
-
-	uid, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return 0, 0, fmt.Errorf("invalid uid: %s", parts[0])
-	}
-
-	gid := uid // default gid = uid
-	if len(parts) > 1 {
-		gid, err = strconv.Atoi(parts[1])
-		if err != nil {
-			return 0, 0, fmt.Errorf("invalid gid: %s", parts[1])
-		}
-	}
-
-	return uid, gid, nil
-}
-
-func splitUserGroup(s string) []string {
-	for i := 0; i < len(s); i++ {
-		if s[i] == ':' {
-			return []string{s[:i], s[i+1:]}
-		}
-	}
-	return []string{s}
 }
 
 // ensurePrivateDir creates dir with mode 0700 if it is missing and refuses it
