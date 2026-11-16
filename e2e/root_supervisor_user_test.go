@@ -38,8 +38,9 @@ func (c *rootContainer) cpOut(path string) (string, error) {
 	return string(b), err
 }
 
-// exists reports whether path exists in the (possibly stopped) container,
-// from the exit code of cp: cp of a socket succeeds but writes no file.
+// exists reports whether a regular file exists in the (possibly stopped)
+// container, from the exit code of cp. Not for sockets: podman versions
+// differ (macOS: exit 0 without a file; Linux CI: an error).
 func (c *rootContainer) exists(path string) bool {
 	return exec.Command(c.rt, "cp", c.name+":"+path, filepath.Join(c.t.TempDir(), "out")).Run() == nil
 }
@@ -131,12 +132,13 @@ file = "/run/kahi/kahi.sock"
 	}
 	c.waitFileContains("/run/kahi.log", "supervisor.user change takes effect after restart")
 
-	// Control for the checks after the stop: cp finds the socket and the
-	// PID file while they exist.
-	for _, path := range []string{"/run/kahi/kahi.pid", "/run/kahi/kahi.sock"} {
-		if !c.exists(path) {
-			t.Fatalf("control: cp does not find %s while it exists", path)
-		}
+	// Control for the check after the stop: cp finds the PID file while it
+	// exists. The socket cannot be checked with cp (see exists); the
+	// daemon's own shutdown check (RemoveRuntimeFiles, no warning below)
+	// covers it, and TestRootContainer_SupervisorUserLeftovers shows that
+	// check names a socket that stays.
+	if !c.exists("/run/kahi/kahi.pid") {
+		t.Fatal("control: cp does not find the PID file while it exists")
 	}
 
 	c.run("stop", "-t", "15", c.name)
@@ -150,10 +152,8 @@ file = "/run/kahi/kahi.sock"
 	if strings.Contains(log, "cannot remove at shutdown") {
 		t.Errorf("files left at shutdown; log:\n%s", log)
 	}
-	for _, path := range []string{"/run/kahi/kahi.pid", "/run/kahi/kahi.sock"} {
-		if c.exists(path) {
-			t.Errorf("%s still exists after shutdown", path)
-		}
+	if c.exists("/run/kahi/kahi.pid") {
+		t.Error("the PID file still exists after shutdown")
 	}
 }
 
@@ -176,9 +176,6 @@ file = "/run/kahi.sock"
 	}
 	if pid, err := c.cpOut("/run/kahi.pid"); err != nil || strings.TrimSpace(pid) == "" {
 		t.Errorf("PID file: %q, %v; want it left in place", pid, err)
-	}
-	if !c.exists("/run/kahi.sock") {
-		t.Error("socket gone, but the warning named it")
 	}
 
 	// The next start as root replaces both. The restarted daemon is PID 1
