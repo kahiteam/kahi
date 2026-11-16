@@ -221,6 +221,16 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 
 	server := api.NewServer(apiCfg, mgr, mgr, sup, sup, sup.Bus(), logger)
 
+	// Bounded: an open SSE stream (a UI page, a log tail) never ends on its
+	// own, and Stop closes what is left once the timeout expires. Registered
+	// before the listeners start, so a TCP bind failure still closes (and
+	// unlinks) the Unix socket; Stop skips a server that never started.
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), apiStopTimeout)
+		defer cancel()
+		_ = server.Stop(ctx)
+	}()
+
 	// Start listeners.
 	if socketPath != "" {
 		if err := server.StartUnix(socketPath, socketMode); err != nil {
@@ -233,14 +243,6 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 			return err
 		}
 	}
-	// Bounded: an open SSE stream (a UI page, a log tail) never ends on its
-	// own, and Stop closes what is left once the timeout expires.
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), apiStopTimeout)
-		defer cancel()
-		_ = server.Stop(ctx)
-	}()
-
 	// Optional privilege drop, after binding sockets: the files the daemon
 	// created as root go to the target user first (ADR-045).
 	if drop.Drop {

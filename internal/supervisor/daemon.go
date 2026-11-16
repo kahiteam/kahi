@@ -30,9 +30,24 @@ func WritePIDFile(path string) error {
 	if path == "" {
 		return nil
 	}
-	pid := os.Getpid()
-	data := []byte(strconv.Itoa(pid) + "\n")
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	// The file is written as root before a privilege drop, possibly in a
+	// directory the drop user owns since an earlier run, so nothing at the
+	// path is followed (SEC-019's principle): the old file, which
+	// CheckPIDFile has judged stale, is unlinked (unlink never follows a
+	// link) and the new one created exclusively. A path re-planted in
+	// between fails the start rather than being followed.
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("cannot write PID file: %s: %w", path, err)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o644)
+	if err != nil {
+		return fmt.Errorf("cannot write PID file: %s: %w", path, err)
+	}
+	if _, err := f.WriteString(strconv.Itoa(os.Getpid()) + "\n"); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("cannot write PID file: %s: %w", path, err)
+	}
+	if err := f.Close(); err != nil {
 		return fmt.Errorf("cannot write PID file: %s: %w", path, err)
 	}
 	return nil

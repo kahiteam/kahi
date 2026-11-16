@@ -181,3 +181,45 @@ func TestRootWarningNamesBoth(t *testing.T) {
 		t.Fatalf("log %q lacks %q", buf.String(), want)
 	}
 }
+
+// The PID file is written as root before the drop, possibly in a directory
+// the drop user owns after an earlier run: a symlink planted at the path must
+// not be followed (SEC-019's principle). The write replaces it instead.
+func TestWritePIDFileDoesNotFollowSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "victim")
+	if err := os.WriteFile(target, []byte("keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pid := filepath.Join(dir, "kahi.pid")
+	if err := os.Symlink(target, pid); err != nil {
+		t.Fatal(err)
+	}
+	if err := WritePIDFile(pid); err != nil {
+		t.Fatalf("WritePIDFile: %v", err)
+	}
+	if b, _ := os.ReadFile(target); string(b) != "keep\n" {
+		t.Errorf("symlink target = %q, want it untouched", b)
+	}
+	fi, err := os.Lstat(pid)
+	if err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("PID path: %v, %v; want a regular file", fi, err)
+	}
+	if b, _ := os.ReadFile(pid); strings.TrimSpace(string(b)) != fmt.Sprint(os.Getpid()) {
+		t.Errorf("PID file = %q", b)
+	}
+}
+
+// A stale regular PID file is replaced.
+func TestWritePIDFileReplacesStale(t *testing.T) {
+	pid := filepath.Join(t.TempDir(), "kahi.pid")
+	if err := os.WriteFile(pid, []byte("99999\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WritePIDFile(pid); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(pid); strings.TrimSpace(string(b)) != fmt.Sprint(os.Getpid()) {
+		t.Errorf("PID file = %q", b)
+	}
+}

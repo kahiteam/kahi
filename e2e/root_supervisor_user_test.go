@@ -180,6 +180,15 @@ file = "/run/kahi.sock"
 	if !c.exists("/run/kahi.sock") {
 		t.Error("socket gone, but the warning named it")
 	}
+
+	// The next start as root replaces both. The restarted daemon is PID 1
+	// again, the PID the stale file names.
+	c.run("start", c.name)
+	for deadline := time.Now().Add(20 * time.Second); strings.Count(c.logs(), `"msg":"supervisor running"`) < 2; time.Sleep(200 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no second start; logs:\n%s", c.logs())
+		}
+	}
 }
 
 // The forms of [supervisor] user, -u overriding it, and unknown users and
