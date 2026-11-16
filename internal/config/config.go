@@ -111,13 +111,20 @@ type WebServerConfig struct {
 	StaticDir string `toml:"static_dir"`
 }
 
-// WebhookConfig holds per-webhook settings.
+// WebhookConfig holds per-webhook settings (FUNC-056..059, ADR-043).
 type WebhookConfig struct {
-	URL     string            `toml:"url"`
-	Events  []string          `toml:"events"`
-	Headers map[string]string `toml:"headers"`
-	Timeout int               `toml:"timeout"`
-	Retries int               `toml:"retries"`
+	URL           string            `toml:"url"`
+	Events        []string          `toml:"events"`
+	Headers       map[string]string `toml:"headers"`
+	Timeout       int               `toml:"timeout"`     // seconds per POST, default 5
+	MaxRetries    int               `toml:"max_retries"` // retries after the first attempt, default 3
+	Retries       int               `toml:"retries"`     // deprecated alias of max_retries
+	Template      string            `toml:"template"`    // generic (default), slack, pagerduty
+	AllowInsecure bool              `toml:"allow_insecure"`
+	RoutingKey    string            `toml:"routing_key"` // PagerDuty integration key
+
+	// RetriesSet reports that the deprecated retries key is in the file.
+	RetriesSet bool `toml:"-" json:"-"`
 }
 
 // Autorestart is a program's autorestart policy: "true", "false" or

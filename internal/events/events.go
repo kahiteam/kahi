@@ -48,6 +48,17 @@ const (
 	Tick3600 EventType = "TICK_3600"
 )
 
+// AllEventTypes lists every event type the daemon publishes, for config
+// validation of subscribers.
+var AllEventTypes = []EventType{
+	ProcessStateStopped, ProcessStateStarting, ProcessStateRunning, ProcessStateBackoff,
+	ProcessStateStopping, ProcessStateExited, ProcessStateFatal,
+	ProcessLogStdout, ProcessLogStderr,
+	SupervisorStateRunning, SupervisorStateStopping,
+	ProcessGroupAdded, ProcessGroupRemoved,
+	Tick5, Tick60, Tick3600,
+}
+
 // Event carries data from a published event.
 type Event struct {
 	Type      EventType

@@ -78,11 +78,12 @@ func TestCLI_InitStdoutAndFiles(t *testing.T) {
 
 // The template documents every config key a user can set, each as a
 // commented-out line. Left out: server.unix.chown, which is refused
-// (SEC-022), and the keys accepted but ignored with a warning until #152
-// implements them.
+// (SEC-022), the keys accepted but ignored with a warning until #152
+// implements them, and deprecated aliases.
 var notInTemplate = map[string]bool{
 	"chown":         true,
 	"stdout_syslog": true, "stderr_syslog": true,
+	"retries": true, // [webhooks.x] retries: deprecated alias of max_retries
 }
 
 func TestCLI_InitDocumentsEveryKey(t *testing.T) {

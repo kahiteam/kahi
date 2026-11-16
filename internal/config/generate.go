@@ -79,12 +79,15 @@ const DefaultConfigTOML = `# Kahi configuration file
 # programs = ["web", "api"]    # group member programs
 # priority = 999               # group priority
 
-# Webhook definitions (not implemented yet: parsed, but no webhook is delivered)
+# Webhook notifications: an HTTP POST per listed event (not PROCESS_LOG_*)
 # [webhooks.slack]
-# url = "https://hooks.slack.com/..."
-# events = ["process_state"]
-# timeout = 5
-# retries = 3
+# url = "${SLACK_WEBHOOK_URL}"  # https; plain http only for localhost or with allow_insecure
+# events = ["PROCESS_STATE_FATAL"]
+# template = "slack"            # generic (default), slack, pagerduty
+# timeout = 5                   # seconds per POST
+# max_retries = 3               # retries after the first attempt (5xx, 408, 429, network errors)
+# allow_insecure = false        # accept plain http:// to a non-loopback host
+# routing_key = ""              # PagerDuty integration key; required with template = "pagerduty"
 # [webhooks.slack.headers]
-# Authorization = "Bearer token"
+# Authorization = "Bearer ${API_TOKEN}"
 `

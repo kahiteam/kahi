@@ -236,6 +236,7 @@ func LoadWithIncludes(path string) (*Config, []string, error) {
 	warnings = append(warnings, ignoredSettingWarnings(cfg)...)
 	warnings = append(warnings, redirectWarnings(cfg)...)
 	warnings = append(warnings, userWarnings(cfg)...)
+	warnings = append(warnings, webhookWarnings(cfg)...)
 
 	return cfg, warnings, nil
 }
@@ -283,7 +284,9 @@ func shutdownWarnings(cfg *Config) []string {
 // else that accepts a config on the daemon's behalf, such as kahi migrate,
 // must run both too (#245).
 func ValidateMerged(cfg *Config) []error {
-	return append(validateGroupReferences(cfg), validateProcessNames(cfg)...)
+	errs := append(validateGroupReferences(cfg), validateProcessNames(cfg)...)
+	// Webhook URLs are checked after ${VAR} expansion (FUNC-058, FUNC-059).
+	return append(errs, validateWebhookURLs(cfg)...)
 }
 
 func validateGroupReferences(cfg *Config) []error {

@@ -2501,7 +2501,7 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 **Edge Cases:**
 
 - These events fire once per state change, not periodically; a reload or a second shutdown request publishes none
-- SUPERVISOR_STATE_RUNNING is published before any client of the event stream can connect; webhooks and event listeners (#106, v0.3.0) will be able to receive it
+- SUPERVISOR_STATE_RUNNING is published before any client of the event stream can connect; webhooks subscribe before it is published and receive it (v0.3.0), as event listener pools will (#106)
 
 **Dependencies:** FUNC-049
 
@@ -2647,7 +2647,7 @@ numprocs = 1            # every [programs.x] key is accepted (autorestart, user,
 
 ### FUNC-056: Webhook Notifications
 
-**Description:** Send HTTP POST notifications to configured URLs on specified events. `[webhooks.*]` is parsed today but nothing is delivered; delivery is wired in v0.3.0 (#106).
+**Description:** Send HTTP POST notifications to configured URLs on specified events. Delivery is wired in v0.3.0 (#106, ADR-043).
 
 **Configuration:**
 
@@ -2691,6 +2691,7 @@ routing_key = ""            # PagerDuty integration key; required with template 
 - Webhook delivery is async and never blocks the main supervision loop
 - Webhook timeout default is 5 seconds
 - Multiple webhooks can subscribe to the same event
+- `events` names exact event types (case-sensitive). An unknown name, or an empty or missing list, is a warning, not an error, so a notification typo never keeps the daemon and its programs from starting: "webhooks.{name}.events: unknown event type: {type} (valid: {list}); ignored" and "webhooks.{name}: no events; the webhook never fires" (decided 2026-11-16)
 - Webhook failures do not affect process management
 - Circuit breaker state transitions logged at INFO level
 - `max_retries` counts retries after the first attempt (3 means up to 4 POSTs); the older key `retries` is accepted as an alias with the warning "webhooks.{name}.retries is deprecated; use max_retries"
@@ -4554,7 +4555,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 - **Given** a webhook URL embedding credentials (`https://user:pass@host/path`)
   **When** the config is returned
-  **Then** the userinfo component is stripped or masked
+  **Then** the URL is shown as scheme and host only, `https://host/***`: userinfo, path and query can all carry the secret (a Slack incoming-webhook URL's token is its path); `routing_key` is masked like header values (decided 2026-11-16)
 
 **Error Handling:**
 

@@ -28,6 +28,7 @@ type Supervisor struct {
 	configPath string
 	manager    *process.Manager
 	bus        *events.Bus
+	webhooks   *events.WebhookManager
 	ticker     *events.Ticker
 	signals    *SignalQueue
 	logger     *slog.Logger
@@ -94,6 +95,7 @@ func New(cfg SupervisorConfig) *Supervisor {
 		configPath: cfg.ConfigPath,
 		manager:    mgr,
 		bus:        bus,
+		webhooks:   events.NewWebhookManager(bus, cfg.Logger),
 		logger:     cfg.Logger,
 		shutdownCh: make(chan struct{}),
 		doneCh:     make(chan struct{}),
@@ -114,6 +116,12 @@ func (s *Supervisor) Bus() *events.Bus { return s.bus }
 func (s *Supervisor) Run() error {
 	// Load processes from config.
 	s.manager.LoadConfig(s.config)
+
+	// Webhooks subscribe before the first event, so they can receive
+	// SUPERVISOR_STATE_RUNNING (FUNC-052, FUNC-056). The manager exists
+	// since New: the API, and with it a reload, may run before this.
+	s.webhooks.Apply(webhookConfigs(s.config))
+	defer s.webhooks.Stop()
 
 	// Start periodic ticks.
 	s.ticker = events.NewTicker(s.bus)
@@ -269,6 +277,7 @@ func (s *Supervisor) applyReload() (config.ReloadResult, error) {
 	s.warnRestartOnly(oldCfg, newCfg)
 
 	out := s.manager.ApplyReload(oldCfg, newCfg)
+	s.webhooks.Apply(webhookConfigs(newCfg))
 	s.logger.Info("config reloaded", "added", out.Added, "changed", out.Changed, "removed", out.Removed)
 
 	// Groups and programs that did not stop keep their old processes; record
@@ -672,4 +681,26 @@ func signalName(sig os.Signal) string {
 		return unix.SignalName(s)
 	}
 	return sig.String()
+}
+
+// webhookConfigs converts the config's webhooks for the delivery manager.
+func webhookConfigs(cfg *config.Config) []events.WebhookConfig {
+	out := make([]events.WebhookConfig, 0, len(cfg.Webhooks))
+	for name, w := range cfg.Webhooks {
+		types := make([]events.EventType, len(w.Events))
+		for i, e := range w.Events {
+			types[i] = events.EventType(e)
+		}
+		out = append(out, events.WebhookConfig{
+			Name:       name,
+			URL:        w.URL,
+			Events:     types,
+			Headers:    w.Headers,
+			Timeout:    time.Duration(w.Timeout) * time.Second,
+			MaxRetries: w.MaxRetries,
+			Template:   w.Template,
+			RoutingKey: w.RoutingKey,
+		})
+	}
+	return out
 }

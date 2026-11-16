@@ -180,7 +180,7 @@ stopwaitsecs = 2
 func TestREST_ConfigRedactsSecrets(t *testing.T) {
 	t.Parallel()
 	hash := hashPassword(t, "secret")
-	const envSecret, hookPass, hookToken = "envsecret-7c1d", "hookpass-9e2a", "hooktoken-4b8f"
+	const envSecret, hookPass, hookToken, hookPath, hookRK = "envsecret-7c1d", "hookpass-9e2a", "hooktoken-4b8f", "hookpath-3f6a", "hookrk-8d2c"
 	programs := func(command string) string {
 		return fmt.Sprintf(`[server.http]
 enabled = true
@@ -196,16 +196,17 @@ startsecs = 0
 DB_PASSWORD = %q
 
 [webhooks.alert]
-url = "https://hookuser:%s@127.0.0.1:1/h"
+url = "https://hookuser:%s@127.0.0.1:1/h/%s"
 events = ["PROCESS_STATE_FATAL"]
+routing_key = %q
 [webhooks.alert.headers]
 Authorization = "Bearer %s"
-`, testutil.FreeTCPPort(t), "pass"+"word", hash, command, envSecret, hookPass, hookToken)
+`, testutil.FreeTCPPort(t), "pass"+"word", hash, command, envSecret, hookPass, hookPath, hookRK, hookToken)
 	}
 	_, socket := startDaemon(t, programs("/bin/sleep 300"))
 	leaks := func(what, body string) {
 		t.Helper()
-		for _, secret := range []string{hash, envSecret, hookPass, "hookuser", hookToken, `"Username"`, `"Password"`} {
+		for _, secret := range []string{hash, envSecret, hookPass, "hookuser", hookToken, hookPath, hookRK, `"Username"`, `"Password"`} {
 			if strings.Contains(body, secret) {
 				t.Errorf("%s leaks %q:\n%s", what, secret, body)
 			}
@@ -221,16 +222,19 @@ Authorization = "Bearer %s"
 			Environment map[string]string
 		}
 		Webhooks map[string]struct {
-			URL     string
-			Headers map[string]string
+			URL        string
+			Headers    map[string]string
+			RoutingKey string
 		}
 	}
 	r.jsonBody(t, "config", http.StatusOK, &cfg)
 	if web := cfg.Programs["web"]; web.Command != "/bin/sleep 300" || web.Numprocs != 2 || web.Environment["DB_PASSWORD"] != "***" {
 		t.Errorf("programs.web = %+v; want the command and numprocs unchanged and DB_PASSWORD masked as ***", web)
 	}
-	if hook := cfg.Webhooks["alert"]; hook.URL != "https://127.0.0.1:1/h" || hook.Headers["Authorization"] != "***" {
-		t.Errorf("webhooks.alert = %+v; want the URL without userinfo and the Authorization header masked", hook)
+	// A webhook URL shows only its scheme and host: userinfo, path and query
+	// can all carry the secret (a Slack URL's token is its path).
+	if hook := cfg.Webhooks["alert"]; hook.URL != "https://127.0.0.1:1/***" || hook.Headers["Authorization"] != "***" || hook.RoutingKey != "***" {
+		t.Errorf("webhooks.alert = %+v; want the URL as scheme and host only, the Authorization header and routing_key masked", hook)
 	}
 
 	rewriteConfig(t, socket, programs("/bin/sleep 301"))

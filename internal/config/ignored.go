@@ -3,25 +3,15 @@ package config
 import (
 	"fmt"
 	"sort"
-	"strings"
 )
 
 // ignoredSettingWarnings flags settings that parse and validate but that
-// nothing in the daemon acts on yet (#106, #113), so a user does not rely on
+// nothing in the daemon acts on yet (#152), so a user does not rely on
 // them silently. Each warning names the setting and says it is ignored.
 func ignoredSettingWarnings(cfg *Config) []string {
 	var warnings []string
 	ignored := func(setting string) {
 		warnings = append(warnings, fmt.Sprintf("%s is not implemented yet and is ignored", setting))
-	}
-
-	if len(cfg.Webhooks) > 0 {
-		names := make([]string, 0, len(cfg.Webhooks))
-		for name := range cfg.Webhooks {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		ignored(fmt.Sprintf("[webhooks] (%s): no webhook is delivered", strings.Join(names, ", ")))
 	}
 
 	s := cfg.Supervisor

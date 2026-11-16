@@ -165,6 +165,7 @@ func Validate(cfg *Config) []error {
 		errs = append(errs, fmt.Errorf("server.web.enabled requires server.http.enabled"))
 	}
 
+	errs = append(errs, validateWebhooks(cfg)...)
 	return errs
 }
 

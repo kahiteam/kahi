@@ -91,7 +91,7 @@ func TestGetConfigRedactsSecrets(t *testing.T) {
 	}
 
 	// Non-secret fields must remain visible so the endpoint stays useful.
-	for _, want := range []string{"/usr/bin/web", "hooks.example.com/notify", "127.0.0.1:9876"} {
+	for _, want := range []string{"/usr/bin/web", "https://hooks.example.com/***", "127.0.0.1:9876"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected non-secret field %q in response: %s", want, body)
 		}
