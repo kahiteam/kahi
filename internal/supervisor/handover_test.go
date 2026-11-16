@@ -223,3 +223,19 @@ func TestWritePIDFileReplacesStale(t *testing.T) {
 		t.Errorf("PID file = %q", b)
 	}
 }
+
+func TestWritePIDFileErrors(t *testing.T) {
+	dir := t.TempDir()
+	// The directory does not exist.
+	if err := WritePIDFile(filepath.Join(dir, "missing", "kahi.pid")); err == nil || !strings.Contains(err.Error(), "cannot write PID file") {
+		t.Errorf("missing dir: %v", err)
+	}
+	// A non-empty directory at the path cannot be replaced.
+	busy := filepath.Join(dir, "busy")
+	if err := os.MkdirAll(filepath.Join(busy, "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := WritePIDFile(busy); err == nil || !strings.Contains(err.Error(), "cannot write PID file") {
+		t.Errorf("directory at path: %v", err)
+	}
+}

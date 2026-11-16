@@ -189,3 +189,40 @@ func TestMatches(t *testing.T) {
 		t.Error("an explicit group must also match the gid")
 	}
 }
+
+// Lookup failures other than "not found" are reported as such, not as an
+// unknown user.
+func TestResolveLookupErrors(t *testing.T) {
+	testDB().install(t)
+	boom := errors.New("I/O error")
+	lookupUser = func(string) (*user.User, error) { return nil, boom }
+	if _, err := Resolve("kahi"); err == nil || err.Error() != "cannot look up user kahi: I/O error" {
+		t.Errorf("user lookup error = %v", err)
+	}
+	testDB().install(t)
+	lookupGroup = func(string) (*user.Group, error) { return nil, boom }
+	if _, err := Resolve("kahi:adm"); err == nil || err.Error() != "cannot look up group adm: I/O error" {
+		t.Errorf("group lookup error = %v", err)
+	}
+}
+
+// Malformed passwd and group entries are errors, never a wrong id.
+func TestResolveMalformedEntries(t *testing.T) {
+	db := testDB()
+	db.users = append(db.users,
+		&user.User{Uid: "x", Gid: "1", Username: "baduid"},
+		&user.User{Uid: "7", Gid: "y", Username: "badgid"})
+	db.groups["badgrp"] = "z"
+	db.members["kahi"] = []string{"4", "q"}
+	db.install(t)
+	for spec, want := range map[string]string{
+		"baduid":          `user baduid has invalid uid "x"`,
+		"badgid":          `user badgid has invalid gid "y"`,
+		"www-data:badgrp": `group badgrp has invalid gid "z"`,
+		"kahi":            `cannot list groups of user kahi: invalid gid "q"`,
+	} {
+		if _, err := Resolve(spec); err == nil || err.Error() != want {
+			t.Errorf("Resolve(%q) error = %v, want %q", spec, err, want)
+		}
+	}
+}

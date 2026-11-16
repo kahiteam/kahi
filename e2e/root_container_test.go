@@ -123,13 +123,20 @@ func startRootContainer(t *testing.T, files map[string]string, runArgs, daemonAr
 	tag := "localhost/" + c.name
 	// Concurrent podman builds race on removing their build containers
 	// ("deleting build container ...: identifier is not a container"), so
-	// builds run one at a time; the containers still run in parallel.
+	// builds and image removals run one at a time; the containers still run
+	// in parallel.
 	func() {
 		buildMu.Lock()
 		defer buildMu.Unlock() // c.run may Fatalf (Goexit runs defers)
 		c.run("build", "-q", "-t", tag, "-f", filepath.Join(dir, "Containerfile"), dir)
 	}()
-	t.Cleanup(func() { _ = exec.Command(rt, "rmi", "-f", tag).Run() })
+	t.Cleanup(func() {
+		// Under the build lock too: removing an image while another build
+		// commits can drop a shared layer ("layer not known").
+		buildMu.Lock()
+		defer buildMu.Unlock()
+		_ = exec.Command(rt, "rmi", "-f", tag).Run()
+	})
 	c.run(append(append(append([]string{"run", "-d", "--name", c.name}, runArgs...), tag), daemonArgs...)...)
 	t.Cleanup(func() { _ = exec.Command(rt, "rm", "-f", c.name).Run() })
 	return c
