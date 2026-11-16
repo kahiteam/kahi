@@ -28,6 +28,7 @@ func TestCaptureMaxbytesValidation(t *testing.T) {
 		{`"1GB"`, "must be between 1KB and 16MB"},
 		{`"abc"`, "invalid size abc"},
 		{`"-5KB"`, "invalid size -5KB"},
+		{`"9999999999999GB"`, "invalid size 9999999999999GB"},
 	}
 	for _, key := range []string{"stdout_capture_maxbytes", "stderr_capture_maxbytes"} {
 		for _, tt := range tests {

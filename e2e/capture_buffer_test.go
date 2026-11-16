@@ -156,7 +156,7 @@ func TestCaptureBuffer_ReloadRecreates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rewriteConfig(t, socket, prog("32KB"))
+	rewriteConfig(t, socket, prog("4KB"))
 	if _, err := client.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -175,6 +175,11 @@ func TestCaptureBuffer_ReloadRecreates(t *testing.T) {
 	r := apiDo(t, socket, "GET", "/api/v1/processes/p/log/stdout?length=65536", "")
 	if r.status != http.StatusOK || len(r.body) != 0 {
 		t.Errorf("after reload: %d, %d bytes; want 200 with an empty buffer", r.status, len(r.body))
+	}
+	// The new buffer has the new size: 10240 bytes leave the last 4096.
+	sendStdin(t, socket, "p", "go\n")
+	if r := waitForLog(t, socket, "p", "stdout", "65536", func(b []byte) bool { return len(b) == 4096 }); len(r.body) != 4096 {
+		t.Errorf("after reload and output: %d bytes, want the 4096-byte buffer", len(r.body))
 	}
 }
 

@@ -428,8 +428,8 @@ CodeQL's `BarrierGuard` recognizes only relational comparisons (`<`, `<=`, `>`, 
 
 **Consequences:**
 
-- `Read()` returns nil instead of clamping for `n > 64KB`. This is unreachable from the API path (handler already bounds length) but guards against direct callers.
-- API handler returns HTTP 400 for `length > 64KB` instead of silently clamping. Explicit validation at the boundary.
+- `Read()` returns nil instead of clamping for `n > maxReadAlloc` (64KB, 16MB since ADR-048). This is unreachable from the API path (handler already bounds length) but guards against direct callers.
+- API handler returns HTTP 400 for `length > maxReadLength` (65536, 16777216 since ADR-048) instead of silently clamping. Explicit validation at the boundary.
 - Pattern applies to any future `make()` call where the size flows from user input: use early-return guards, not clamps or `min()`.
 - Go's `min()`/`max()` builtins are NOT CodeQL barriers as of CodeQL 2.24.1.
 

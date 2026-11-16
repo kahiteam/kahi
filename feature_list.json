@@ -3198,7 +3198,8 @@
         "TestCaptureBuffer_InvalidSizeRefused",
         "TestCaptureBuffer_ReloadRecreates",
         "TestCaptureBuffer_RedirectWarning",
-        "TestCaptureBuffer_MigrateKeepsComment"
+        "TestCaptureBuffer_MigrateKeepsComment",
+        "TestWebUI_ScriptContents"
       ],
       "dependencies": [
         "process-output-ring-buffer",
