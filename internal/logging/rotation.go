@@ -2,6 +2,7 @@ package logging
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -105,7 +106,8 @@ func parseSize(s string) (int64, error) {
 
 	s = strings.TrimSpace(s)
 	val, err := strconv.ParseInt(s, 10, 64)
-	if err != nil || val < 0 {
+	// A value that overflows int64 would wrap to a negative or small size.
+	if err != nil || val < 0 || val > math.MaxInt64/multiplier {
 		return 0, fmt.Errorf("must be a size like 50MB (B, KB, MB or GB), got %q", orig)
 	}
 	return val * multiplier, nil

@@ -92,6 +92,14 @@ func Validate(cfg *Config) []error {
 				errs = append(errs, fmt.Errorf("%s: %s %v", prefix, f.key, err))
 			}
 		}
+		for _, f := range []struct{ key, v string }{
+			{"stdout_capture_maxbytes", p.StdoutCaptureMaxbytes},
+			{"stderr_capture_maxbytes", p.StderrCaptureMaxbytes},
+		} {
+			if _, err := logging.ParseBufferSize(f.v); err != nil {
+				errs = append(errs, fmt.Errorf("%s.%s: %v", prefix, f.key, err))
+			}
+		}
 
 		errs = append(errs, validateRLimits(prefix, p.Environment)...)
 	}

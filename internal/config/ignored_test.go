@@ -40,8 +40,6 @@ events = ["process_state"]
 	for _, want := range []string{
 		"[webhooks] (slack)",
 		"supervisor.identifier",
-		"programs.web.stdout_capture_maxbytes",
-		"programs.web.stderr_capture_maxbytes",
 		"programs.web.stdout_syslog",
 		"programs.web.stderr_syslog",
 	} {
@@ -50,7 +48,10 @@ events = ["process_state"]
 		}
 	}
 	// Implemented in v0.3.0 (#113): no ignored warning.
-	for _, gone := range []string{"supervisor.directory", "supervisor.minfds", "supervisor.minprocs"} {
+	for _, gone := range []string{
+		"supervisor.directory", "supervisor.minfds", "supervisor.minprocs",
+		"programs.web.stdout_capture_maxbytes", "programs.web.stderr_capture_maxbytes",
+	} {
 		if strings.Contains(joined, gone) {
 			t.Errorf("warning for %s, which is implemented; warnings:\n%s", gone, joined)
 		}

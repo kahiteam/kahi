@@ -35,7 +35,7 @@ Key differences from supervisord:
 - CLI control client (`kahi ctl`) with all standard operations
 - Liveness and readiness probes (`/healthz`, `/readyz`)
 - Event system with pub/sub and an SSE event stream (event listeners and webhook notifications are planned for 0.3.0: [#106](https://github.com/kahiteam/kahi/issues/106))
-- Structured logging with file rotation, ring buffer, ANSI stripping (syslog forwarding is planned for 0.3.0: [#152](https://github.com/kahiteam/kahi/issues/152))
+- Structured logging with file rotation, an in-memory output buffer (64 KB per stream, up to 16 MB with `*_capture_maxbytes`), ANSI stripping (syslog forwarding is planned for 0.3.0: [#152](https://github.com/kahiteam/kahi/issues/152))
 - Process groups with priority-ordered startup and shutdown: shutdown stops one priority level at a time, in reverse order, within one `shutdown_timeout`
 - Per-process uid/gid, umask, resource limits (see [Resource limits](#resource-limits)), environment control
 - supervisord.conf migration tool
@@ -329,6 +329,8 @@ kahi init --stdout            # print to stdout
 # stderr_logfile = ""          # stderr log file
 # stderr_logfile_maxbytes = "50MB"
 # stderr_logfile_backups = 10
+# stdout_capture_maxbytes = "64KB" # in-memory buffer for tail and the log viewer, 1KB..16MB
+# stderr_capture_maxbytes = "64KB"
 # description = ""             # process description
 # [programs.example.environment]
 # KEY = "value"
@@ -424,7 +426,7 @@ colour codes.
 The log stream (`GET /api/v1/processes/{name}/log/{stream}/stream`) gives every
 event an id, `{generation}-{offset}`. A client that reconnects with that id in
 `Last-Event-ID`, as a browser does on its own, gets what it missed from the
-64 KB in-memory buffer: an `event: gap` first if part of it is gone, or an
+in-memory buffer: an `event: gap` first if part of it is gone, or an
 `event: reset` if the process was started anew. A client too slow to keep up
 has its stream closed and resumes the same way.
 

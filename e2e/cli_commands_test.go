@@ -78,10 +78,10 @@ func TestCLI_InitStdoutAndFiles(t *testing.T) {
 
 // The template documents every config key a user can set, each as a
 // commented-out line. Left out: server.unix.chown, which is refused
-// (SEC-022), and the keys accepted but ignored with a warning until #113
-// and #152 implement them.
+// (SEC-022), and the keys accepted but ignored with a warning until #152
+// implements them.
 var notInTemplate = map[string]bool{
-	"chown": true, "stdout_capture_maxbytes": true, "stderr_capture_maxbytes": true,
+	"chown":         true,
 	"stdout_syslog": true, "stderr_syslog": true,
 }
 

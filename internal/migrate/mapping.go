@@ -18,6 +18,8 @@ type OptionMapping struct {
 }
 
 // programMappings maps supervisord [program:x] options to Kahi equivalents.
+const captureNote = "supervisord capture mode for PROCESS_COMMUNICATION events, not a buffer size"
+
 var programMappings = map[string]OptionMapping{
 	"command":                 {Type: "string"},
 	"process_name":            {Type: "string"},
@@ -41,14 +43,17 @@ var programMappings = map[string]OptionMapping{
 	"stdout_logfile":          {Type: "string"},
 	"stdout_logfile_maxbytes": {Type: "bytes"},
 	"stdout_logfile_backups":  {Type: "int"},
-	// The daemon ignores these until #113 and #152 implement them, so migrate
-	// flags them rather than writing settings that have no effect.
-	"stdout_capture_maxbytes": {Unsupported: true},
+	// supervisord's *_capture_maxbytes selects a capture mode for
+	// PROCESS_COMMUNICATION events; kahi's key of the same name sizes the
+	// output buffer (FUNC-086), so the value is not carried over.
+	"stdout_capture_maxbytes": {Unsupported: true, Note: captureNote},
+	"stderr_capture_maxbytes": {Unsupported: true, Note: captureNote},
+	// The daemon ignores these until #152 implements them, so migrate flags
+	// them rather than writing settings that have no effect.
 	"stdout_syslog":           {Unsupported: true},
 	"stderr_logfile":          {Type: "string"},
 	"stderr_logfile_maxbytes": {Type: "bytes"},
 	"stderr_logfile_backups":  {Type: "int"},
-	"stderr_capture_maxbytes": {Unsupported: true},
 	"stderr_syslog":           {Unsupported: true},
 	"stdout_events_enabled":   {Type: "bool"},
 	"stderr_events_enabled":   {Type: "bool"},

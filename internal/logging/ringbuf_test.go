@@ -38,7 +38,7 @@ func TestRingBufferReadExceedsMaxAlloc(t *testing.T) {
 	rb := NewRingBuffer(16)
 	rb.Write([]byte("hello"))
 
-	data := rb.Read(1 << 17) // 128KB, exceeds maxReadAlloc
+	data := rb.Read(1<<24 + 1) // 16MB + 1, exceeds maxReadAlloc
 	if data != nil {
 		t.Fatalf("expected nil for oversized read, got %d bytes", len(data))
 	}

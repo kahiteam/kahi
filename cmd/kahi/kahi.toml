@@ -63,6 +63,8 @@
 # stderr_logfile = ""          # stderr log file
 # stderr_logfile_maxbytes = "50MB"
 # stderr_logfile_backups = 10
+# stdout_capture_maxbytes = "64KB" # in-memory buffer for tail and the log viewer, 1KB..16MB
+# stderr_capture_maxbytes = "64KB"
 # description = ""             # process description
 # [programs.example.environment]
 # KEY = "value"

@@ -29,8 +29,8 @@ func (m *mockProcessManager) Stop(name string) error                    { return
 func (m *mockProcessManager) Restart(name string) error                 { return nil }
 func (m *mockProcessManager) Signal(name string, sig string) error      { return nil }
 func (m *mockProcessManager) WriteStdin(name string, data []byte) error { return nil }
-func (m *mockProcessManager) ReadLog(name string, stream string, offset int64, length int) ([]byte, error) {
-	return []byte("log output"), nil
+func (m *mockProcessManager) ReadLog(name string, stream string, offset int64, length int) ([]byte, bool, error) {
+	return []byte("log output"), false, nil
 }
 func (m *mockProcessManager) ReadLogFrom(string, string, int64) ([]byte, int64, int64, string, error) {
 	return nil, 0, 0, "g", nil

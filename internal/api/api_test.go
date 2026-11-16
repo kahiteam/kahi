@@ -42,6 +42,8 @@ type mockProcessManager struct {
 	logHeld  []byte
 	logTotal int64
 	logGen   string
+	// logTruncated is what ReadLog reports for its data.
+	logTruncated bool
 
 	// Log stream subscribers (ADR-040), fed by feedLog.
 	logMu   sync.Mutex
@@ -133,11 +135,11 @@ func (m *mockProcessManager) WriteStdin(name string, data []byte) error {
 	_, err := m.Get(name)
 	return err
 }
-func (m *mockProcessManager) ReadLog(name string, stream string, offset int64, length int) ([]byte, error) {
+func (m *mockProcessManager) ReadLog(name string, stream string, offset int64, length int) ([]byte, bool, error) {
 	if _, err := m.Get(name); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return []byte("log output\n"), nil
+	return []byte("log output\n"), m.logTruncated, nil
 }
 
 // ReadLogFrom serves logHeld, the tail of a stream whose total is logTotal
@@ -1379,14 +1381,31 @@ func TestReadLogWithParams(t *testing.T) {
 	}
 }
 
+// ADR-048: the cap is the largest buffer FUNC-086 allows; a length up to it
+// reaches the buffer, which returns at most what it holds.
 func TestReadLogLengthExceedsMax(t *testing.T) {
 	srv, _, _ := testServer()
-	req := httptest.NewRequest("GET", "/api/v1/processes/web/log/stdout?length=100000", nil)
+	req := httptest.NewRequest("GET", "/api/v1/processes/web/log/stdout?length=16777217", nil)
 	w := httptest.NewRecorder()
 	srv.mux.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "length exceeds maximum of 16777216") {
+		t.Errorf("body = %s", w.Body.String())
+	}
+}
+
+func TestReadLogLengthAtMax(t *testing.T) {
+	for _, length := range []string{"65537", "100000", "16777216"} {
+		srv, _, _ := testServer()
+		req := httptest.NewRequest("GET", "/api/v1/processes/web/log/stdout?length="+length, nil)
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("length=%s: expected 200, got %d", length, w.Code)
+		}
 	}
 }
 
@@ -1520,5 +1539,27 @@ func TestMuxErrorsAreJSONUnderAPI(t *testing.T) {
 	srv.handler.ServeHTTP(w, httptest.NewRequest("GET", "/nosuchpage", nil))
 	if w.Code != http.StatusNotFound || w.Header().Get("Content-Type") == "application/json" {
 		t.Errorf("GET /nosuchpage: %d %q", w.Code, w.Header().Get("Content-Type"))
+	}
+}
+
+// A read whose bytes start after the beginning of the captured output says
+// so, so the Web UI can drop a partial first line (FUNC-079, FUNC-086).
+func TestReadLogTruncatedHeader(t *testing.T) {
+	for _, truncated := range []bool{false, true} {
+		srv, pm, _ := testServer()
+		pm.logTruncated = truncated
+		req := httptest.NewRequest("GET", "/api/v1/processes/web/log/stdout?length=65536", nil)
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+		got := w.Header().Get("X-Kahi-Log-Truncated")
+		if truncated && got != "true" {
+			t.Errorf("truncated read: X-Kahi-Log-Truncated = %q, want true", got)
+		}
+		if !truncated && got != "" {
+			t.Errorf("complete read: X-Kahi-Log-Truncated = %q, want unset", got)
+		}
 	}
 }

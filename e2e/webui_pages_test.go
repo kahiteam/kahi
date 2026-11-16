@@ -214,7 +214,7 @@ func TestWebUI_ScriptContents(t *testing.T) {
 	_, logjs := d.get(t, "/ui/static/log.js")
 	for _, want := range []string{
 		"sgr-fg-", "sgr-bold", ">= 30 && ", "<= 37", ">= 90 && ", "<= 97", "textContent",
-		"slice(-100)", "=== 65536", "split('\\n')", ".pop()", "MAX_LINES = 5000", "removeChild(",
+		"slice(-100)", "getResponseHeader('X-Kahi-Log-Truncated') === 'true'", "split('\\n')", ".pop()", "MAX_LINES = 5000", "removeChild(",
 		"No output captured for this stream yet", "No such process: ", "Failed to load log: ", ".close()",
 	} {
 		if !strings.Contains(logjs, want) {

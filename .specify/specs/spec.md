@@ -3617,14 +3617,14 @@ API status codes: "process not running" is 400, "stdin pipe broken" is 409, and 
 
 **Edge Cases:**
 
-- The backlog is up to the last 64 KB of the in-memory ring buffer (the read endpoint returns bytes, not lines). If the response is exactly 65536 bytes, the buffer was full and its first line is likely partial, so everything up to and including the first `\n` is dropped (a full response with no `\n` at all is dropped entirely); a trailing line without `\n` goes into the pending buffer. Then the last 100 complete lines are shown, or fewer when fewer exist
+- The backlog is up to the last 64 KB of the in-memory ring buffer (the read endpoint returns bytes, not lines). If the response carries `X-Kahi-Log-Truncated: true` (FUNC-082), its bytes start after the beginning of the output and its first line is likely partial, so everything up to and including the first `\n` is dropped (such a response with no `\n` at all is dropped entirely); a trailing line without `\n` goes into the pending buffer. Then the last 100 complete lines are shown, or fewer when fewer exist
 - `EventSource` exposes no HTTP status, so "no such process" is detected from the backlog read only
 - The first stream request carries no `Last-Event-ID`, so it streams live output only and the backlog read does not duplicate it (FUNC-027)
 - After a reconnect, `EventSource` sends `Last-Event-ID` and the server replays the output written while disconnected (FUNC-027, #155); no backlog re-read
 - A `gap` event first ends the pending partial line as a line, then shows a line "[{n} bytes not shown]"; a `reset` event does the same with "[log restarted]" and then renders the replay
 - The server closes a stream whose client falls 64 events behind; `EventSource` reconnects and resumes, so a fast writer no longer leaves silent gaps (v0.2.4)
 - With `strip_ansi = true` the backlog and the stream are both stripped: the stream publishes the chunk the capture writer stored, which its offsets count (FUNC-027)
-- The backlog request stays at 65536 bytes when a program's buffer is larger (FUNC-086): a larger buffer that holds at least 64 KB still returns exactly 65536 bytes, so the partial-first-line rule above holds
+- The backlog request stays at 65536 bytes for every buffer size (FUNC-086): a larger buffer returns the last 65536 bytes, a smaller one the whole buffer; the header, not the response size, decides whether the first line is dropped
 - The read endpoint ignores its `offset` parameter; the viewer does not use it
 - `stderr` with `redirect_stderr = true` has no capture and returns an empty body (the "no output" message)
 - Auto-scroll to bottom; scrolling up pauses auto-scroll until the user returns to the bottom
@@ -3743,6 +3743,7 @@ None specific.
 - Ring buffer is per-process per-stream (stdout and stderr separate)
 - When the program is removed, its buffers go with it: the log read returns 404 "no such process: {name}"
 - Ring buffer feeds SSE streaming (FUNC-027) whether or not a log file exists
+- A log read whose bytes start after the beginning of the stream's captured output (the buffer wrapped, or `length` is shorter than what it holds) carries the response header `X-Kahi-Log-Truncated: true`; a read that returns everything captured has no such header. The Web UI uses it to drop a partial first line (FUNC-079)
 
 **Dependencies:** FUNC-018
 
@@ -3962,7 +3963,7 @@ static_dir = ""      # optional per-file overlay for /ui/static/ (FUNC-080)
 
 ### FUNC-086: Configurable Output Capture Buffer
 
-**Description:** Set the size of each program's in-memory output buffer (FUNC-082) per stream with `stdout_capture_maxbytes` and `stderr_capture_maxbytes`. v0.3.0 (#113); until then the keys are accepted and ignored with a warning and the buffer is 64 KB.
+**Description:** Set the size of each program's in-memory output buffer (FUNC-082) per stream with `stdout_capture_maxbytes` and `stderr_capture_maxbytes` (v0.3.0, #113).
 
 **Acceptance Criteria:**
 
@@ -4094,7 +4095,7 @@ static_dir = ""      # optional per-file overlay for /ui/static/ (FUNC-080)
 
 **Description:** Add defense-in-depth bounds checking for user-controlled allocation sizes in the log read API path. CodeQL alert [go/uncontrolled-allocation-size](https://github.com/kahiteam/kahi/security/code-scanning/1) flags `make([]byte, n)` at `internal/logging/ringbuf.go:54` where `n` originates from the HTTP `?length=` query parameter without an explicit upper bound.
 
-The ring buffer already clamps `n` to available data (max 64KB), so exploitation requires no fix beyond satisfying the static analysis rule. However, defense-in-depth dictates explicit bounds at both the API handler and the ring buffer.
+The ring buffer already clamps `n` to available data (at most its size, 16MB since FUNC-086), so exploitation requires no fix beyond satisfying the static analysis rule. However, defense-in-depth dictates explicit bounds at both the API handler and the ring buffer.
 
 **Data Flow:**
 
@@ -4129,15 +4130,14 @@ GET /api/v1/processes/{name}/log/{stream}?length=N
 
 | Scenario                              | Behavior                                              |
 | ------------------------------------- | ----------------------------------------------------- |
-| `length` exceeds 64KB                 | Silently clamped to 64KB; no error returned           |
+| `length` exceeds 16777216             | HTTP 400 "length exceeds maximum of 16777216"         |
 | `length` is negative or non-numeric   | Ignored; default 1600 used (existing behavior)        |
-| Ring buffer is smaller than requested | Returns available data (existing clamp at line 47-49) |
+| Ring buffer is smaller than requested | Returns the whole buffer (clamp in `RingBuffer.Read`) |
 
 **Edge Cases:**
 
 - `length=0` is treated as "use default" by the existing `v > 0` check
-- The 64KB cap matches the ring buffer allocation in `capture.go:39` (`64 * 1024`)
-- From v0.3.0 the API cap is the absolute maximum 16777216 and the per-stream limit is the buffer itself (FUNC-086): the early-return guard shape described below for CodeQL is kept, only the constant changes; the message becomes "length exceeds maximum of 16777216"
+- The API cap is the absolute maximum 16777216, the largest buffer FUNC-086 allows; the per-stream limit is the buffer itself. The early-return guard shape described in SEC-002 for CodeQL is kept with that constant (ADR-048)
 
 **Dependencies:** FUNC-082, FUNC-026
 
@@ -4168,7 +4168,7 @@ After this guard, `n` is proven `<= maxReadAlloc` on the only surviving branch. 
 
 ```go
 if v > maxReadLength {
-    writeError(w, http.StatusBadRequest, "length exceeds maximum of 65536", "BAD_REQUEST")
+    writeError(w, http.StatusBadRequest, "length exceeds maximum of 16777216", "BAD_REQUEST")
     return
 }
 length = v
@@ -4178,39 +4178,39 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Acceptance Criteria:**
 
-- **Given** `NewRingBuffer(2_000_000)` is called
+- **Given** `NewRingBuffer(32 << 20)` is called
   **When** the buffer is created
-  **Then** `size` is silently clamped to 1,048,576 (1MB)
+  **Then** `size` is silently clamped to 16,777,216 (16MB, the FUNC-086 maximum)
 
-- **Given** `RingBuffer.Read(200_000)` is called
-  **When** n exceeds `maxReadAlloc` (64KB)
+- **Given** `RingBuffer.Read(16_777_217)` is called
+  **When** n exceeds `maxReadAlloc` (16MB)
   **Then** `Read()` returns nil (early-return guard)
 
-- **Given** `GET /api/v1/processes/web/log/stdout?length=999999`
-  **When** length exceeds `maxReadLength` (64KB)
+- **Given** `GET /api/v1/processes/web/log/stdout?length=999999999`
+  **When** length exceeds `maxReadLength` (16777216)
   **Then** HTTP 400 is returned with error message
 
 - **Given** the fix is merged to `main`
   **When** CodeQL re-scans via `.github/workflows/security.yml`
   **Then** alert #1 (`go/uncontrolled-allocation-size`) auto-closes
 
-- **Given** normal operation with default config (API reads <= 64KB)
+- **Given** normal operation (API reads <= 16777216)
   **When** any code path calls `Read()` with a valid length
   **Then** behavior is unchanged (values are already within bounds)
 
 **Error Handling:**
 
-| Scenario                                | Behavior                             |
-| --------------------------------------- | ------------------------------------ |
-| `NewRingBuffer(size)` with `size > 1MB` | Silently clamped to 1MB              |
-| `NewRingBuffer(size)` with `size <= 0`  | Clamped to 1 (minimum viable buffer) |
-| `Read(n)` with `n <= 0` or `n > 64KB`   | Returns nil (early-return guard)     |
-| `handleReadLog` with `length > 64KB`    | HTTP 400 BAD_REQUEST                 |
+| Scenario                                 | Behavior                             |
+| ---------------------------------------- | ------------------------------------ |
+| `NewRingBuffer(size)` with `size > 16MB` | Silently clamped to 16MB             |
+| `NewRingBuffer(size)` with `size <= 0`   | Clamped to 1 (minimum viable buffer) |
+| `Read(n)` with `n <= 0` or `n > 16MB`    | Returns nil (early-return guard)     |
+| `handleReadLog` with `length > 16MB`     | HTTP 400 BAD_REQUEST                 |
 
 **Edge Cases:**
 
-- The API handler already ensures `length <= 64KB` for all HTTP paths, so `Read()` returning nil for `n > 64KB` is unreachable from the API; it guards against direct callers only
-- The 1MB cap on `NewRingBuffer` is 16x the default ring buffer size (64KB)
+- The API handler already ensures `length <= 16777216` for all HTTP paths, so `Read()` returning nil for `n > 16MB` is unreachable from the API; it guards against direct callers only
+- The 16MB caps on `NewRingBuffer` and `Read` are the largest buffer FUNC-086 allows; config validation refuses a larger `*_capture_maxbytes`, and the default buffer is 64KB (ADR-048)
 - Both `maxRingBufSize` and `maxReadAlloc` are unexported package-level `const` values
 - CodeQL's `BarrierGuard` mechanism: relational comparison + branch termination = taint sanitization on the surviving branch
 - `min()` is NOT a barrier in CodeQL -- it has value-flow propagation that passes taint through
