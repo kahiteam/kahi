@@ -2473,6 +2473,7 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 - With `redirect_stderr = true`, stderr output is published as PROCESS_LOG_STDOUT when `stdout_events_enabled` is true; setting `stderr_events_enabled` as well logs "programs.{name}.stderr_events_enabled has no effect with redirect_stderr"
 - High-throughput processes can generate many events; publishing never blocks the capture writer, because every subscriber enqueues into a bounded drop-oldest queue (FUNC-055 edge case)
 - Webhooks may not subscribe to PROCESS_LOG_* (one POST per output chunk); listing one in `[webhooks.x] events` is a config error "webhooks.{name}.events: PROCESS_LOG events cannot be sent to webhooks" (decided 2026-11-14). Listeners and the events API may subscribe
+- A log event's data is `name`, `group` (since v0.3.0, so listeners get supervisord's `groupname`), `data` (the output chunk) and `id` (the stream id, FUNC-027)
 - `kahi migrate` maps supervisord `stdout_events_enabled` / `stderr_events_enabled`
 
 **Dependencies:** FUNC-049, FUNC-018, FUNC-027, FUNC-021

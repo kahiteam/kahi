@@ -146,7 +146,9 @@ type Envelope struct {
 	PoolSerial uint64
 }
 
-// eventSerial is the daemon-wide serial of events delivered to pools.
+// eventSerial numbers events for pools daemon-wide. Plan step 7b assigns a
+// serial once per event, when it enters a pool's buffer, and keeps it on
+// redelivery; today's pool numbers each send.
 var eventSerial atomic.Uint64
 
 // nextEnvelope numbers the pool's next delivery.
@@ -210,7 +212,16 @@ func formatEventBody(event Event) string {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		pairs = append(pairs, k+":"+event.Data[k])
+		v := event.Data[k]
+		// supervisord sends expected as 0 or 1; listeners int() it.
+		if k == "expected" {
+			if v == "true" {
+				v = "1"
+			} else if v == "false" {
+				v = "0"
+			}
+		}
+		pairs = append(pairs, k+":"+v)
 	}
 	return strings.Join(pairs, " ")
 }

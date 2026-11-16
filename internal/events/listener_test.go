@@ -525,3 +525,13 @@ func waitForState(t *testing.T, lp *ListenerPool, index int, expected ListenerSt
 		}
 	}
 }
+
+// supervisord sends expected as 0 or 1, and listeners int() it.
+func TestFormatEventBodyExpected(t *testing.T) {
+	for v, want := range map[string]string{"true": "expected:1", "false": "expected:0"} {
+		body := formatEventBody(Event{Type: ProcessStateExited, Data: map[string]string{"name": "w", "expected": v}})
+		if !strings.Contains(body, want) {
+			t.Errorf("expected=%s: body %q, want %s", v, body, want)
+		}
+	}
+}
