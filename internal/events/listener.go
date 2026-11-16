@@ -215,9 +215,10 @@ func formatEventBody(event Event) string {
 		v := event.Data[k]
 		// supervisord sends expected as 0 or 1; listeners int() it.
 		if k == "expected" {
-			if v == "true" {
+			switch v {
+			case "true":
 				v = "1"
-			} else if v == "false" {
+			case "false":
 				v = "0"
 			}
 		}
