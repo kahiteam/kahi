@@ -1298,20 +1298,28 @@
       "testing_steps": [
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): [supervisor] user = \"kahi\"; a program '/orphaner id' without user prints 'uid=1000 euid=1000 gid=1000' and groups containing 4",
         "e2e (non-root): [supervisor] user = \"x\"; stderr contains 'supervisor.user ignored: dropping privileges needs root (running as uid' and 'supervisor running'",
-        "container: user = \"nosuch\": the container exits 1, its logs contain 'user not found: nosuch', and cp of the socket path from the stopped container exits non-zero",
+        "container: user = \"nosuch\": the container exits 1, its logs contain 'user not found: nosuch' and not 'unix socket server started' (nothing was bound)",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): user = \"kahi:nosuch\": exit 1 with 'group not found: nosuch'",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): user = \"kahi:adm\": '/orphaner id' prints gid=4 and groups containing 1000 and 4",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): daemon -u app with [supervisor] user = \"kahi\": '/orphaner id' prints uid=1001 and logs contain 'kahi daemon -u app overrides supervisor.user'",
-        "container: socket file /run/kahi/kahi.sock (the daemon creates /run/kahi), logfile /run/kahi/kahi.log, pidfile /run/kahi/kahi.pid; after the drop 'exec --user 1000 /kahi ctl -s /run/kahi/kahi.sock status' exits 0 and '/orphaner stat' prints '1000 1000 0700' for the socket and the directory, '1000 1000' for the PID file and the log",
-        "container: runArgs --group-add 999; after the drop to kahi, '/orphaner id' groups do not contain 999",
-        "container: stop the container, then cp of /run/kahi/kahi.sock and /run/kahi/kahi.pid from the stopped container exits non-zero",
-        "Unit (injectable seam, extra check): an Lchown failure exits 1 with 'privilege drop failed: chown {path}: {error}' and setuid is never called",
-        "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): change user in kahi.toml (podman cp) and kahi ctl reload; logs contain 'supervisor.user change takes effect after restart'",
+        "container: [server.unix] file /run/kahi/kahi.sock (the daemon creates /run/kahi, mode 0700, before writing the PID file), -p /run/kahi/kahi.pid, logfile /run/kahi.log; after the drop 'exec --user 1000 /kahi ctl -s /run/kahi/kahi.sock status' exits 0 and '/orphaner stat' prints '1000 1000 0700' for the socket and the directory, '1000 1000' for the PID file and the log",
+        "container: runArgs --group-add 999; after the drop to kahi, '/orphaner id' groups are [4 1000] and do not contain 999",
+        "container: while running, cp of /run/kahi/kahi.sock and /run/kahi/kahi.pid exits 0 (control: cp of a socket succeeds without writing a file); stop the container, then the same cp exits non-zero and the log has no 'cannot remove at shutdown'. With the socket and PID file in root-owned /run, the stop logs exactly one 'cannot remove at shutdown' line naming both and they stay",
+        "Unit (injectable seam): TestDropPrivilegesChownFailure: an Lchown failure exits 1 with 'privilege drop failed: chown {path}: {error}' and setgroups/setgid/setuid are never called",
+        "container: change user in kahi.toml (podman cp) and kahi ctl reload run as kahi; the daemon log contains 'supervisor.user change takes effect after restart'",
         "e2e: kahi migrate on '[supervisord] user=kahi' prints 'user = \"kahi\"' under [supervisor]",
         "container: user = \"1000:adm\" gives '/orphaner id' uid=1000 gid=4 with groups containing 1000 and 4; user = \"1000\" gives gid=1000 with groups containing 4",
         "container: root, no -u and no user key: logs contain 'running as root without user config; set [supervisor] user or kahi daemon -u <user> for privilege dropping' once; [supervisor] user = \"kahi\" alone gives no root warning"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestRootContainer_SupervisorUser",
+        "TestRootContainer_SupervisorUserLeftovers",
+        "TestRootContainer_SupervisorUserForms",
+        "TestSupervisorUser_NonRootIgnored",
+        "TestMigrate_SupervisordUser",
+        "TestRootContainer_WarningOnceAndUserSwitch"
+      ],
       "dependencies": [
         "privilege-dropping",
         "process-user-names",
@@ -1400,9 +1408,9 @@
       "title": "Root Detection Warning on Startup",
       "description": "Log a warning when Kahi starts as root without explicit user configuration for privilege dropping.",
       "testing_steps": [
-        "Start Kahi as root (container) without -u and verify the warning 'running as root without user config; consider kahi daemon -u <user> for privilege dropping' is logged once",
+        "Start Kahi as root (container) without -u or [supervisor] user and verify the warning 'running as root without user config; set [supervisor] user or kahi daemon -u <user> for privilege dropping' is logged once",
         "Start Kahi as non-root and verify no warning about root is logged",
-        "Start Kahi as root (container) with -u 65534 and verify no root warning is logged",
+        "Start Kahi as root (container) with -u 65534, and with only [supervisor] user = \"kahi\", and verify no root warning is logged",
         "Start Kahi as root (container) without -u, send SIGHUP, and verify the warning still appears exactly once",
         "Start Kahi as root (container) with -d and verify only the daemonized child logs the warning"
       ],
@@ -1411,7 +1419,8 @@
         "TestRootContainer_WarningOnceAndUserSwitch",
         "TestRootWarning_NotRoot",
         "TestRootContainer_UserFlagNoWarning",
-        "TestRootContainer_DaemonizeWarnsOnce"
+        "TestRootContainer_DaemonizeWarnsOnce",
+        "TestRootContainer_SupervisorUser"
       ],
       "dependencies": ["structured-logging", "privilege-dropping"]
     },

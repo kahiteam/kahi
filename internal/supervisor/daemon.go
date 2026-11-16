@@ -1,7 +1,9 @@
 package supervisor
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"math"
 	"os"
@@ -20,6 +22,7 @@ var (
 	setgroups = syscall.Setgroups
 	setgid    = syscall.Setgid
 	setuid    = syscall.Setuid
+	lchown    = os.Lchown
 )
 
 // WritePIDFile writes the current process PID to the given path.
@@ -43,6 +46,27 @@ func RemovePIDFile(path string) {
 	_ = os.Remove(path)
 }
 
+// RemoveRuntimeFiles removes the PID file at shutdown and checks that the
+// socket, which closing its listener unlinks, is gone too. A daemon that
+// dropped privileges may lack write access to their directories: what is
+// left gets one warning, and the next start as root replaces it (FUNC-045).
+func RemoveRuntimeFiles(pidPath, socketPath string, logger *slog.Logger) {
+	var left []string
+	if pidPath != "" {
+		if err := os.Remove(pidPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			left = append(left, pidPath)
+		}
+	}
+	if socketPath != "" {
+		if _, err := os.Lstat(socketPath); err == nil {
+			left = append(left, socketPath)
+		}
+	}
+	if len(left) > 0 {
+		logger.Warn("cannot remove at shutdown; the next start replaces them", "paths", left)
+	}
+}
+
 // ValidateUnprivileged checks that the daemon is not running as root
 // when it shouldn't be. Returns a descriptive error for permission issues.
 func ValidateUnprivileged(logger *slog.Logger) error {
@@ -62,23 +86,40 @@ func socketDir(socketPath string) string {
 	return filepath.Dir(socketPath)
 }
 
-// ValidateSocketPermissions checks that the socket directory is writable.
+// ValidateSocketPermissions checks that the socket directory is writable,
+// creating it when missing (see PrepareSocketDir).
 func ValidateSocketPermissions(socketPath string) error {
+	_, err := PrepareSocketDir(socketPath)
+	return err
+}
+
+// PrepareSocketDir makes sure the socket's directory exists and is writable.
+// A missing directory whose parent exists is created, one level only, mode
+// 0700; created reports that, so the directory is handed over with the
+// socket on a privilege drop (FUNC-044, ADR-045).
+func PrepareSocketDir(socketPath string) (created bool, err error) {
 	dir := socketDir(socketPath)
 
 	// The per-user default directory is created here, owner-only (FUNC-044).
 	if dir == config.PrivateSocketDir() {
-		if err := ensurePrivateDir(dir); err != nil {
-			return err
+		if created, err = ensurePrivateDir(dir); err != nil {
+			return false, err
+		}
+	} else if err := os.Mkdir(dir, 0o700); err == nil {
+		created = true
+	} else if !errors.Is(err, fs.ErrExist) {
+		// Mkdir fails with ENOENT when the parent is missing too.
+		if _, serr := os.Stat(dir); serr != nil {
+			return false, fmt.Errorf("socket directory does not exist: %s: %w", dir, serr)
 		}
 	}
 
 	info, err := os.Stat(dir)
 	if err != nil {
-		return fmt.Errorf("socket directory does not exist: %s: %w", dir, err)
+		return false, fmt.Errorf("socket directory does not exist: %s: %w", dir, err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("socket path parent is not a directory: %s", dir)
+		return false, fmt.Errorf("socket path parent is not a directory: %s", dir)
 	}
 
 	// SEC-024 / ADR-027: check write permission by creating an exclusive,
@@ -89,7 +130,7 @@ func ValidateSocketPermissions(socketPath string) error {
 	// path including a symlink, under a name that cannot be predicted.
 	f, err := os.CreateTemp(dir, ".kahi_perm_check*")
 	if err != nil {
-		return fmt.Errorf("permission denied: cannot create socket in %s: %w", dir, err)
+		return false, fmt.Errorf("permission denied: cannot create socket in %s: %w", dir, err)
 	}
 	// A failed close or remove is not fatal: the directory is already proven
 	// writable and the leftover file has a random name nothing else opens.
@@ -97,7 +138,7 @@ func ValidateSocketPermissions(socketPath string) error {
 	_ = f.Close()
 	_ = os.Remove(f.Name())
 
-	return nil
+	return created, nil
 }
 
 // CheckPIDFile refuses to start when path names a PID that is still alive,
@@ -155,9 +196,67 @@ func idToInt(kind string, id uint32) (int, error) {
 	return int(id), nil
 }
 
+// DropPlan is the privilege drop the daemon will make (FUNC-045).
+type DropPlan struct {
+	Drop     bool                // drop privileges after binding
+	Cred     userspec.Credential // the resolved target user
+	Override bool                // kahi daemon -u overrides [supervisor] user
+	Warning  string              // [supervisor] user ignored as non-root
+}
+
+// PlanDrop resolves the user to drop to, before anything is bound. kahi
+// daemon -u wins over [supervisor] user and fails closed as non-root; the
+// config key only warns as non-root, because one config file is often
+// shared between root and non-root runs. An unknown user is an error.
+func PlanDrop(flagUser, cfgUser string) (DropPlan, error) {
+	if flagUser != "" {
+		cred, err := CheckPrivilegeDrop(flagUser)
+		if err != nil {
+			return DropPlan{}, err
+		}
+		return DropPlan{Drop: true, Cred: cred, Override: cfgUser != ""}, nil
+	}
+	if cfgUser == "" {
+		return DropPlan{}, nil
+	}
+	if uid := getuid(); uid != 0 {
+		return DropPlan{Warning: fmt.Sprintf("supervisor.user ignored: dropping privileges needs root (running as uid %d)", uid)}, nil
+	}
+	cred, err := resolveDropUser(cfgUser)
+	if err != nil {
+		return DropPlan{}, err
+	}
+	return DropPlan{Drop: true, Cred: cred}, nil
+}
+
 // DropPrivileges switches the process to the resolved user: its uid, primary
-// gid and supplementary groups (SEC-010).
-func DropPrivileges(cred userspec.Credential, logger *slog.Logger) error {
+// gid and supplementary groups (SEC-010). First it hands the files the
+// daemon created as root (socket, socket directory when created, PID file,
+// daemon log) to that user with lchown, which never follows a symlink, so
+// kahi ctl works as the user and shutdown can remove them (ADR-045). Empty
+// paths are skipped.
+func DropPrivileges(cred userspec.Credential, paths []string, logger *slog.Logger) error {
+	uid, err := idToInt("uid", cred.Uid)
+	if err != nil {
+		return err
+	}
+	gid, err := idToInt("gid", cred.Gid)
+	if err != nil {
+		return err
+	}
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		if err := lchown(p, uid, gid); err != nil {
+			var pe *fs.PathError
+			if errors.As(err, &pe) {
+				err = pe.Err
+			}
+			return fmt.Errorf("privilege drop failed: chown %s: %v", p, err)
+		}
+	}
+
 	ids := cred.Groups
 	if len(ids) == 0 {
 		ids = []uint32{cred.Gid}
@@ -170,15 +269,6 @@ func DropPrivileges(cred userspec.Credential, logger *slog.Logger) error {
 		}
 		groups[i] = v
 	}
-	uid, err := idToInt("uid", cred.Uid)
-	if err != nil {
-		return err
-	}
-	gid, err := idToInt("gid", cred.Gid)
-	if err != nil {
-		return err
-	}
-
 	// Replace the supplementary groups before changing gid/uid so the dropped
 	// process keeps none of the launching user's memberships (e.g. docker,
 	// wheel, which can be root-equivalent), only the target user's own.
@@ -203,17 +293,19 @@ func DropPrivileges(cred userspec.Credential, logger *slog.Logger) error {
 // unless it is a real directory owned by this user that group and others
 // cannot reach: another user who created it first could otherwise replace or
 // impersonate the socket in it.
-func ensurePrivateDir(dir string) error {
-	if err := os.Mkdir(dir, 0o700); err != nil && !os.IsExist(err) {
-		return fmt.Errorf("cannot create socket directory %s: %w", dir, err)
+func ensurePrivateDir(dir string) (created bool, err error) {
+	if err := os.Mkdir(dir, 0o700); err == nil {
+		created = true
+	} else if !os.IsExist(err) {
+		return false, fmt.Errorf("cannot create socket directory %s: %w", dir, err)
 	}
 	info, err := os.Lstat(dir)
 	if err != nil {
-		return fmt.Errorf("socket directory %s: %w", dir, err)
+		return false, fmt.Errorf("socket directory %s: %w", dir, err)
 	}
 	st, ok := info.Sys().(*syscall.Stat_t)
 	if !info.IsDir() || !ok || int(st.Uid) != os.Geteuid() || info.Mode().Perm()&0o077 != 0 {
-		return fmt.Errorf("socket directory %s must be a directory owned by uid %d with mode 0700; remove it or set [server.unix] file", dir, os.Geteuid())
+		return false, fmt.Errorf("socket directory %s must be a directory owned by uid %d with mode 0700; remove it or set [server.unix] file", dir, os.Geteuid())
 	}
-	return nil
+	return created, nil
 }

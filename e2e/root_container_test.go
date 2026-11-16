@@ -220,10 +220,11 @@ func (c *rootContainer) waitOutputWithin(program, prefix string, timeout time.Du
 
 const (
 	rootWarning    = "running as root without user config"
-	rootWarningUse = "consider kahi daemon -u "
+	rootWarningUse = "set [supervisor] user or kahi daemon -u "
 )
 
-// As root without -u, the daemon warns exactly once, naming -u; a reload
+// As root without a user, the daemon warns exactly once, naming
+// [supervisor] user and -u; a reload
 // does not warn again. A program with user = "65534:65534" runs as that
 // user while the daemon stays root (FUNC-048, FUNC-047, #248).
 func TestRootContainer_WarningOnceAndUserSwitch(t *testing.T) {
@@ -278,9 +279,9 @@ autorestart = "false"
 	}
 	logs := c.logs()
 	if n := strings.Count(logs, rootWarning); n != 1 || !strings.Contains(logs, rootWarningUse) {
-		t.Fatalf("%d root warnings, want 1 naming -u; logs:\n%s", n, logs)
+		t.Fatalf("%d root warnings, want 1 naming [supervisor] user and -u; logs:\n%s", n, logs)
 	}
-	if strings.Contains(logs, "consider using a non-root user") || strings.Contains(logs, "[supervisor] user") {
+	if strings.Contains(logs, "consider using a non-root user") || strings.Contains(logs, "consider kahi daemon -u") {
 		t.Errorf("logs carry an obsolete root warning:\n%s", logs)
 	}
 

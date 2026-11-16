@@ -133,13 +133,13 @@ func TestValidateSocketPermissionsNoWritePermission(t *testing.T) {
 func TestEnsurePrivateDir(t *testing.T) {
 	base := t.TempDir()
 	dir := filepath.Join(base, "kahi-x")
-	if err := ensurePrivateDir(dir); err != nil {
+	if _, err := ensurePrivateDir(dir); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
 		t.Fatalf("created with %v, want 0700", fi.Mode().Perm())
 	}
-	if err := ensurePrivateDir(dir); err != nil {
+	if _, err := ensurePrivateDir(dir); err != nil {
 		t.Fatalf("existing 0700 dir: %v", err)
 	}
 
@@ -156,7 +156,7 @@ func TestEnsurePrivateDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, bad := range []string{open, link, file} {
-		if err := ensurePrivateDir(bad); err == nil || !strings.Contains(err.Error(), "must be a directory owned by uid") {
+		if _, err := ensurePrivateDir(bad); err == nil || !strings.Contains(err.Error(), "must be a directory owned by uid") {
 			t.Errorf("%s: err %v, want it refused", filepath.Base(bad), err)
 		}
 	}

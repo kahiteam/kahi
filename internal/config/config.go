@@ -28,6 +28,7 @@ type SupervisorConfig struct {
 	Nocleanup       bool   `toml:"nocleanup"`
 	ShutdownTimeout int    `toml:"shutdown_timeout"`
 	Umask           string `toml:"umask"`
+	User            string `toml:"user"` // drop to this user after binding (FUNC-045)
 
 	// MinfdsSet and MinprocsSet report whether the key is in the file: an
 	// explicit value that cannot be met is an error, a default only warns
