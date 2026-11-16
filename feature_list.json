@@ -1272,11 +1272,11 @@
       "id": "privilege-dropping",
       "category": "functional",
       "title": "Optional Privilege Dropping to Configured User",
-      "description": "When running as root, optionally drop to a configured user after startup, with supplementary group support.",
+      "description": "When running as root, drop to a configured user (name or uid, optionally :group) after startup, with the user's supplementary groups from /etc/group.",
       "testing_steps": [
-        "Start as root (container) with kahi daemon -u 65534 and verify the daemon drops to uid and gid 65534 after startup ('dropped privileges') and its programs run as 65534 (a [supervisor] user key is #159)",
-        "Start as non-root with kahi daemon -u 65534 and verify exit 1 with 'kahi daemon -u 65534: dropping privileges needs root (running as uid {uid})' before the socket is bound; a user name is refused the same way with 'cannot resolve user ...' (names are #159)",
-        "Verify the supplementary groups are reset to the target gid alone: a program of the dropped daemon reports groups=[65534] (groups from /etc/group are #159)",
+        "Start as root (container) with kahi daemon -u kahi (a name from /etc/passwd) and verify the daemon drops to kahi's uid and passwd primary gid after startup ('dropped privileges' with uid 1000, gid 1000) and its programs run as kahi",
+        "Start as non-root with kahi daemon -u 65534 and verify exit 1 with 'kahi daemon -u 65534: dropping privileges needs root (running as uid {uid})' before the socket is bound; an unknown user is refused with 'user not found: {name}', and as root (container) -u nosuch and -u kahi:nosuch exit 1 with 'user not found: nosuch' / 'group not found: nosuch' and no socket",
+        "Verify the supplementary groups are replaced by the target user's own list: started with --group-add 999 and -u kahi (kahi listed in adm), a program reports groups=[4 1000]; -u 65534 without a group entry gives groups=[65534]",
         "Verify privilege drop happens after socket creation but before processing requests: the log shows the socket bound, then 'dropped privileges', then 'supervisor running'",
         "Unit (supervisor): TestDropPrivilegesResetsSupplementaryGroups (SEC-010): the drop calls setgroups, then setgid, then setuid, through the injectable syscall seam",
         "Unit (supervisor): TestDropPrivilegesAbortsOnSetgroupsFailure (SEC-010): a setgroups failure aborts startup rather than continuing with a partial privilege drop"
@@ -1284,7 +1284,9 @@
       "passes": true,
       "verified_by": [
         "TestRootContainer_UserFlagNoWarning",
-        "TestPrivilegeDrop_UserFlagRefusedBeforeBind"
+        "TestPrivilegeDrop_UserFlagRefusedBeforeBind",
+        "TestRootContainer_DropToName",
+        "TestRootContainer_DropUnknownUser"
       ],
       "dependencies": ["unprivileged-operation"]
     },
@@ -1322,14 +1324,14 @@
       "id": "per-process-user-switching",
       "category": "functional",
       "title": "Per-Process User Switching",
-      "description": "When running as root, start child processes as specified users with uid, gid, and supplementary group configuration.",
+      "description": "When running as root, start child processes as specified users (name or uid, optionally :group) with uid, gid and supplementary groups.",
       "testing_steps": [
-        "Configure user='65534:65534' on a process, run Kahi as root (container), and verify the child runs with that uid and gid while the daemon stays root (numeric uid[:gid]; user names are #159)",
+        "Configure user='65534:65534' on a process, run Kahi as root (container), and verify the child runs with that uid and gid while the daemon stays root; names are covered by process-user-names",
         "Configure user on a process, run Kahi as non-root, and verify the warning 'user switching unavailable (not running as root), running as current user' is logged and the child runs as the daemon's user",
-        "Configure, as root, a user that cannot be applied (a name, until #159) and verify the process goes FATAL with 'cannot apply user ...' and never runs",
-        "Verify user switching sets uid and gid and clears the supplementary groups before exec (the child reports groups=[]); groups from /etc/group are #159",
+        "Configure, as root, a user that does not resolve (www-data in an image without /etc/passwd, startretries = 0) and verify the process goes FATAL with 'spawn error: user not found: www-data' and never runs",
+        "Verify user switching sets uid, gid and the supplementary groups before exec: without a passwd entry the child reports groups=[65534], never the daemon's list",
         "Unit (process): TestSpawnAttachesCredentialWhenRoot (SEC-009): a configured process user attaches SysProcAttr.Credential to the spawn config",
-        "Unit (process): TestSpawnFailsClosedOnInvalidUser and TestSpawnIgnoresUserWhenNotRoot (SEC-009): a credential that cannot be applied fails the spawn closed, never starting the child with the supervisor's privileges"
+        "Unit (process): TestSpawnFailsClosedOnInvalidUser, TestSpawnUnknownUserIsSpawnError and TestSpawnIgnoresUserWhenNotRoot (SEC-009): a user that does not resolve fails the spawn closed, never starting the child with the supervisor's privileges"
       ],
       "passes": true,
       "verified_by": [
@@ -1345,16 +1347,22 @@
       "description": "Per-process user names and supplementary groups via os/user in pure-Go mode (FUNC-046, SEC-010, #159, ADR-046); resolution errors are spawn errors.",
       "testing_steps": [
         "container: user = \"www-data\"; '/orphaner id' prints 'uid=33 euid=33 gid=33 egid=33 groups=[33]'",
-        "container: user = \"nosuch\", startretries = 1; logs contain exactly 2 'spawn error: user not found: nosuch' lines and kahi ctl status (exec) shows FATAL",
+        "container: user = \"nosuch\", startretries = 1; the logs contain exactly 2 'spawn failed' lines with 'user not found: nosuch', and kahi ctl status (exec) shows FATAL with 'spawn error: user not found: nosuch'",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): user = \"www-data:nosuch\" gives 'spawn error: group not found: nosuch'",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): user = \"4242\" (no passwd entry); '/orphaner id' prints 'uid=4242 euid=4242 gid=4242 egid=4242 groups=[4242]'",
         "container: startretries = 10, user = \"late\"; after the first 'spawn error: user not found: late' the test podman-cp's a replacement /etc/passwd adding late:x:1002:1002; the program reaches RUNNING (kahi ctl status via exec) within 30 s",
         "e2e (non-root): user = \"nosuchuser\"; stderr contains 'programs.p.user: user not found: nosuchuser' before 'supervisor running'",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): daemon -u kahi and a program with user = \"www-data\"; logs contain 'user switching unavailable (not running as root), running as current user' and '/orphaner id' prints uid=1000",
         "container (ADR-037 helper, /etc/passwd and /etc/group from the files map: kahi 1000:1000, app 1001:1001, www-data 33:33; adm 4 lists kahi): daemon -u kahi and a program with user = \"kahi\"; no non-root warning for it and '/orphaner id' prints uid=1000",
-        "e2e (non-root): change user to \"nosuchuser2\" and kahi ctl reload; output contains 'programs.p.user: user not found: nosuchuser2'"
+        "e2e (non-root): change user to \"nosuchuser2\" and kahi ctl reload; its stderr contains 'programs.p.user: user not found: nosuchuser2'"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestRootContainer_ProcessUserNames",
+        "TestRootContainer_ProcessUserCreatedLater",
+        "TestRootContainer_DropToName",
+        "TestProcessUser_UnknownUserWarning"
+      ],
       "dependencies": ["per-process-user-switching", "backoff-retries"]
     },
     {

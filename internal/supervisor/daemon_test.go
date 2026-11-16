@@ -83,40 +83,6 @@ func TestValidateUnprivileged(t *testing.T) {
 	}
 }
 
-func TestResolveUser(t *testing.T) {
-	uid, gid, err := resolveUser("1000:1000")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if uid != 1000 || gid != 1000 {
-		t.Fatalf("uid=%d, gid=%d, want 1000:1000", uid, gid)
-	}
-}
-
-func TestResolveUserNoGroup(t *testing.T) {
-	uid, gid, err := resolveUser("1000")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if uid != 1000 || gid != 1000 {
-		t.Fatalf("uid=%d, gid=%d, want 1000:1000", uid, gid)
-	}
-}
-
-func TestResolveUserInvalid(t *testing.T) {
-	_, _, err := resolveUser("notanumber")
-	if err == nil {
-		t.Fatal("expected error for invalid uid")
-	}
-}
-
-func TestResolveUserInvalidGid(t *testing.T) {
-	_, _, err := resolveUser("1000:abc")
-	if err == nil {
-		t.Fatal("expected error for invalid gid")
-	}
-}
-
 func TestValidateUnprivilegedAsRoot(t *testing.T) {
 	original := getuid
 	getuid = func() int { return 0 }
@@ -164,44 +130,6 @@ func TestValidateSocketPermissionsNoWritePermission(t *testing.T) {
 	}
 }
 
-func TestDropPrivilegesEmptyUser(t *testing.T) {
-	if err := DropPrivileges("", testLogger()); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestDropPrivilegesInvalidUser(t *testing.T) {
-	err := DropPrivileges("notanumber", testLogger())
-	if err == nil {
-		t.Fatal("expected error for invalid user")
-	}
-}
-
-func TestSplitUserGroupVariants(t *testing.T) {
-	tests := []struct {
-		input string
-		want  []string
-	}{
-		{"1000", []string{"1000"}},
-		{"1000:1000", []string{"1000", "1000"}},
-		{":1000", []string{"", "1000"}},
-	}
-	for _, tt := range tests {
-		got := splitUserGroup(tt.input)
-		if len(got) != len(tt.want) {
-			t.Fatalf("splitUserGroup(%q) = %v, want %v", tt.input, got, tt.want)
-		}
-		for i := range got {
-			if got[i] != tt.want[i] {
-				t.Fatalf("splitUserGroup(%q)[%d] = %q, want %q", tt.input, i, got[i], tt.want[i])
-			}
-		}
-	}
-}
-
-// The per-user socket directory is created owner-only, and an existing one
-// is accepted only if it is a real directory of this user with mode 0700
-// (FUNC-044).
 func TestEnsurePrivateDir(t *testing.T) {
 	base := t.TempDir()
 	dir := filepath.Join(base, "kahi-x")

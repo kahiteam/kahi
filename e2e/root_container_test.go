@@ -191,14 +191,20 @@ func (c *rootContainer) output(program string) []string {
 // returns that line.
 func (c *rootContainer) waitOutput(program, prefix string) string {
 	c.t.Helper()
-	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+	return c.waitOutputWithin(program, prefix, 20*time.Second)
+}
+
+// waitOutputWithin is waitOutput with its own timeout.
+func (c *rootContainer) waitOutputWithin(program, prefix string, timeout time.Duration) string {
+	c.t.Helper()
+	for deadline := time.Now().Add(timeout); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
 		for _, l := range c.output(program) {
 			if strings.HasPrefix(l, prefix) {
 				return l
 			}
 		}
 	}
-	c.t.Fatalf("%s printed no %q line after 20s; logs:\n%s", program, prefix, c.logs())
+	c.t.Fatalf("%s printed no %q line after %v; logs:\n%s", program, prefix, timeout, c.logs())
 	return ""
 }
 
@@ -240,19 +246,22 @@ autorestart = "false"
 	if got := c.waitOutput("rootid", "uid="); !strings.HasPrefix(got, "uid=0 euid=0 gid=0 egid=0 ") {
 		t.Errorf("rootid: %q, want uid 0", got)
 	}
-	if got := c.waitOutput("userid", "uid="); got != "uid=65534 euid=65534 gid=65534 egid=65534 groups=[]" {
-		t.Errorf("userid: %q, want uid and gid 65534 with no supplementary groups", got)
+	// Without a passwd entry the child gets its gid as its only group, never
+	// the daemon's list (SEC-010).
+	if got := c.waitOutput("userid", "uid="); got != "uid=65534 euid=65534 gid=65534 egid=65534 groups=[65534]" {
+		t.Errorf("userid: %q, want uid and gid 65534 with groups [65534]", got)
 	}
-	// A user that cannot be applied fails closed: the program is FATAL and
-	// never runs with the daemon's root privileges (names are #159).
+	// A user that does not resolve (no /etc/passwd in the image) fails
+	// closed: a spawn error, FATAL here with startretries = 0, and the
+	// program never runs with the daemon's root privileges (FUNC-046).
 	var status string
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
 		if status = c.run("exec", c.name, "/kahi", "ctl", "-s", "/run/kahi.sock", "status", "badname"); strings.Contains(status, "FATAL") {
 			break
 		}
 	}
-	if !strings.Contains(status, "FATAL") || !strings.Contains(status, `cannot apply user "www-data"`) {
-		t.Errorf("badname status %q, want FATAL naming the user it cannot apply", status)
+	if !strings.Contains(status, "FATAL") || !strings.Contains(status, "spawn error: user not found: www-data") {
+		t.Errorf("badname status %q, want FATAL with 'spawn error: user not found: www-data'", status)
 	}
 	if len(c.output("badname")) != 0 {
 		t.Errorf("badname printed output, so it ran: %q", c.output("badname"))
@@ -367,15 +376,15 @@ func TestRootWarning_NotRoot(t *testing.T) {
 }
 
 // As non-root, kahi daemon -u is refused before anything is bound, with a
-// clear message; so is a user name (names are #159).
+// clear message; so is a user that does not exist.
 func TestPrivilegeDrop_UserFlagRefusedBeforeBind(t *testing.T) {
 	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("running as root")
 	}
 	for flag, want := range map[string]string{
-		"65534":    fmt.Sprintf("kahi daemon -u 65534: dropping privileges needs root (running as uid %d)\n", os.Getuid()),
-		"www-data": "cannot resolve user \"www-data\": invalid uid: www-data\n",
+		"65534":           fmt.Sprintf("kahi daemon -u 65534: dropping privileges needs root (running as uid %d)\n", os.Getuid()),
+		"nosuch-kahi-e2e": "user not found: nosuch-kahi-e2e\n",
 	} {
 		dir := shortDir(t)
 		socket := filepath.Join(dir, "kahi.sock")

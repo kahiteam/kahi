@@ -18,6 +18,7 @@ import (
 	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/events"
 	"github.com/kahiteam/kahi/internal/logging"
+	"github.com/kahiteam/kahi/internal/userspec"
 	"golang.org/x/sys/unix"
 )
 
@@ -300,14 +301,19 @@ func (p *Process) spawnLocked() error {
 	// running as root, the resolved credential is attached to the spawn so the
 	// child runs as the configured user -- a configured user is never silently
 	// started with the supervisor's privileges. An unparseable user fails closed.
+	// The user is resolved at each spawn, so a passwd change applies at the
+	// next start; an unknown user or group is a spawn error (BACKOFF, then
+	// FATAL), never a start with the supervisor's privileges (ADR-046).
 	if p.config.User != "" {
 		if geteuid() == 0 {
 			attr, err := BuildSysProcAttr(p.config.User)
 			if err != nil {
-				return p.failSpawnLocked(fmt.Errorf("cannot apply user %q: %w", p.config.User, err))
+				return p.failSpawnLocked(err)
 			}
 			spawnCfg.SysProcAttr = attr
-		} else {
+		} else if c, err := resolveUser(p.config.User); err != nil || !c.Matches(os.Getuid(), os.Getgid()) {
+			// A user that is already the daemon's own identity (after
+			// kahi daemon -u) needs no switch and gets no warning.
 			p.logger.Warn("user switching unavailable (not running as root), running as current user", "user", p.config.User)
 		}
 	}
@@ -753,7 +759,7 @@ func (p *Process) restartAfterExit() {
 const defaultCleanPath = "/usr/local/bin:/usr/bin:/bin"
 
 func (p *Process) buildEnv() []string {
-	targetUID, differs := p.privilegeDiffers()
+	target, differs := p.privilegeDiffers()
 
 	var env []string
 	switch {
@@ -762,7 +768,7 @@ func (p *Process) buildEnv() []string {
 		// supervisor's environment by default. Start from a minimal base
 		// regardless of the clean_environment flag; explicit inherit_environment
 		// opts back into full inheritance.
-		env = p.minimalBaseEnv(targetUID)
+		env = p.minimalBaseEnv(target)
 	case p.config.CleanEnvironment:
 		// Only supervisor vars + explicit environment.
 		env = []string{}
@@ -787,31 +793,35 @@ func (p *Process) buildEnv() []string {
 }
 
 // privilegeDiffers reports whether the program's resolved per-process user
-// differs from the supervisor's own uid. It returns the target uid when a
-// per-process user is configured and parseable.
-func (p *Process) privilegeDiffers() (uint32, bool) {
-	cred, err := ParseCredential(p.config.User)
-	if err != nil || cred == nil {
-		return 0, false
+// differs from the supervisor's own uid. It returns the resolved user when a
+// per-process user is configured and resolves.
+func (p *Process) privilegeDiffers() (userspec.Credential, bool) {
+	if p.config.User == "" {
+		return userspec.Credential{}, false
+	}
+	cred, err := resolveUser(p.config.User)
+	if err != nil {
+		return userspec.Credential{}, false
 	}
 	// Compare as int64 so the uint32 uid is never narrowed to a smaller int
 	// (which would overflow on 32-bit platforms).
-	if int64(cred.Uid) == int64(os.Getuid()) {
-		return cred.Uid, false
-	}
-	return cred.Uid, true
+	return cred, int64(cred.Uid) != int64(os.Getuid())
 }
 
 // minimalBaseEnv builds the SEC-016 minimal base for a privilege-differentiated
-// child: PATH plus HOME resolved for the target user.
-func (p *Process) minimalBaseEnv(uid uint32) []string {
+// child: PATH plus HOME of the target user.
+func (p *Process) minimalBaseEnv(target userspec.Credential) []string {
 	path := os.Getenv("PATH")
 	if path == "" {
 		path = defaultCleanPath
 	}
+	home := target.Home
+	if home == "" {
+		home = p.resolveHome(target.Uid)
+	}
 	return []string{
 		"PATH=" + path,
-		"HOME=" + p.resolveHome(uid),
+		"HOME=" + home,
 	}
 }
 

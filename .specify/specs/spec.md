@@ -2262,7 +2262,7 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 - Changing `[supervisor] user` on reload logs "supervisor.user change takes effect after restart"
 - `kahi migrate` maps supervisord `[supervisord] user` to `[supervisor] user`
 
-**Until #159 (v0.3.0):** the user comes only from `kahi daemon -u uid[:gid]`, numeric. A name fails with "cannot resolve user \"{name}\": invalid uid: {name}". The supplementary groups are reset to the target gid alone.
+**Until the second half of #159 (step 5b):** `kahi daemon -u` takes names, groups and the user's supplementary groups as above, but `[supervisor] user` is not read yet (it is reported as an unknown config key), and the socket, PID file and daemon log are not handed over to the target user.
 
 **Dependencies:** FUNC-044, FUNC-047, FUNC-067, FUNC-068, FUNC-046 (name resolver, for the `[supervisor] user` part)
 
@@ -2301,7 +2301,6 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 - User switching sets uid, gid, and supplementary groups before exec
 - A name resolving to a different uid than the daemon's counts as privilege-differentiated for the clean environment (SEC-016)
 
-**Until #159 (v0.3.0):** `user` takes a numeric uid[:gid]. As root, a value that cannot be applied makes the process FATAL with "spawn error: cannot apply user \"{user}\": ..." and it never runs; the supplementary groups are cleared.
 
 **Dependencies:** FUNC-045
 
@@ -4397,8 +4396,8 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 | Error Condition                              | Expected Behavior     | User-Facing Message                 |
 | -------------------------------------------- | --------------------- | ----------------------------------- |
-| Configured user cannot be resolved           | Process goes to FATAL | "user not found: {name}"            |
-| Credential cannot be applied at spawn (fail) | Process goes to FATAL | "cannot apply user {name}: {error}" |
+| Configured user cannot be resolved           | Spawn error: BACKOFF, then FATAL after startretries (FUNC-046) | "spawn error: user not found: {name}"  |
+| Configured group cannot be resolved          | Spawn error: BACKOFF, then FATAL after startretries (FUNC-046) | "spawn error: group not found: {name}" |
 
 **Edge Cases:**
 
@@ -4440,7 +4439,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 **Edge Cases:**
 
 - Call order is setgroups, then setgid, then setuid; reversing leaves a window of residual privilege
-- The new list is the target user's groups as initgroups(3) computes them (the passwd primary gid plus every `/etc/group` entry naming the user), plus the override gid of a `user:group` value. Groups the target user is itself listed in are kept, gid 0 included; only the daemon's inherited list is discarded (v0.3.0, #159, decided 2026-11-14). Until #159 it is the target gid only. The purpose is unchanged: the daemon's inherited groups are always discarded, never kept
+- The new list is the target user's groups as initgroups(3) computes them (the passwd primary gid plus every `/etc/group` entry naming the user), plus the override gid of a `user:group` value. Groups the target user is itself listed in are kept, gid 0 included; only the daemon's inherited list is discarded (v0.3.0, #159, decided 2026-11-14). The purpose is unchanged: the daemon's inherited groups are always discarded, never kept
 - The same list is used for children switched to a user (FUNC-046), so a child never keeps the daemon's groups either
 
 **Dependencies:** FUNC-045
