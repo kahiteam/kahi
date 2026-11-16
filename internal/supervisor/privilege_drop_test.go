@@ -109,3 +109,22 @@ func TestCheckPrivilegeDrop(t *testing.T) {
 		t.Errorf("root, name: %+v, %v", cred, err)
 	}
 }
+
+// setuid and friends take int: an id that does not fit a 32-bit int is
+// refused before any call, on every target.
+func TestDropPrivilegesRejectsIDsAboveMaxInt32(t *testing.T) {
+	for _, cred := range []userspec.Credential{
+		{Uid: 1 << 31, Gid: 1000, Groups: []uint32{1000}},
+		{Uid: 1000, Gid: 1 << 31, Groups: []uint32{1000}},
+		{Uid: 1000, Gid: 1000, Groups: []uint32{1000, 4294967294}},
+	} {
+		calls := stubDrop(t)
+		err := DropPrivileges(cred, testLogger())
+		if err == nil || !strings.Contains(err.Error(), "out of range") {
+			t.Errorf("%+v: error = %v, want out of range", cred, err)
+		}
+		if len(*calls) != 0 {
+			t.Errorf("%+v: calls = %v, want none", cred, *calls)
+		}
+	}
+}

@@ -54,6 +54,9 @@ func linuxBinaries(t *testing.T) string {
 
 // rootContainer is a running container whose PID 1 is "kahi daemon -c
 // /kahi.toml", as root.
+// buildMu serializes image builds (see startRootContainer).
+var buildMu sync.Mutex
+
 type rootContainer struct {
 	t        *testing.T
 	rt, name string
@@ -118,7 +121,14 @@ func startRootContainer(t *testing.T, files map[string]string, runArgs, daemonAr
 	}
 	c := &rootContainer{t: t, rt: rt, name: fmt.Sprintf("kahi-root-e2e-%d", time.Now().UnixNano())}
 	tag := "localhost/" + c.name
-	c.run("build", "-q", "-t", tag, "-f", filepath.Join(dir, "Containerfile"), dir)
+	// Concurrent podman builds race on removing their build containers
+	// ("deleting build container ...: identifier is not a container"), so
+	// builds run one at a time; the containers still run in parallel.
+	func() {
+		buildMu.Lock()
+		defer buildMu.Unlock() // c.run may Fatalf (Goexit runs defers)
+		c.run("build", "-q", "-t", tag, "-f", filepath.Join(dir, "Containerfile"), dir)
+	}()
 	t.Cleanup(func() { _ = exec.Command(rt, "rmi", "-f", tag).Run() })
 	c.run(append(append(append([]string{"run", "-d", "--name", c.name}, runArgs...), tag), daemonArgs...)...)
 	t.Cleanup(func() { _ = exec.Command(rt, "rm", "-f", c.name).Run() })

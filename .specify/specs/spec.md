@@ -2250,6 +2250,7 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 
 - Accepted forms: `name`, `uid`, `name:group`, `name:gid`, `uid:gid`, `uid:group`. A numeric value is a uid even when a user with that name exists
 - A numeric uid with a passwd entry takes that entry's primary gid and groups; without one the gid defaults to the uid and the supplementary groups are reset to the gid alone (the pre-#159 behaviour)
+- The daemon drop refuses a uid, gid or supplementary gid above 2147483647 with "privilege drop failed: {uid|gid} {n} out of range" before any syscall: setuid, setgid and setgroups take a C int, which is 32 bits on the 32-bit release targets (CodeQL go/incorrect-integer-conversion). Per-process users are not limited: the child credential is passed as uint32
 - Lookups are pure Go (no CGO, Architectural Constraint 5): `/etc/passwd` and `/etc/group` only, no NSS, LDAP or SSSD
 - The explicit `-u` flag fails closed as non-root while the config key only warns, because one config file is often shared between root and non-root runs (decided 2026-11-14)
 - The user is resolved and validated before anything is bound, so a bad name never leaves a socket behind

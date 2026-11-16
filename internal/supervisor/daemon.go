@@ -3,6 +3,7 @@ package supervisor
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -144,17 +145,39 @@ func CheckPrivilegeDrop(user string) (userspec.Credential, error) {
 	return cred, nil
 }
 
+// idToInt converts a uid or gid for the setuid/setgid/setgroups calls, which
+// take int. On 32-bit targets an id above MaxInt32 would wrap negative, so it
+// is refused on every target alike.
+func idToInt(kind string, id uint32) (int, error) {
+	if id > math.MaxInt32 {
+		return 0, fmt.Errorf("privilege drop failed: %s %d out of range", kind, id)
+	}
+	return int(id), nil
+}
+
 // DropPrivileges switches the process to the resolved user: its uid, primary
 // gid and supplementary groups (SEC-010).
 func DropPrivileges(cred userspec.Credential, logger *slog.Logger) error {
-	groups := make([]int, len(cred.Groups))
-	for i, g := range cred.Groups {
-		groups[i] = int(g)
+	ids := cred.Groups
+	if len(ids) == 0 {
+		ids = []uint32{cred.Gid}
 	}
-	if len(groups) == 0 {
-		groups = []int{int(cred.Gid)}
+	groups := make([]int, len(ids))
+	for i, g := range ids {
+		v, err := idToInt("gid", g)
+		if err != nil {
+			return err
+		}
+		groups[i] = v
 	}
-	uid, gid := int(cred.Uid), int(cred.Gid)
+	uid, err := idToInt("uid", cred.Uid)
+	if err != nil {
+		return err
+	}
+	gid, err := idToInt("gid", cred.Gid)
+	if err != nil {
+		return err
+	}
 
 	// Replace the supplementary groups before changing gid/uid so the dropped
 	// process keeps none of the launching user's memberships (e.g. docker,
