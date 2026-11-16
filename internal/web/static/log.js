@@ -99,10 +99,11 @@
     queued = [];
   }
 
-  function showBacklog(bytes) {
+  function showBacklog(bytes, truncated) {
     var lines = new TextDecoder().decode(bytes).split('\n');
-    // A full buffer starts mid-line: drop everything up to the first newline.
-    if (bytes.byteLength === 65536) lines.shift(); // read size below
+    // Bytes that start after the beginning of the output may start
+    // mid-line: drop everything up to the first newline.
+    if (truncated) lines.shift();
     pending = lines.pop() || '';
     var tail = lines.slice(-100); // the last 100 complete lines
     for (var i = 0; i < tail.length; i++) renderLine(tail[i]);
@@ -170,7 +171,10 @@
       } else if (xhr.response.byteLength === 0) {
         setStatus('No output captured for this stream yet');
       } else {
-        showBacklog(xhr.response);
+        showBacklog(
+          xhr.response,
+          xhr.getResponseHeader('X-Kahi-Log-Truncated') === 'true',
+        );
       }
       finishBacklog();
     };

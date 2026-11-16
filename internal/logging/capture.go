@@ -2,10 +2,12 @@ package logging
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -20,6 +22,38 @@ import (
 // to an attacker-chosen file.
 const logFileOpenFlags = os.O_CREATE | os.O_WRONLY | os.O_APPEND | syscall.O_NOFOLLOW
 
+// Ring buffer sizes for *_capture_maxbytes (FUNC-086).
+const (
+	DefaultBufferSize = 64 << 10
+	MinBufferSize     = 1 << 10
+	MaxBufferSize     = 16 << 20
+)
+
+// ParseBufferSize parses a *_capture_maxbytes value, which takes the
+// *_logfile_maxbytes syntax; unset ("") returns 0, the default (FUNC-086).
+func ParseBufferSize(s string) (int, error) {
+	if strings.TrimSpace(s) == "" {
+		return 0, nil
+	}
+	n, err := parseSize(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid size %s", s)
+	}
+	if n < MinBufferSize || n > MaxBufferSize {
+		return 0, errors.New("must be between 1KB and 16MB")
+	}
+	return int(n), nil
+}
+
+// bufferSize returns the ring buffer size for a configured size; unset (0)
+// means the default.
+func bufferSize(n int) int {
+	if n <= 0 {
+		return DefaultBufferSize
+	}
+	return n
+}
+
 // CaptureConfig configures process output capture.
 type CaptureConfig struct {
 	ProcessName    string
@@ -28,6 +62,7 @@ type CaptureConfig struct {
 	RedirectStderr bool
 	StripAnsi      bool
 	MaxBytes       string // max file size before rotation (e.g. "10KB")
+	BufferSize     int    // ring buffer size in bytes; 0 means DefaultBufferSize
 	Backups        int    // number of rotated backup files to keep
 	Logger         *slog.Logger
 }
@@ -58,7 +93,7 @@ var generations atomic.Uint64
 func NewCaptureWriter(cfg CaptureConfig) (*CaptureWriter, error) {
 	cw := &CaptureWriter{
 		config:     cfg,
-		ringBuf:    NewRingBuffer(64 * 1024), // 64KB ring buffer
+		ringBuf:    NewRingBuffer(bufferSize(cfg.BufferSize)),
 		generation: strconv.FormatUint(uint64(time.Now().UnixNano())+generations.Add(1), 10),
 	}
 	if err := cw.EnsureOpen(); err != nil {
@@ -167,9 +202,18 @@ func (cw *CaptureWriter) AddHandler(h func(name string, data []byte)) {
 
 // ReadTail returns the last n bytes from the ring buffer.
 func (cw *CaptureWriter) ReadTail(n int) []byte {
+	data, _ := cw.Tail(n)
+	return data
+}
+
+// Tail returns the last n bytes from the ring buffer and whether they start
+// after the beginning of the captured output, where the first line may be
+// cut (FUNC-079).
+func (cw *CaptureWriter) Tail(n int) (data []byte, truncated bool) {
 	cw.mu.Lock()
 	defer cw.mu.Unlock()
-	return cw.ringBuf.Read(n)
+	data = cw.ringBuf.Read(n)
+	return data, int64(len(data)) < cw.total
 }
 
 // Close closes the log file if open.

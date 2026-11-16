@@ -49,7 +49,9 @@ type ProcessManager interface {
 	Restart(name string) error
 	Signal(name string, sig string) error
 	WriteStdin(name string, data []byte) error
-	ReadLog(name string, stream string, offset int64, length int) ([]byte, error)
+	// ReadLog returns the last length bytes of a stream's in-memory buffer
+	// and whether they start after the beginning of the captured output.
+	ReadLog(name string, stream string, offset int64, length int) ([]byte, bool, error)
 	// ReadLogFrom returns what a stream's in-memory buffer holds after
 	// offset, the offset it starts at, the total captured and the stream's
 	// generation, for resuming a log stream (ADR-033).
@@ -561,25 +563,29 @@ func (s *Server) handleReadLog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	offset, _ := strconv.ParseInt(r.URL.Query().Get("offset"), 10, 64)
-	const maxReadLength = 65536 // 64KB, matches ring buffer capacity
+	const maxReadLength = 16777216 // 16MB, the largest capture buffer (FUNC-086, ADR-048)
 	length := 1600
 	if l := r.URL.Query().Get("length"); l != "" {
 		if v, err := strconv.Atoi(l); err == nil && v > 0 {
 			if v > maxReadLength {
-				writeError(w, http.StatusBadRequest, "length exceeds maximum of 65536", "BAD_REQUEST")
+				writeError(w, http.StatusBadRequest, "length exceeds maximum of 16777216", "BAD_REQUEST")
 				return
 			}
 			length = v
 		}
 	}
 
-	data, err := s.processes.ReadLog(name, stream, offset, length)
+	data, truncated, err := s.processes.ReadLog(name, stream, offset, length)
 	if err != nil {
 		statusCode := classifyError(err)
 		writeError(w, statusCode, err.Error(), errorCode(statusCode))
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	// The first line may be cut: the Web UI drops it (FUNC-079).
+	if truncated {
+		w.Header().Set("X-Kahi-Log-Truncated", "true")
+	}
 	_, _ = w.Write(data)
 }
 

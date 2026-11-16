@@ -18,6 +18,8 @@ func TestParseSize(t *testing.T) {
 		{"100", 100},
 		{"0", 0},
 		{"", 0},
+		// Overflowing int64 is an error (0), not a wrapped size.
+		{"9999999999999GB", 0},
 	}
 
 	for _, tt := range tests {
@@ -121,5 +123,16 @@ func TestRotateIfNeeded(t *testing.T) {
 	}
 	if _, err := os.Stat(logPath + ".1"); err != nil {
 		t.Fatal("expected rotation to create .1 backup")
+	}
+}
+
+func TestCheckSizeRejectsOverflow(t *testing.T) {
+	for _, s := range []string{"9999999999999GB", "99999999999999999MB", "9223372036854775807KB"} {
+		if err := CheckSize(s); err == nil {
+			t.Errorf("CheckSize(%q) = nil, want an error", s)
+		}
+	}
+	if err := CheckSize("8589934591GB"); err != nil {
+		t.Errorf("CheckSize(8589934591GB) = %v, want nil (fits int64)", err)
 	}
 }

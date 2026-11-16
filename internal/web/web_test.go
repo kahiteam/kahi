@@ -241,7 +241,7 @@ func TestLogViewerAssetOrder(t *testing.T) {
 	if es < 0 || open < 0 || read < 0 || es >= open || open >= read {
 		t.Errorf("want new EventSource( (%d) < addEventListener('open' (%d) < length=65536 (%d)", es, open, read)
 	}
-	requireContains(t, "log.js", js, "slice(-100)", "=== 65536", `split('\n')`, ".pop()")
+	requireContains(t, "log.js", js, "slice(-100)", "getResponseHeader('X-Kahi-Log-Truncated') === 'true'", "if (truncated) lines.shift()", `split('\n')`, ".pop()")
 }
 
 // A long-open viewer must not grow without bound: the oldest lines go.

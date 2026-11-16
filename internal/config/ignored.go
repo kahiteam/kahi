@@ -41,12 +41,6 @@ func ignoredSettingWarnings(cfg *Config) []string {
 	sort.Strings(names)
 	for _, name := range names {
 		p := cfg.Programs[name]
-		if p.StdoutCaptureMaxbytes != "" {
-			ignored(fmt.Sprintf("programs.%s.stdout_capture_maxbytes (the capture buffer is fixed at 64 KB)", name))
-		}
-		if p.StderrCaptureMaxbytes != "" {
-			ignored(fmt.Sprintf("programs.%s.stderr_capture_maxbytes (the capture buffer is fixed at 64 KB)", name))
-		}
 		if p.StdoutSyslog {
 			ignored(fmt.Sprintf("programs.%s.stdout_syslog", name))
 		}
@@ -70,6 +64,9 @@ func redirectWarnings(cfg *Config) []string {
 		p := cfg.Programs[name]
 		if p.RedirectStderr && p.StderrEventsEnabled {
 			warnings = append(warnings, fmt.Sprintf("programs.%s.stderr_events_enabled has no effect with redirect_stderr", name))
+		}
+		if p.RedirectStderr && p.StderrCaptureMaxbytes != "" {
+			warnings = append(warnings, fmt.Sprintf("programs.%s.stderr_capture_maxbytes has no effect with redirect_stderr", name))
 		}
 	}
 	return warnings

@@ -386,7 +386,7 @@ After `init.sh && task setup && task all`:
 
 **Context:** Container-first means file logging is disabled by default. Log tailing (`kahi ctl tail -f`, SSE streaming) needs a data source even without files.
 
-**Decision:** Each process maintains an in-memory ring buffer (default 1MB) for stdout and stderr. Tailing reads from the buffer. File logging, when enabled, is a separate destination.
+**Decision:** Each process maintains an in-memory ring buffer (default 64KB, 1KB..16MB per stream with `*_capture_maxbytes`, ADR-048) for stdout and stderr. Tailing reads from the buffer. File logging, when enabled, is a separate destination.
 
 **Alternatives Considered:**
 
@@ -395,9 +395,9 @@ After `init.sh && task setup && task all`:
 
 **Consequences:**
 
-- ~1MB memory per process per stream (stdout + stderr = ~2MB per process)
-- 100 processes = ~200MB overhead for ring buffers (acceptable)
-- Configurable via `stdout_capture_maxbytes`
+- 64KB memory per process per stream by default (stdout + stderr = 128KB per process); size x 2 x numprocs with `*_capture_maxbytes`
+- 100 processes = ~12.5MB overhead at the default
+- Configurable via `stdout_capture_maxbytes` and `stderr_capture_maxbytes` (FUNC-086, ADR-048)
 - Ring buffer also feeds the Web UI log viewer
 
 ---
@@ -428,8 +428,8 @@ CodeQL's `BarrierGuard` recognizes only relational comparisons (`<`, `<=`, `>`, 
 
 **Consequences:**
 
-- `Read()` returns nil instead of clamping for `n > 64KB`. This is unreachable from the API path (handler already bounds length) but guards against direct callers.
-- API handler returns HTTP 400 for `length > 64KB` instead of silently clamping. Explicit validation at the boundary.
+- `Read()` returns nil instead of clamping for `n > maxReadAlloc` (64KB, 16MB since ADR-048). This is unreachable from the API path (handler already bounds length) but guards against direct callers.
+- API handler returns HTTP 400 for `length > maxReadLength` (65536, 16777216 since ADR-048) instead of silently clamping. Explicit validation at the boundary.
 - Pattern applies to any future `make()` call where the size flows from user input: use early-return guards, not clamps or `min()`.
 - Go's `min()`/`max()` builtins are NOT CodeQL barriers as of CodeQL 2.24.1.
 
@@ -1344,9 +1344,9 @@ Spec changes on `docs/v030-spec` (2026-11-14/15), decisions recorded in the spec
 
 **Context:** FUNC-086/082 (#113, V18). The ring is fixed at 64 KB and the read API refuses `length > 65536` with an early-return guard that CodeQL needs (ADR-008).
 
-**Decision:** `CaptureConfig` gets a per-stream size from `*_capture_maxbytes` (1 KB..16 MB, `logfile_maxbytes` syntax). The API guard keeps its early-return shape with the constant raised to 16777216; the ring's `Read(n)` returns at most what it holds, so a `length` above the buffer size returns the whole buffer. The Web UI keeps requesting 65536.
+**Decision:** `CaptureConfig.BufferSize` carries a per-stream size from `*_capture_maxbytes` (1 KB..16 MB, `logfile_maxbytes` syntax), parsed by `logging.ParseBufferSize`; unset (0) means `DefaultBufferSize` (64 KB). Config validation reports "programs.{name}.{key}: invalid size {value}" or "programs.{name}.{key}: must be between 1KB and 16MB". The ring's `maxRingBufSize` and `maxReadAlloc` are both raised to 16 MB with the early-return guard unchanged; the API guard keeps its early-return shape with the constant raised to 16777216; the ring's `Read(n)` returns at most what it holds, so a `length` above the buffer size returns the whole buffer. The SSE replay (`ReadFrom`) reads up to the whole buffer in one call, which the raised `maxReadAlloc` allows. The Web UI keeps requesting 65536. Because a buffer below 64 KB returns fewer bytes that still start mid-line, `ProcessManager.ReadLog` also reports whether the bytes start after the beginning of the captured output (`CaptureWriter.Tail`), the handler sends `X-Kahi-Log-Truncated: true` then, and `log.js` drops the first line on that header instead of on a 65536-byte response (decided 2026-11-15).
 
-**Consequences:** No new CodeQL finding; the Web UI works with any buffer size.
+**Consequences:** No new CodeQL finding; the Web UI works with any buffer size. A size change on reload is a spawn setting (`needsRestart`), so the program restarts with a new, empty buffer.
 
 ### ADR-049: Metrics Wiring
 

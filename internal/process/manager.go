@@ -204,6 +204,13 @@ func (m *Manager) publishGroup(t events.EventType, name string, procs []string) 
 	})
 }
 
+// bufferSize returns the ring buffer size for a *_capture_maxbytes value; 0
+// (the default) when unset. Validation has rejected any other bad value.
+func bufferSize(v string) int {
+	n, _ := logging.ParseBufferSize(v)
+	return n
+}
+
 // createProgramLocked creates the processes of one program, in group, with
 // their capture writers, and returns their names. Callers hold m.mu.
 func (m *Manager) createProgramLocked(progName string, progCfg config.ProgramConfig, group string) []string {
@@ -221,6 +228,7 @@ func (m *Manager) createProgramLocked(progName string, progCfg config.ProgramCon
 			StripAnsi:   inst.Config.StripAnsi,
 			MaxBytes:    inst.Config.StdoutLogfileMaxbytes,
 			Backups:     inst.Config.StdoutLogfileBackups,
+			BufferSize:  bufferSize(inst.Config.StdoutCaptureMaxbytes),
 			Logger:      m.logger,
 		})
 		// A log file that cannot be opened fails each start until it can
@@ -239,6 +247,7 @@ func (m *Manager) createProgramLocked(progName string, progCfg config.ProgramCon
 				StripAnsi:   inst.Config.StripAnsi,
 				MaxBytes:    inst.Config.StderrLogfileMaxbytes,
 				Backups:     inst.Config.StderrLogfileBackups,
+				BufferSize:  bufferSize(inst.Config.StderrCaptureMaxbytes),
 				Logger:      m.logger,
 			})
 			if err != nil {
@@ -778,20 +787,22 @@ func (m *Manager) WriteStdin(name string, data []byte) error {
 	return p.WriteStdin(data)
 }
 
-// ReadLog reads from process log ring buffer.
-func (m *Manager) ReadLog(name string, stream string, offset int64, length int) ([]byte, error) {
+// ReadLog reads the last length bytes of a process stream's ring buffer and
+// reports whether they start after the beginning of the captured output.
+func (m *Manager) ReadLog(name string, stream string, offset int64, length int) ([]byte, bool, error) {
 	_, err := m.GetProcess(name)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	m.mu.RLock()
 	cw, ok := m.captures[name+":"+stream]
 	m.mu.RUnlock()
 	if !ok || cw == nil {
-		return []byte{}, nil
+		return []byte{}, false, nil
 	}
-	return cw.ReadTail(length), nil
+	data, truncated := cw.Tail(length)
+	return data, truncated, nil
 }
 
 // logPublisher returns a pipe handler that captures data, hands it with its

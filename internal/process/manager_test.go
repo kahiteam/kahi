@@ -297,15 +297,15 @@ func TestManagerReadLog(t *testing.T) {
 		},
 	})
 
-	data, err := mgr.ReadLog("web", "stdout", 0, 100)
+	data, truncated, err := mgr.ReadLog("web", "stdout", 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(data) != 0 {
-		t.Fatalf("expected empty data, got %d bytes", len(data))
+	if len(data) != 0 || truncated {
+		t.Fatalf("expected empty data, got %d bytes, truncated %v", len(data), truncated)
 	}
 
-	_, err = mgr.ReadLog("nonexistent", "stdout", 0, 100)
+	_, _, err = mgr.ReadLog("nonexistent", "stdout", 0, 100)
 	if err == nil {
 		t.Fatal("expected error for nonexistent process")
 	}

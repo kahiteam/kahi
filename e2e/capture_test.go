@@ -187,12 +187,14 @@ startsecs = 0
 	if b := waitFor("evict", "abbbbbbbbbb"); len(b) != 65536 || !strings.HasSuffix(string(b), "abbbbbbbbbb") {
 		t.Errorf("evict buffer %d bytes, ends %q, want 65536 ending in 10 b", len(b), string(b[max(0, len(b)-12):]))
 	}
-	// 70000 bytes written: a read returns exactly the last 65536; a longer
-	// read is refused (api-input-bounds).
+	// 70000 bytes written: a read returns exactly the last 65536, and so does
+	// a longer one: the default buffer holds 64 KB (FUNC-086).
 	if b := waitFor("big", "x"); len(b) != 65536 || strings.Trim(string(b), "x") != "" {
 		t.Errorf("big buffer %d bytes, want 65536 x", len(b))
 	}
-	read("big", "stdout", "1000000").wantError(t, "length 1000000", http.StatusBadRequest, "length exceeds maximum of 65536", "BAD_REQUEST")
+	if r := read("big", "stdout", "1000000"); r.status != http.StatusOK || len(r.body) != 65536 {
+		t.Errorf("big length=1000000: %d, %d bytes; want 200 with 65536", r.status, len(r.body))
+	}
 
 	// Each stream has its own buffer.
 	deadline := time.Now().Add(5 * time.Second)

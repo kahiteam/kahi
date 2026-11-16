@@ -3,8 +3,8 @@ package logging
 import "sync"
 
 const (
-	maxRingBufSize = 1 << 20 // 1MB upper bound for buffer creation
-	maxReadAlloc   = 1 << 16 // 64KB upper bound for read allocation
+	maxRingBufSize = 1 << 24 // 16MB upper bound for buffer creation (FUNC-086)
+	maxReadAlloc   = 1 << 24 // 16MB upper bound for read allocation
 )
 
 // RingBuffer is a fixed-size circular buffer for process output.

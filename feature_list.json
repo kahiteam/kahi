@@ -2125,7 +2125,7 @@
         "TestLogViewerUnknownProcess: GET /ui/log/nosuch/stdout with 'nosuch' absent from ListWeb and verify 404 with a body containing 'No such process: nosuch'",
         "TestLogViewerNameEscaping: with a process named a\"b in the lister, GET /ui/log/a%22b/stdout and verify the body contains data-name=\"a&#34;b\" and no unescaped a\"b inside an attribute",
         "TestLogViewerAssetSGR: read the embedded log.js and verify it contains the class prefixes 'sgr-fg-' and 'sgr-bold', the range checks '>= 30 && ' with '<= 37' and '>= 90 && ' with '<= 97', an escape-sequence regexp starting with '\\x1b' or '\\u001b', and 'textContent'",
-        "TestLogViewerAssetOrder: in the embedded log.js, verify the index of 'new EventSource(' is lower than the index of \"addEventListener('open'\", which is lower than the index of 'length=65536'; and that it contains 'slice(-100)', '=== 65536' (the full-buffer first-line drop), and \"split('\\n')\" with '.pop()' (the pending partial line kept across chunks)",
+        "TestLogViewerAssetOrder: in the embedded log.js, verify the index of 'new EventSource(' is lower than the index of \"addEventListener('open'\", which is lower than the index of 'length=65536'; and that it contains 'slice(-100)', \"getResponseHeader('X-Kahi-Log-Truncated') === 'true'\" and 'if (truncated) lines.shift()' (the first-line drop on a truncated backlog), and \"split('\\n')\" with '.pop()' (the pending partial line kept across chunks)",
         "TestLogViewerAssetLineCap: verify log.js contains 'MAX_LINES = 5000' and removes the oldest rendered line with removeChild( when over the cap",
         "TestLogViewerAssetMessages: verify log.js contains 'No output captured for this stream yet', 'No such process: ' and 'Failed to load log: ' and '.close()' (the stream is closed when the backlog read returns 404)",
         "TestLogViewerAssetEncoding: verify every line of log.js containing '/api/v1/processes/' also contains 'encodeURIComponent('",
@@ -2200,10 +2200,10 @@
       "id": "process-output-ring-buffer",
       "category": "functional",
       "title": "In-Memory Process Output Ring Buffer",
-      "description": "Keep a fixed 64 KB in-memory ring buffer per process per stream (stdout/stderr) for log tailing and streaming without file logging, evicting the oldest data; configurable size is #113 (v0.3.0).",
+      "description": "Keep an in-memory ring buffer per process per stream (stdout/stderr) for log tailing and streaming without file logging, evicting the oldest data; 64 KB by default, sized per program with *_capture_maxbytes (configurable-capture-buffer).",
       "testing_steps": [
         "With default config and no log file, write 'hello' and verify 'kahi ctl tail web' prints it from the ring buffer",
-        "Write 70000 bytes to stdout and verify GET /api/v1/processes/web/log/stdout?length=65536 returns exactly the last 65536 bytes, and ?length=1000000 is refused with 400 'length exceeds maximum of 65536'",
+        "Write 70000 bytes to stdout and verify GET /api/v1/processes/web/log/stdout?length=65536 returns exactly the last 65536 bytes, and ?length=1000000 returns the whole 65536-byte default buffer with 200",
         "Write 65536 bytes of 'a' then 10 bytes of 'b' and verify the buffer ends with the 10 'b' bytes and holds 65536 bytes",
         "Write different text to stdout and stderr and verify each stream's log read returns only its own text",
         "Remove the program by reload and verify GET /api/v1/processes/web/log/stdout returns 404 'no such process: web'",
@@ -2547,15 +2547,16 @@
       "title": "API Input Bounds Validation (CWE-770)",
       "description": "Add defense-in-depth bounds checking for user-controlled allocation sizes in the log read API path. Resolves CodeQL alert go/uncontrolled-allocation-size.",
       "testing_steps": [
-        "Verify handleReadLog() in internal/api/api.go rejects a length above 65536 with 400 before calling ReadLog()",
-        "Verify RingBuffer.Read(n) in internal/logging/ringbuf.go clamps n to rb.size before the make() call",
-        "Verify GET /api/v1/processes/{name}/log/stdout?length=999999999 returns 400 with 'length exceeds maximum of 65536'",
+        "Verify handleReadLog() in internal/api/api.go rejects a length above 16777216 with 400 before calling ReadLog(), keeping the early-return guard shape (ADR-008, ADR-048)",
+        "Verify RingBuffer.Read(n) in internal/logging/ringbuf.go returns nil for n above maxReadAlloc (16MB) and clamps n to rb.size before the make() call",
+        "Verify GET /api/v1/processes/{name}/log/stdout?length=999999999 and ?length=16777217 return 400 with 'length exceeds maximum of 16777216'",
         "Verify GET /api/v1/processes/{name}/log/stdout?length=-5 uses default length of 1600",
         "Verify GET /api/v1/processes/{name}/log/stdout (no length param) uses default length of 1600",
         "Verify existing unit tests in ringbuf_test.go still pass after the change",
         "Verify CodeQL alert go/uncontrolled-allocation-size no longer triggers on the modified code"
       ],
       "passes": true,
+      "verified_by": ["TestCaptureBuffer_SizeAndCap"],
       "dependencies": ["process-output-ring-buffer", "rest-api-endpoints"]
     },
     {
@@ -3187,10 +3188,19 @@
         "e2e: \"100\" or \"32MB\": daemon exits 1 and stderr contains 'programs.p.stdout_capture_maxbytes: must be between 1KB and 16MB'; \"abc\": 'programs.p.stdout_capture_maxbytes: invalid size abc'",
         "e2e: after 10 KB of output, change the size and reload; the pid changes and a GET before the program prints again returns 0 bytes (program waits for stdin before printing)",
         "e2e: redirect_stderr = true with stderr_capture_maxbytes: stderr contains 'programs.p.stderr_capture_maxbytes has no effect with redirect_stderr'",
-        "e2e: 4KB buffer and 10 KB of output; GET /ui/process/p/log returns 200 and its log contains the final line and not the first line",
+        "e2e: 4KB buffers and 11000 bytes of output; GET /ui/log/p/stdout returns 200, and the backlog read log.js makes (?length=65536) returns 200 with the whole 4096-byte buffer, which contains the final line and not the first line and carries X-Kahi-Log-Truncated: true; a program whose whole output is held gets no such header, and log.js drops the first backlog line only on that header",
         "e2e: kahi migrate on 'stdout_capture_maxbytes=1MB' prints '# UNSUPPORTED: stdout_capture_maxbytes = 1MB (supervisord capture mode for PROCESS_COMMUNICATION events, not a buffer size)'"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestCaptureBuffer_SizeAndCap",
+        "TestRingBuffer_ReadsAndEviction",
+        "TestCaptureBuffer_InvalidSizeRefused",
+        "TestCaptureBuffer_ReloadRecreates",
+        "TestCaptureBuffer_RedirectWarning",
+        "TestCaptureBuffer_MigrateKeepsComment",
+        "TestWebUI_ScriptContents"
+      ],
       "dependencies": [
         "process-output-ring-buffer",
         "api-input-bounds-validation",
