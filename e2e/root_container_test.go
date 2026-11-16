@@ -123,13 +123,20 @@ func startRootContainer(t *testing.T, files map[string]string, runArgs, daemonAr
 	tag := "localhost/" + c.name
 	// Concurrent podman builds race on removing their build containers
 	// ("deleting build container ...: identifier is not a container"), so
-	// builds run one at a time; the containers still run in parallel.
+	// builds and image removals run one at a time; the containers still run
+	// in parallel.
 	func() {
 		buildMu.Lock()
 		defer buildMu.Unlock() // c.run may Fatalf (Goexit runs defers)
 		c.run("build", "-q", "-t", tag, "-f", filepath.Join(dir, "Containerfile"), dir)
 	}()
-	t.Cleanup(func() { _ = exec.Command(rt, "rmi", "-f", tag).Run() })
+	t.Cleanup(func() {
+		// Under the build lock too: removing an image while another build
+		// commits can drop a shared layer ("layer not known").
+		buildMu.Lock()
+		defer buildMu.Unlock()
+		_ = exec.Command(rt, "rmi", "-f", tag).Run()
+	})
 	c.run(append(append(append([]string{"run", "-d", "--name", c.name}, runArgs...), tag), daemonArgs...)...)
 	t.Cleanup(func() { _ = exec.Command(rt, "rm", "-f", c.name).Run() })
 	return c
@@ -220,10 +227,11 @@ func (c *rootContainer) waitOutputWithin(program, prefix string, timeout time.Du
 
 const (
 	rootWarning    = "running as root without user config"
-	rootWarningUse = "consider kahi daemon -u "
+	rootWarningUse = "set [supervisor] user or kahi daemon -u "
 )
 
-// As root without -u, the daemon warns exactly once, naming -u; a reload
+// As root without a user, the daemon warns exactly once, naming
+// [supervisor] user and -u; a reload
 // does not warn again. A program with user = "65534:65534" runs as that
 // user while the daemon stays root (FUNC-048, FUNC-047, #248).
 func TestRootContainer_WarningOnceAndUserSwitch(t *testing.T) {
@@ -278,9 +286,9 @@ autorestart = "false"
 	}
 	logs := c.logs()
 	if n := strings.Count(logs, rootWarning); n != 1 || !strings.Contains(logs, rootWarningUse) {
-		t.Fatalf("%d root warnings, want 1 naming -u; logs:\n%s", n, logs)
+		t.Fatalf("%d root warnings, want 1 naming [supervisor] user and -u; logs:\n%s", n, logs)
 	}
-	if strings.Contains(logs, "consider using a non-root user") || strings.Contains(logs, "[supervisor] user") {
+	if strings.Contains(logs, "consider using a non-root user") || strings.Contains(logs, "consider kahi daemon -u") {
 		t.Errorf("logs carry an obsolete root warning:\n%s", logs)
 	}
 

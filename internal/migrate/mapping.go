@@ -74,10 +74,10 @@ var supervisordMappings = map[string]OptionMapping{
 	"minprocs":  {Type: "int"},
 	"directory": {Type: "string"},
 	"umask":     {Type: "string"},
+	"user":      {Type: "string"}, // the drop user (#159)
 	// FUNC-023 is withdrawn: kahi never names child logs itself.
 	"nocleanup":   {Unsupported: true, Note: "has no effect: kahi does not auto-name child logs"},
 	"childlogdir": {Unsupported: true, Note: "has no effect: kahi does not auto-name child logs"},
-	"user":        {Unsupported: true},
 	"strip_ansi":  {Unsupported: true},
 	"environment": {Unsupported: true},
 	"identifier":  {Unsupported: true},

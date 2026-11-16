@@ -246,24 +246,6 @@ exitcodes = [0]
 	}
 }
 
-func TestRunPIDFileError(t *testing.T) {
-	cfg := &config.Config{
-		Supervisor: config.SupervisorConfig{ShutdownTimeout: 1},
-		Programs:   map[string]config.ProgramConfig{},
-	}
-
-	s := New(SupervisorConfig{
-		Config:  cfg,
-		PIDFile: "/nonexistent/dir/kahi.pid",
-		Logger:  discardLogger(),
-	})
-
-	err := s.Run()
-	if err == nil {
-		t.Fatal("expected error for invalid PID file path")
-	}
-}
-
 // logProgram is a program that is never started but has a stdout logfile,
 // so loading it gives the manager a capture writer with an open file.
 func logProgram(logPath string) config.ProgramConfig {

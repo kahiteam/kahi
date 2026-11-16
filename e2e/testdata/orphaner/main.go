@@ -98,6 +98,23 @@ func main() {
 				}
 			}
 		}
+	case "stat":
+		// "stat PATH": owner uid, gid and permission bits, without
+		// following a symlink, for the privilege-drop hand-over (ADR-045).
+		fi, err := os.Lstat(os.Args[2])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		st := fi.Sys().(*syscall.Stat_t)
+		fmt.Printf("%d %d %04o\n", st.Uid, st.Gid, fi.Mode().Perm())
+	case "cwd":
+		wd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Println(wd)
 	case "umask":
 		// Read, not set: /proc/self/status has "Umask:\t0022".
 		b, err := os.ReadFile("/proc/self/status")

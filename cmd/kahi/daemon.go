@@ -15,7 +15,6 @@ import (
 	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/logging"
 	"github.com/kahiteam/kahi/internal/supervisor"
-	"github.com/kahiteam/kahi/internal/userspec"
 	"github.com/kahiteam/kahi/internal/web"
 	"github.com/spf13/cobra"
 )
@@ -63,15 +62,6 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 		}()
 	}
 
-	// -u is resolved and checked before anything is bound: the user must
-	// exist and the daemon must run as root (FUNC-045, ADR-046).
-	var dropCred userspec.Credential
-	if userFlag != "" {
-		if dropCred, err = supervisor.CheckPrivilegeDrop(userFlag); err != nil {
-			return err
-		}
-	}
-
 	// Resolve config path. The daemon excludes the current directory from its
 	// default search order so a root daemon cannot be tricked into loading a
 	// ./kahi.toml planted in an attacker-writable working directory (SEC-017).
@@ -95,6 +85,17 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 	}
 	if err != nil {
 		return err
+	}
+
+	// The user to drop to (kahi daemon -u, else [supervisor] user) is
+	// resolved and checked before anything is bound: it must exist, and -u
+	// needs root while the key only warns as non-root (FUNC-045, ADR-046).
+	drop, err := supervisor.PlanDrop(userFlag, cfg.Supervisor.User)
+	if err != nil {
+		return err
+	}
+	if drop.Warning != "" {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", drop.Warning)
 	}
 
 	// -d: the foreground process checks the PID file, then starts the
@@ -145,30 +146,48 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 		return err
 	}
 
-	// Validate socket directory is writable.
+	if drop.Override {
+		logger.Info("kahi daemon -u " + userFlag + " overrides supervisor.user")
+	}
+
+	// The socket directory must be writable; a missing one is created, and
+	// handed over with the socket on a drop (FUNC-044, ADR-045).
 	socketPath := cfg.Server.Unix.File
+	var socketDirCreated string
 	if socketPath != "" {
-		if err := supervisor.ValidateSocketPermissions(socketPath); err != nil {
+		created, err := supervisor.PrepareSocketDir(socketPath)
+		if err != nil {
 			return err
+		}
+		if created {
+			socketDirCreated = filepath.Dir(socketPath)
 		}
 	}
 
 	// A running daemon named by the PID file is refused before the socket
-	// is touched; a stale file is replaced (FUNC-064).
+	// is touched; a stale file is replaced (FUNC-064). The PID file is
+	// written before the bind, so it exists when it is handed over on a
+	// drop (ADR-045), and removed again on every return from here on.
 	if err := supervisor.CheckPIDFile(pidfileFlag, logger); err != nil {
 		return err
 	}
+	if err := supervisor.WritePIDFile(pidfileFlag); err != nil {
+		return err
+	}
+	// The socket is checked only once this daemon has bound it: a failed
+	// bind may leave another daemon's socket in place.
+	var boundSocket string
+	defer func() { supervisor.RemoveRuntimeFiles(pidfileFlag, boundSocket, logger) }()
 
 	// Warn if running as root without privilege drop configured. Only the
 	// process that runs the supervisor warns: with -d that is the
 	// daemonized child, not the foreground parent above (FUNC-048, #248).
-	supervisor.RootWarning(logger, userFlag != "")
+	supervisor.RootWarning(logger, drop.Drop)
 
 	// Create supervisor.
 	sup := supervisor.New(supervisor.SupervisorConfig{
 		Config:     cfg,
 		ConfigPath: cfgPath,
-		PIDFile:    pidfileFlag,
 		Logger:     logger,
 
 		ReopenDaemonLog: daemonLog.Reopen,
@@ -202,28 +221,33 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 
 	server := api.NewServer(apiCfg, mgr, mgr, sup, sup, sup.Bus(), logger)
 
-	// Start listeners.
-	if socketPath != "" {
-		if err := server.StartUnix(socketPath, socketMode); err != nil {
-			return err
-		}
-	}
-	if cfg.Server.HTTP.Enabled {
-		if err := server.StartTCP(cfg.Server.HTTP.Listen); err != nil {
-			return err
-		}
-	}
 	// Bounded: an open SSE stream (a UI page, a log tail) never ends on its
-	// own, and Stop closes what is left once the timeout expires.
+	// own, and Stop closes what is left once the timeout expires. Registered
+	// before the listeners start, so a TCP bind failure still closes (and
+	// unlinks) the Unix socket; Stop skips a server that never started.
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), apiStopTimeout)
 		defer cancel()
 		_ = server.Stop(ctx)
 	}()
 
-	// Optional privilege drop (after binding sockets).
-	if userFlag != "" {
-		if err := supervisor.DropPrivileges(dropCred, logger); err != nil {
+	// Start listeners.
+	if socketPath != "" {
+		if err := server.StartUnix(socketPath, socketMode); err != nil {
+			return err
+		}
+		boundSocket = socketPath
+	}
+	if cfg.Server.HTTP.Enabled {
+		if err := server.StartTCP(cfg.Server.HTTP.Listen); err != nil {
+			return err
+		}
+	}
+	// Optional privilege drop, after binding sockets: the files the daemon
+	// created as root go to the target user first (ADR-045).
+	if drop.Drop {
+		paths := []string{socketPath, socketDirCreated, pidfileFlag, cfg.Supervisor.Logfile}
+		if err := supervisor.DropPrivileges(drop.Cred, paths, logger); err != nil {
 			return err
 		}
 	}

@@ -29,7 +29,7 @@ func stubDrop(t *testing.T) *[]string {
 func TestDropPrivilegesResetsSupplementaryGroups(t *testing.T) {
 	calls := stubDrop(t)
 	cred := userspec.Credential{Uid: 1000, Gid: 4, Groups: []uint32{4, 1000}}
-	if err := DropPrivileges(cred, testLogger()); err != nil {
+	if err := DropPrivileges(cred, nil, testLogger()); err != nil {
 		t.Fatalf("DropPrivileges: %v", err)
 	}
 	want := []string{"setgroups[4 1000]", "setgid 4", "setuid 1000"}
@@ -42,7 +42,7 @@ func TestDropPrivilegesResetsSupplementaryGroups(t *testing.T) {
 // keeps the inherited list: the target gid alone.
 func TestDropPrivilegesNoGroupsUsesGid(t *testing.T) {
 	calls := stubDrop(t)
-	if err := DropPrivileges(userspec.Credential{Uid: 65534, Gid: 65534}, testLogger()); err != nil {
+	if err := DropPrivileges(userspec.Credential{Uid: 65534, Gid: 65534}, nil, testLogger()); err != nil {
 		t.Fatal(err)
 	}
 	if (*calls)[0] != "setgroups[65534]" {
@@ -57,7 +57,7 @@ func TestDropPrivilegesAbortsOnSetgroupsFailure(t *testing.T) {
 	setgid = func(int) error { setgidCalled = true; return nil }
 	setuid = func(int) error { setuidCalled = true; return nil }
 
-	err := DropPrivileges(userspec.Credential{Uid: 1000, Gid: 2000, Groups: []uint32{2000}}, testLogger())
+	err := DropPrivileges(userspec.Credential{Uid: 1000, Gid: 2000, Groups: []uint32{2000}}, nil, testLogger())
 	if err == nil || err.Error() != "privilege drop failed: setgroups failed: boom" {
 		t.Fatalf("error = %v, want privilege drop failed: setgroups failed: boom", err)
 	}
@@ -69,7 +69,7 @@ func TestDropPrivilegesAbortsOnSetgroupsFailure(t *testing.T) {
 func TestDropPrivilegesSetuidFailure(t *testing.T) {
 	stubDrop(t)
 	setuid = func(int) error { return errors.New("EPERM") }
-	err := DropPrivileges(userspec.Credential{Uid: 1000, Gid: 1000, Groups: []uint32{1000}}, testLogger())
+	err := DropPrivileges(userspec.Credential{Uid: 1000, Gid: 1000, Groups: []uint32{1000}}, nil, testLogger())
 	if err == nil || !strings.HasPrefix(err.Error(), "privilege drop failed: setuid(1000) failed: EPERM") {
 		t.Fatalf("error = %v", err)
 	}
@@ -119,7 +119,7 @@ func TestDropPrivilegesRejectsIDsAboveMaxInt32(t *testing.T) {
 		{Uid: 1000, Gid: 1000, Groups: []uint32{1000, 4294967294}},
 	} {
 		calls := stubDrop(t)
-		err := DropPrivileges(cred, testLogger())
+		err := DropPrivileges(cred, nil, testLogger())
 		if err == nil || !strings.Contains(err.Error(), "out of range") {
 			t.Errorf("%+v: error = %v, want out of range", cred, err)
 		}

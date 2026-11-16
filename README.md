@@ -276,6 +276,8 @@ kahi init --stdout            # print to stdout
 # minfds = 1024                 # raise the NOFILE soft limit to at least this at startup
 # minprocs = 200                # raise the NPROC soft limit to at least this at startup
 # umask = ""                    # daemon umask, e.g. "0027" (default: inherited)
+# user = ""                    # drop to this user after binding (name or uid, optionally :group);
+#                               # needs root; kahi daemon -u takes precedence
 # nocleanup = false             # no effect: kahi does not auto-name child logs
 # shutdown_timeout = 30         # total seconds for an ordered shutdown, then SIGKILL; levels stop one after
 #                               # another, so keep it >= the sum of the largest stopwaitsecs in each level,
@@ -450,8 +452,13 @@ Kahi is secure by default:
   sites are rejected.
 - **Config secrets.** `GET /api/v1/config` returns a redacted view: passwords,
   process environment values, and webhook auth headers are masked.
-- **Privilege separation.** The daemon can drop privileges (`-u`), and per-process
-  `umask` and resource limits are applied at spawn. Users are names or numeric
+- **Privilege separation.** Started as root, the daemon can drop to a user after
+  binding (`[supervisor] user`, or `kahi daemon -u`, which wins). Before the
+  drop it hands the files it created as root (the control socket, a socket
+  directory it created, the PID file and its log) to that user, so `kahi ctl`
+  works as the user. As non-root, `[supervisor] user` is ignored with a warning
+  and `-u` is refused. Per-process `umask` and resource limits are applied at
+  spawn. Users are names or numeric
   ids, optionally with `:group`, and get their supplementary groups from
   `/etc/group` (Linux release binaries read `/etc/passwd` and `/etc/group` only:
   no NSS or LDAP). The daemon's own inherited groups are never kept. Per-process

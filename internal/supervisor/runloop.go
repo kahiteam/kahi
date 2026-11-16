@@ -37,7 +37,6 @@ type Supervisor struct {
 	pid1       bool
 	shutdownCh chan struct{}
 	doneCh     chan struct{}
-	pidFile    string
 
 	// reopenDaemonLog reopens the daemon's own log file; nil when logging
 	// to stdout.
@@ -61,7 +60,6 @@ type Supervisor struct {
 type SupervisorConfig struct {
 	Config     *config.Config
 	ConfigPath string
-	PIDFile    string
 	Logger     *slog.Logger
 	// ReopenDaemonLog reopens the daemon's own log file on SIGUSR2; nil when
 	// the daemon logs to stdout.
@@ -99,7 +97,6 @@ func New(cfg SupervisorConfig) *Supervisor {
 		logger:     cfg.Logger,
 		shutdownCh: make(chan struct{}),
 		doneCh:     make(chan struct{}),
-		pidFile:    cfg.PIDFile,
 
 		reopenDaemonLog: cfg.ReopenDaemonLog,
 		setLogLevel:     cfg.SetLogLevel,
@@ -115,12 +112,6 @@ func (s *Supervisor) Bus() *events.Bus { return s.bus }
 
 // Run starts the supervisor main loop. Blocks until shutdown.
 func (s *Supervisor) Run() error {
-	// Write PID file.
-	if err := WritePIDFile(s.pidFile); err != nil {
-		return err
-	}
-	defer RemovePIDFile(s.pidFile)
-
 	// Load processes from config.
 	s.manager.LoadConfig(s.config)
 
@@ -661,6 +652,7 @@ func (s *Supervisor) warnRestartOnly(oldCfg, newCfg *config.Config) {
 		{"umask", o.Umask != n.Umask},
 		{"minfds", o.Minfds != n.Minfds},
 		{"minprocs", o.Minprocs != n.Minprocs},
+		{"user", o.User != n.User},
 	} {
 		if c.changed {
 			s.logger.Warn("supervisor." + c.key + " change takes effect after restart")
