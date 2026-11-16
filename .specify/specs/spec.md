@@ -2302,7 +2302,6 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 - User switching sets uid, gid, and supplementary groups before exec
 - A name resolving to a different uid than the daemon's counts as privilege-differentiated for the clean environment (SEC-016)
 
-
 **Dependencies:** FUNC-045
 
 ---
@@ -4395,10 +4394,10 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Error Condition                              | Expected Behavior     | User-Facing Message                 |
-| -------------------------------------------- | --------------------- | ----------------------------------- |
-| Configured user cannot be resolved           | Spawn error: BACKOFF, then FATAL after startretries (FUNC-046) | "spawn error: user not found: {name}"  |
-| Configured group cannot be resolved          | Spawn error: BACKOFF, then FATAL after startretries (FUNC-046) | "spawn error: group not found: {name}" |
+| Error Condition                     | Expected Behavior                                              | User-Facing Message                    |
+| ----------------------------------- | -------------------------------------------------------------- | -------------------------------------- |
+| Configured user cannot be resolved  | Spawn error: BACKOFF, then FATAL after startretries (FUNC-046) | "spawn error: user not found: {name}"  |
+| Configured group cannot be resolved | Spawn error: BACKOFF, then FATAL after startretries (FUNC-046) | "spawn error: group not found: {name}" |
 
 **Edge Cases:**
 
