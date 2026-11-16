@@ -64,8 +64,10 @@ func TestSanitizedMasksWebhookHeadersAndURLUserinfo(t *testing.T) {
 	if strings.Contains(wh.URL, "hunter2") || strings.Contains(wh.URL, "user:") {
 		t.Fatalf("webhook URL userinfo not stripped: %s", wh.URL)
 	}
-	if !strings.Contains(wh.URL, "hooks.example.com/notify") {
-		t.Fatalf("webhook URL host/path lost during sanitization: %s", wh.URL)
+	// Scheme and host stay visible; the path, which can carry the secret,
+	// is masked.
+	if wh.URL != "https://hooks.example.com/***" {
+		t.Fatalf("webhook URL = %s, want https://hooks.example.com/***", wh.URL)
 	}
 }
 
@@ -82,8 +84,8 @@ func TestSanitizedHandlesNilAndEmptyMaps(t *testing.T) {
 	if got.Programs["p"].Environment != nil {
 		t.Fatal("nil environment should remain nil")
 	}
-	if got.Webhooks["w"].URL != "https://example.com" {
-		t.Fatalf("URL without userinfo should be unchanged: %s", got.Webhooks["w"].URL)
+	if got.Webhooks["w"].URL != "https://example.com/***" {
+		t.Fatalf("URL = %s, want scheme and host only", got.Webhooks["w"].URL)
 	}
 }
 

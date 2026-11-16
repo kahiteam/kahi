@@ -1,10 +1,5 @@
 package config
 
-import (
-	"net/url"
-	"strings"
-)
-
 // RedactMask is the fixed placeholder substituted for secret values in the
 // sanitized config view returned by the API.
 const RedactMask = "***"
@@ -43,7 +38,10 @@ func Sanitized(c *Config) *Config {
 		webhooks := make(map[string]WebhookConfig, len(c.Webhooks))
 		for name, w := range c.Webhooks {
 			w.Headers = maskValues(w.Headers)
-			w.URL = stripURLUserinfo(w.URL)
+			w.URL = redactWebhookURL(w.URL)
+			if w.RoutingKey != "" {
+				w.RoutingKey = RedactMask
+			}
 			webhooks[name] = w
 		}
 		out.Webhooks = webhooks
@@ -63,24 +61,4 @@ func maskValues(m map[string]string) map[string]string {
 		masked[k] = RedactMask
 	}
 	return masked
-}
-
-// stripURLUserinfo removes any user:password@ component from raw. If raw cannot
-// be parsed but contains an '@', the entire value is masked rather than risk
-// leaking embedded credentials.
-func stripURLUserinfo(raw string) string {
-	if raw == "" {
-		return raw
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		if strings.Contains(raw, "@") {
-			return RedactMask
-		}
-		return raw
-	}
-	if u.User != nil {
-		u.User = nil
-	}
-	return u.String()
 }

@@ -229,8 +229,10 @@ Authorization = "Bearer %s"
 	if web := cfg.Programs["web"]; web.Command != "/bin/sleep 300" || web.Numprocs != 2 || web.Environment["DB_PASSWORD"] != "***" {
 		t.Errorf("programs.web = %+v; want the command and numprocs unchanged and DB_PASSWORD masked as ***", web)
 	}
-	if hook := cfg.Webhooks["alert"]; hook.URL != "https://127.0.0.1:1/h" || hook.Headers["Authorization"] != "***" {
-		t.Errorf("webhooks.alert = %+v; want the URL without userinfo and the Authorization header masked", hook)
+	// A webhook URL shows only its scheme and host: userinfo, path and query
+	// can all carry the secret (a Slack URL's token is its path).
+	if hook := cfg.Webhooks["alert"]; hook.URL != "https://127.0.0.1:1/***" || hook.Headers["Authorization"] != "***" {
+		t.Errorf("webhooks.alert = %+v; want the URL as scheme and host only and the Authorization header masked", hook)
 	}
 
 	rewriteConfig(t, socket, programs("/bin/sleep 301"))

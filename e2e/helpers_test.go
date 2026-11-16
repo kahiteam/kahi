@@ -117,6 +117,13 @@ func startDaemon(t *testing.T, configTOML string) (*ctl.Client, string) {
 // daemon's stdout and stderr, for tests that assert on its log lines.
 func startDaemonOut(t *testing.T, configTOML string) (*ctl.Client, string, *os.File) {
 	t.Helper()
+	return startDaemonOutEnv(t, configTOML, nil)
+}
+
+// startDaemonOutEnv is startDaemonOut with extra environment variables for
+// the daemon (KEY=value), for tests that cannot use t.Setenv in parallel.
+func startDaemonOutEnv(t *testing.T, configTOML string, env []string) (*ctl.Client, string, *os.File) {
+	t.Helper()
 
 	// Use a short temp dir to stay under macOS 104-char Unix socket path limit.
 	dir, err := os.MkdirTemp("", "k-")
@@ -136,6 +143,9 @@ func startDaemonOut(t *testing.T, configTOML string) (*ctl.Client, string, *os.F
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, kahiBinary, "daemon", "-c", configPath)
 	cmd.Dir = dir
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	out := daemonOutput(t)
 	cmd.Stdout = out
 	cmd.Stderr = out

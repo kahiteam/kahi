@@ -27,7 +27,7 @@ stderr_syslog = true
 
 [webhooks.slack]
 url = "https://hooks.example.com/x"
-events = ["process_state"]
+events = ["PROCESS_STATE_FATAL"]
 `), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,6 @@ events = ["process_state"]
 	}
 	joined := strings.Join(warnings, "\n")
 	for _, want := range []string{
-		"[webhooks] (slack)",
 		"supervisor.identifier",
 		"programs.web.stdout_syslog",
 		"programs.web.stderr_syslog",
@@ -51,6 +50,7 @@ events = ["process_state"]
 	for _, gone := range []string{
 		"supervisor.directory", "supervisor.minfds", "supervisor.minprocs",
 		"programs.web.stdout_capture_maxbytes", "programs.web.stderr_capture_maxbytes",
+		"[webhooks]", // delivered since v0.3.0 (#106)
 	} {
 		if strings.Contains(joined, gone) {
 			t.Errorf("warning for %s, which is implemented; warnings:\n%s", gone, joined)

@@ -90,7 +90,7 @@ func ExpandVariables(cfg *Config, configPath string) error {
 		cfg.Programs[name] = p
 	}
 
-	return nil
+	return expandWebhooks(cfg, ctx)
 }
 
 // expandString expands all template variables and env references in a single string.

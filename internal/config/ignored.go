@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"sort"
-	"strings"
 )
 
 // ignoredSettingWarnings flags settings that parse and validate but that
@@ -13,15 +12,6 @@ func ignoredSettingWarnings(cfg *Config) []string {
 	var warnings []string
 	ignored := func(setting string) {
 		warnings = append(warnings, fmt.Sprintf("%s is not implemented yet and is ignored", setting))
-	}
-
-	if len(cfg.Webhooks) > 0 {
-		names := make([]string, 0, len(cfg.Webhooks))
-		for name := range cfg.Webhooks {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		ignored(fmt.Sprintf("[webhooks] (%s): no webhook is delivered", strings.Join(names, ", ")))
 	}
 
 	s := cfg.Supervisor

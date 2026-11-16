@@ -34,7 +34,7 @@ Key differences from supervisord:
 - REST/JSON API with HTTP Basic Auth, SSE streaming for logs and events
 - CLI control client (`kahi ctl`) with all standard operations
 - Liveness and readiness probes (`/healthz`, `/readyz`)
-- Event system with pub/sub and an SSE event stream (event listeners and webhook notifications are planned for 0.3.0: [#106](https://github.com/kahiteam/kahi/issues/106))
+- Event system with pub/sub, an SSE event stream and webhook notifications (Slack, PagerDuty and generic JSON templates, retries, circuit breaker); event listener pools are planned for 0.3.0: [#106](https://github.com/kahiteam/kahi/issues/106)
 - Structured logging with file rotation, an in-memory output buffer (64 KB per stream, up to 16 MB with `*_capture_maxbytes`), ANSI stripping (syslog forwarding is planned for 0.3.0: [#152](https://github.com/kahiteam/kahi/issues/152))
 - Process groups with priority-ordered startup and shutdown: shutdown stops one priority level at a time, in reverse order, within one `shutdown_timeout`
 - Per-process uid/gid, umask, resource limits (see [Resource limits](#resource-limits)), environment control
@@ -342,14 +342,17 @@ kahi init --stdout            # print to stdout
 # programs = ["web", "api"]    # group member programs
 # priority = 999               # group priority
 
-# Webhook definitions (not implemented yet: parsed, but no webhook is delivered)
+# Webhook notifications: an HTTP POST per listed event (not PROCESS_LOG_*)
 # [webhooks.slack]
-# url = "https://hooks.slack.com/..."
-# events = ["process_state"]
-# timeout = 5
-# retries = 3
+# url = "${SLACK_WEBHOOK_URL}"  # https; plain http only for localhost or with allow_insecure
+# events = ["PROCESS_STATE_FATAL"]
+# template = "slack"            # generic (default), slack, pagerduty
+# timeout = 5                   # seconds per POST
+# max_retries = 3               # retries after the first attempt (5xx, 408, 429, network errors)
+# allow_insecure = false        # accept plain http:// to a non-loopback host
+# routing_key = ""              # PagerDuty integration key; required with template = "pagerduty"
 # [webhooks.slack.headers]
-# Authorization = "Bearer token"
+# Authorization = "Bearer ${API_TOKEN}"
 ```
 
 ### Variable expansion
@@ -451,7 +454,9 @@ Kahi is secure by default:
   `X-Content-Type-Options: nosniff`, and state-changing requests from other
   sites are rejected.
 - **Config secrets.** `GET /api/v1/config` returns a redacted view: passwords,
-  process environment values, and webhook auth headers are masked.
+  process environment values, webhook header values and routing keys are masked,
+  and a webhook URL shows only its scheme and host. Daemon logs name a webhook
+  by its config table name, never by URL.
 - **Privilege separation.** Started as root, the daemon can drop to a user after
   binding (`[supervisor] user`, or `kahi daemon -u`, which wins). Before the
   drop it hands the files it created as root (the control socket, a socket

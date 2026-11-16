@@ -38,6 +38,23 @@ func ApplyDefaults(cfg *Config, md toml.MetaData) {
 		cfg.Supervisor.ShutdownTimeout = 30
 	}
 
+	// Webhooks: timeout 5, max_retries 3, both kept when set (an explicit
+	// 0 is refused or means no retries). retries is the old name.
+	for name, w := range cfg.Webhooks {
+		if unset(w.Timeout, "webhooks", name, "timeout") {
+			w.Timeout = 5
+		}
+		w.RetriesSet = md.IsDefined("webhooks", name, "retries")
+		if !md.IsDefined("webhooks", name, "max_retries") {
+			if w.RetriesSet {
+				w.MaxRetries = w.Retries
+			} else if w.MaxRetries == 0 {
+				w.MaxRetries = 3
+			}
+		}
+		cfg.Webhooks[name] = w
+	}
+
 	// Server defaults.
 	if cfg.Server.Unix.File == "" {
 		cfg.Server.Unix.File = DefaultSocketPath()

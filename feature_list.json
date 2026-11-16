@@ -1612,20 +1612,28 @@
         "e2e: 429 with 'Retry-After: 3' and max_retries = 1: the second POST arrives >= 2.7 s after the first",
         "e2e: 408 then 200: two POSTs",
         "e2e: max_retries = 0, always 500; 5 programs go FATAL; stderr has 'webhook circuit breaker open for t'; a 6th FATAL with a sentinel webhook u on the same event: u receives it and t's count stays 5",
-        "Unit (shortened interval, extra check): the probe succeeds and 'webhook circuit breaker closed for t' is logged at INFO; a failed probe keeps it open",
+        "Unit (shortened interval, extra check): TestWebhookCircuitBreaker: the probe succeeds and 'webhook circuit breaker closed for t' is logged at INFO; a failed probe keeps it open",
         "e2e: max_retries = 0, the server answers 302 to a second server; after 'webhook delivery failed permanently for t' the second server has 0 requests",
-        "e2e: the server accepts and never answers (timeout = 30); while a delivery is in flight, kahi ctl stop p and start p each exit 0 within 3 s",
+        "e2e: the server accepts and never answers (timeout = 30); while a delivery is in flight, stopping q reaches STOPPED and starting it reaches RUNNING, each within 3 s",
         "e2e: url = http://127.0.0.1:1/MARKER123; after 'webhook delivery failed permanently for t', daemon stderr does not contain MARKER123",
-        "e2e: a stalled server and 150 PROCESS_STATE_STARTING events from a flapping program (startsecs = 0, autorestart); within 30 s output contains 'webhook queue full for t, dropped'",
+        "e2e: a stalled server and a flapping program (/usr/bin/true, startsecs = 0, autorestart) whose PROCESS_STATE_STARTING events go to webhook s; within 30 s the output contains 'webhook queue full for s, dropped'",
         "e2e: timeout = 0: daemon exits 1 and stderr contains 'webhooks.t.timeout must be >= 1'; max_retries = -1: 'webhooks.t.max_retries must be >= 0'",
         "e2e: retries = 1 (alias): stderr contains 'webhooks.t.retries is deprecated; use max_retries' and two POSTs are made",
         "e2e: [webhooks.a] and [webhooks.b] on PROCESS_STATE_FATAL each record exactly one POST with process = p",
         "e2e: add [webhooks.n] and reload; the next FATAL is POSTed to n and the daemon pid is unchanged; remove n and reload, drive another FATAL: webhook a receives it and n's count is unchanged",
         "e2e: events = [\"PROCESS_LOG_STDOUT\"]: daemon exits 1 and stderr contains 'webhooks.t.events: PROCESS_LOG events cannot be sent to webhooks'",
-        "e2e (shortened breaker interval): open t's breaker, change t's timeout and reload; the next FATAL is POSTed (breaker closed after a change)",
-        "Unit (extra check): Retry-After in HTTP-date form is honoured like the seconds form"
+        "e2e: open t's breaker (5 failed deliveries), change t's timeout and reload; the next FATAL is POSTed to t (a changed webhook restarts with a closed breaker)",
+        "Unit (extra check): TestWebhookRetryAfter: Retry-After in HTTP-date form is honoured like the seconds form"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestWebhook_GenericAndMultiple",
+        "TestWebhook_RetryBackoff",
+        "TestWebhook_FailureModes",
+        "TestWebhook_BreakerAndReload",
+        "TestWebhook_StalledReceiver",
+        "TestWebhook_ConfigErrors"
+      ],
       "dependencies": [
         "event-bus",
         "process-log-events",
@@ -1646,7 +1654,12 @@
         "e2e: template = \"bogus\": daemon exits 1 and stderr contains 'unknown webhook template: bogus'",
         "e2e: template = \"slack\" on PROCESS_STATE_EXITED; the text equals 'PROCESS_STATE_EXITED for p on <hostname>'"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestWebhook_TemplatesAndExpansion",
+        "TestWebhook_GenericAndMultiple",
+        "TestWebhook_ConfigErrors"
+      ],
       "dependencies": ["webhook-notifications"]
     },
     {
@@ -1659,9 +1672,13 @@
         "e2e: headers = { Authorization = \"Bearer ${API_TOKEN}\" }; the server receives 'Bearer <token>'",
         "e2e: url = \"${NOPE}\" unset: daemon exits 1 and stderr contains 'webhooks.t.url: undefined environment variable: ${NOPE}'",
         "e2e: routing_key = \"${RK}\" with template pagerduty; the POST body routing_key equals RK's value",
-        "e2e: GET /api/v1/config shows url, headers.Authorization and routing_key with the redaction placeholder of FUNC-079/SEC-014 and the body contains neither the token nor RK's value"
+        "e2e: GET /api/v1/config shows the url as scheme and host only ('http://127.0.0.1:<port>/***'), headers.Authorization and routing_key as '***' (SEC-014), and the body contains neither the token nor RK's value"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestWebhook_TemplatesAndExpansion",
+        "TestWebhook_ConfigErrors"
+      ],
       "dependencies": [
         "webhook-notifications",
         "toml-variable-expansion",
@@ -1676,11 +1693,12 @@
       "testing_steps": [
         "e2e: url = \"http://example.com/hook\": daemon exits 1 and stderr contains 'webhooks.t: URL must use HTTPS (set allow_insecure = true to override)'",
         "e2e: the test server listens on 0.0.0.0 and the url uses the first non-loopback IPv4 from net.InterfaceAddrs (skip if none), allow_insecure = true; output contains 'webhooks.t: allow_insecure set, sending over plain HTTP' and the server records one POST within 5 s",
-        "e2e: for http://localhost, http://127.0.0.1 and http://[::1] the daemon reaches 'supervisor running' with no allow_insecure warning, and the 127.0.0.1 server receives a POST on FATAL ([::1] skips without IPv6 loopback)",
+        "e2e: http://localhost, http://127.0.0.1 and http://[::1] are accepted with no allow_insecure warning, and the 127.0.0.1 server receives a POST on FATAL",
         "e2e: url = \"ftp://x\" or \"https://\": daemon exits 1 and stderr contains 'invalid webhook URL: t' and the URL text is not printed",
         "e2e: httptest TLS server with a self-signed certificate; output has 'webhook delivery failed for t: ' containing 'certificate' and then 'webhook delivery failed permanently for t'; the server records 0 requests"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": ["TestWebhook_TLS", "TestWebhook_ConfigErrors"],
       "dependencies": ["webhook-notifications"]
     },
     {
@@ -2754,7 +2772,7 @@
         "Unit (config): TestHTTPCredentialsNeverSerialize: HTTPServerConfig Username and Password never serialize to JSON (json:\"-\")",
         "Configure an http.password, a program with an environment secret, and a webhook with an Authorization header, then request GET /api/v1/config over the Unix socket and verify the response body contains none of those values",
         "Verify environment map keys remain present in the response but their values are masked (for example \"***\")",
-        "Verify webhook Headers values are masked and any userinfo in a webhook URL is stripped",
+        "Verify webhook Headers values are masked and a webhook URL is shown as scheme and host only (its userinfo, path and query can carry the secret) and routing_key is masked",
         "Verify non-secret fields (program name, command, numprocs) are returned unchanged",
         "Unit (api): TestGetConfigRedactsSecrets asserts the seeded secrets are absent from the GET /api/v1/config handler's response",
         "Verify POST /api/v1/config/reload?dry_run=true returns no seeded secret values in its body"
