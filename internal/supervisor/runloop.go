@@ -95,6 +95,7 @@ func New(cfg SupervisorConfig) *Supervisor {
 		configPath: cfg.ConfigPath,
 		manager:    mgr,
 		bus:        bus,
+		webhooks:   events.NewWebhookManager(bus, cfg.Logger),
 		logger:     cfg.Logger,
 		shutdownCh: make(chan struct{}),
 		doneCh:     make(chan struct{}),
@@ -117,8 +118,8 @@ func (s *Supervisor) Run() error {
 	s.manager.LoadConfig(s.config)
 
 	// Webhooks subscribe before the first event, so they can receive
-	// SUPERVISOR_STATE_RUNNING (FUNC-052, FUNC-056).
-	s.webhooks = events.NewWebhookManager(s.bus, s.logger)
+	// SUPERVISOR_STATE_RUNNING (FUNC-052, FUNC-056). The manager exists
+	// since New: the API, and with it a reload, may run before this.
 	s.webhooks.Apply(webhookConfigs(s.config))
 	defer s.webhooks.Stop()
 
@@ -276,9 +277,7 @@ func (s *Supervisor) applyReload() (config.ReloadResult, error) {
 	s.warnRestartOnly(oldCfg, newCfg)
 
 	out := s.manager.ApplyReload(oldCfg, newCfg)
-	if s.webhooks != nil {
-		s.webhooks.Apply(webhookConfigs(newCfg))
-	}
+	s.webhooks.Apply(webhookConfigs(newCfg))
 	s.logger.Info("config reloaded", "added", out.Added, "changed", out.Changed, "removed", out.Removed)
 
 	// Groups and programs that did not stop keep their old processes; record

@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/kahiteam/kahi/internal/events"
 )
 
 // WebhookTemplates are the built-in payload templates (FUNC-057).
@@ -41,7 +43,6 @@ func validateWebhooks(cfg *Config) []error {
 			// One POST per output chunk would flood the receiver.
 			if strings.HasPrefix(e, "PROCESS_LOG") {
 				errs = append(errs, fmt.Errorf("webhooks.%s.events: PROCESS_LOG events cannot be sent to webhooks", name))
-				break
 			}
 		}
 	}
@@ -67,19 +68,50 @@ func validateWebhookURLs(cfg *Config) []error {
 	return errs
 }
 
+func knownEvent(name string) bool {
+	for _, t := range events.AllEventTypes {
+		if string(t) == name {
+			return true
+		}
+	}
+	return false
+}
+
+// eventNames lists the event types a webhook can subscribe to.
+func eventNames() string {
+	var names []string
+	for _, t := range events.AllEventTypes {
+		if !strings.HasPrefix(string(t), "PROCESS_LOG") {
+			names = append(names, string(t))
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
 // LoopbackHost reports a host exempt from the TLS requirement.
 func LoopbackHost(host string) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
-// webhookWarnings flags the deprecated retries key and plain HTTP to a
-// non-loopback host.
+// webhookWarnings flags the deprecated retries key, unknown or missing
+// events, and plain HTTP to a non-loopback host.
 func webhookWarnings(cfg *Config) []string {
 	var warnings []string
 	for _, name := range webhookNames(cfg) {
 		w := cfg.Webhooks[name]
 		if w.RetriesSet {
 			warnings = append(warnings, fmt.Sprintf("webhooks.%s.retries is deprecated; use max_retries", name))
+		}
+		// An unknown event name or an empty list makes the webhook (partly)
+		// inert. A warning, not an error: a notification typo must not keep
+		// the daemon and its programs from starting (decided 2026-11-16).
+		if len(w.Events) == 0 {
+			warnings = append(warnings, fmt.Sprintf("webhooks.%s: no events; the webhook never fires", name))
+		}
+		for _, e := range w.Events {
+			if !knownEvent(e) {
+				warnings = append(warnings, fmt.Sprintf("webhooks.%s.events: unknown event type: %s (valid: %s); ignored", name, e, eventNames()))
+			}
 		}
 		if u, err := url.Parse(w.URL); err == nil && u.Scheme == "http" && w.AllowInsecure && !LoopbackHost(u.Hostname()) {
 			warnings = append(warnings, fmt.Sprintf("webhooks.%s: allow_insecure set, sending over plain HTTP", name))

@@ -109,9 +109,21 @@ func readOut(f *os.File) string {
 // the generic JSON object.
 func TestWebhook_GenericAndMultiple(t *testing.T) {
 	t.Parallel()
-	a, b := newHookServer(t), newHookServer(t)
-	client, _, _ := startDaemonOut(t, webhookTOML("a", a.URL, "")+webhookTOML("b", b.URL, "")+fatalProg("p", true)+fatalProg("q", false))
+	a, b, run := newHookServer(t), newHookServer(t), newHookServer(t)
+	client, _, out := startDaemonOut(t, webhookTOML("a", a.URL, "")+webhookTOML("b", b.URL, "")+
+		"[webhooks.run]\nurl = \""+run.URL+"\"\nevents = [\"SUPERVISOR_STATE_RUNNING\"]\n\n"+
+		"[webhooks.typo]\nurl = \""+run.URL+"\"\nevents = [\"process_state\"]\n\n"+
+		fatalProg("p", true)+fatalProg("q", false))
 	waitForState(t, client, "p", "FATAL", 10*time.Second)
+	// Webhooks subscribe before the supervisor announces it runs.
+	run.waitCount(t, 1, 5*time.Second)
+	if got := run.body(0); got["event"] != "SUPERVISOR_STATE_RUNNING" || got["process"] != "" {
+		t.Errorf("run body = %v", got)
+	}
+	// An unknown event name only warns: the daemon runs, the name is ignored.
+	if o := readOut(out); !strings.Contains(o, "webhooks.typo.events: unknown event type: process_state (valid: ") {
+		t.Errorf("no unknown-event warning:\n%s", o)
+	}
 	a.waitCount(t, 1, 5*time.Second)
 	b.waitCount(t, 1, 5*time.Second)
 	// Sentinel: q's FATAL arrives after any duplicate of p's would have.
@@ -129,8 +141,14 @@ func TestWebhook_GenericAndMultiple(t *testing.T) {
 	if len(body) != 5 || body["event"] != "PROCESS_STATE_FATAL" || body["group"] != "p" {
 		t.Errorf("body = %v, want event, process, group, timestamp, details", body)
 	}
-	if _, err := time.Parse(time.RFC3339, fmt.Sprint(body["timestamp"])); err != nil {
-		t.Errorf("timestamp %v: %v", body["timestamp"], err)
+	for _, h := range []*hookServer{a, run} {
+		ts, err := time.Parse(time.RFC3339, fmt.Sprint(h.body(0)["timestamp"]))
+		if err != nil || time.Since(ts) > time.Minute || time.Since(ts) < -time.Minute {
+			t.Errorf("timestamp %v (%v), want about now", h.body(0)["timestamp"], err)
+		}
+	}
+	if run.count() != 1 {
+		t.Errorf("run got %d POSTs, want 1 (typo's unknown event never fires)", run.count())
 	}
 	details, _ := body["details"].(map[string]any)
 	if _, ok := details["name"]; ok || details["state"] != "FATAL" {
@@ -273,7 +291,7 @@ func TestWebhook_StalledReceiver(t *testing.T) {
 		"[webhooks.s]\nurl = \""+h.URL+"\"\nevents = [\"PROCESS_STATE_STARTING\"]\ntimeout = 30\n\n"+
 		fatalProg("p", true)+
 		"[programs.q]\ncommand = \"/bin/sleep 300\"\nstartsecs = 0\nstopwaitsecs = 2\n\n"+
-		"[programs.flap]\ncommand = \"/usr/bin/true\"\nstartsecs = 0\nautorestart = \"true\"\nautostart = false\n\n")
+		"[programs.flap]\ncommand = \"/bin/sleep 0.05\"\nstartsecs = 0\nautorestart = \"true\"\nautostart = false\n\n")
 	waitForState(t, client, "p", "FATAL", 10*time.Second)
 	h.waitCount(t, 1, 10*time.Second)
 	waitForState(t, client, "q", "RUNNING", 5*time.Second)

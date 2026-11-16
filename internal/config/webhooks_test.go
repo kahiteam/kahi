@@ -143,3 +143,26 @@ func TestSanitizedWebhookURLAndRoutingKey(t *testing.T) {
 		t.Error("Sanitized changed the original")
 	}
 }
+
+// Unknown event names and an empty list only warn: a notification typo must
+// not keep the daemon from starting.
+func TestWebhookEventWarnings(t *testing.T) {
+	for body, want := range map[string]string{
+		"events = [\"process_state\", \"PROCESS_STATE_FATAL\"]\n": "webhooks.t.events: unknown event type: process_state (valid: PROCESS_STATE_STOPPED,",
+		"events = []\n": "webhooks.t: no events; the webhook never fires",
+		"":              "webhooks.t: no events; the webhook never fires",
+	} {
+		_, warnings, err := loadWebhooks(t, "[webhooks.t]\nurl = \"https://h.example.com/x\"\n"+body)
+		if err != nil {
+			t.Errorf("%q: %v", body, err)
+			continue
+		}
+		joined := strings.Join(warnings, "\n")
+		if !strings.Contains(joined, want) {
+			t.Errorf("%q: warnings %v, want %q", body, warnings, want)
+		}
+		if strings.Contains(joined, "PROCESS_LOG_STDOUT") {
+			t.Errorf("the valid list offers PROCESS_LOG events: %s", joined)
+		}
+	}
+}

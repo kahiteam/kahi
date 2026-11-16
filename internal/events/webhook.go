@@ -77,10 +77,13 @@ func NewWebhookManager(bus *Bus, logger *slog.Logger) *WebhookManager {
 	}
 }
 
-// Apply rebuilds the webhook set by name: added webhooks start, removed ones
+// Apply rebuilds the webhook set by name (a nil manager does nothing): added webhooks start, removed ones
 // stop after an in-flight delivery finishes, changed ones restart with a
 // closed breaker; unchanged ones keep running (FUNC-056).
 func (m *WebhookManager) Apply(cfgs []WebhookConfig) {
+	if m == nil {
+		return
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	want := make(map[string]WebhookConfig, len(cfgs))
@@ -103,6 +106,9 @@ func (m *WebhookManager) Apply(cfgs []WebhookConfig) {
 // Stop ends every webhook, aborting in-flight requests, and waits for the
 // workers to return.
 func (m *WebhookManager) Stop() {
+	if m == nil {
+		return
+	}
 	m.mu.Lock()
 	hooks := m.hooks
 	m.hooks = map[string]*webhook{}

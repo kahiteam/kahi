@@ -415,3 +415,27 @@ func TestWebhookApply(t *testing.T) {
 	fatal(bus, "p")
 	a.waitCount(t, before+1, 5*time.Second)
 }
+
+// Applying the same config again keeps a running webhook as it is: its open
+// breaker stays open.
+func TestWebhookApplyUnchangedKeepsState(t *testing.T) {
+	fastTimers(t)
+	webhookBreakerInterval = time.Hour
+	rec := &recorder{statuses: []int{500}}
+	srv := httptest.NewServer(rec)
+	defer srv.Close()
+	h := hook("t", srv.URL)
+	h.MaxRetries = 0
+	bus, m, logs := newTestManager(t, h)
+	for i := 0; i < 5; i++ {
+		fatal(bus, "p")
+		bus.Flush()
+	}
+	waitLog(t, logs, "webhook circuit breaker open for t")
+	m.Apply([]WebhookConfig{h})
+	fatal(bus, "p")
+	bus.Flush()
+	if rec.count() != 5 {
+		t.Errorf("%d requests after re-applying the same config, want 5 (breaker still open)", rec.count())
+	}
+}

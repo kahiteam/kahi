@@ -1510,7 +1510,7 @@
       "title": "Supervisor State Change Events",
       "description": "Emit events when the supervisor itself changes state: SUPERVISOR_STATE_RUNNING on startup completion and SUPERVISOR_STATE_STOPPING on shutdown.",
       "testing_steps": [
-        "Unit (supervisor): TestRunPublishesEvents -- Run publishes SUPERVISOR_STATE_RUNNING with state RUNNING and from_state STARTING once startup completes (no stream client can connect that early; webhooks/listeners are #106)",
+        "Unit (supervisor): TestRunPublishesEvents -- Run publishes SUPERVISOR_STATE_RUNNING with state RUNNING and from_state STARTING once startup completes (no stream client can connect that early; webhooks subscribe before it and receive it; listener pools are #106)",
         "Open /api/v1/events/stream?types=SUPERVISOR_STATE_RUNNING,SUPERVISOR_STATE_STOPPING, run kahi ctl shutdown, and verify exactly one SUPERVISOR_STATE_STOPPING arrives before the stream closes",
         "With the stream open, run a reload and wait 6 s (longer than the 5 s tick) and verify no supervisor event arrives: they fire once per state change, not periodically",
         "Verify the events carry the old and new state: SUPERVISOR_STATE_STOPPING data is exactly {\"from_state\":\"RUNNING\",\"state\":\"STOPPING\"}; RUNNING carries from_state STARTING (unit)",
@@ -1623,7 +1623,9 @@
         "e2e: add [webhooks.n] and reload; the next FATAL is POSTed to n and the daemon pid is unchanged; remove n and reload, drive another FATAL: webhook a receives it and n's count is unchanged",
         "e2e: events = [\"PROCESS_LOG_STDOUT\"]: daemon exits 1 and stderr contains 'webhooks.t.events: PROCESS_LOG events cannot be sent to webhooks'",
         "e2e: open t's breaker (5 failed deliveries), change t's timeout and reload; the next FATAL is POSTed to t (a changed webhook restarts with a closed breaker)",
-        "Unit (extra check): TestWebhookRetryAfter: Retry-After in HTTP-date form is honoured like the seconds form"
+        "Unit (extra check): TestWebhookRetryAfter: Retry-After in HTTP-date form is honoured like the seconds form",
+        "e2e: [webhooks.run] on SUPERVISOR_STATE_RUNNING receives exactly one POST at startup (webhooks subscribe before it is published) with event SUPERVISOR_STATE_RUNNING, process \"\" and a timestamp within a minute of now",
+        "e2e: events = [\"process_state\"]: the daemon starts and its output contains 'webhooks.typo.events: unknown event type: process_state (valid: ' (a warning, not an error: a notification typo must not keep the programs from starting); an empty or missing events list warns 'webhooks.{name}: no events; the webhook never fires' (unit TestWebhookEventWarnings)"
       ],
       "passes": true,
       "verified_by": [

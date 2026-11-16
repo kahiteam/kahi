@@ -6,7 +6,7 @@ import (
 )
 
 // ignoredSettingWarnings flags settings that parse and validate but that
-// nothing in the daemon acts on yet (#106, #113), so a user does not rely on
+// nothing in the daemon acts on yet (#152), so a user does not rely on
 // them silently. Each warning names the setting and says it is ignored.
 func ignoredSettingWarnings(cfg *Config) []string {
 	var warnings []string

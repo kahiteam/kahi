@@ -2691,6 +2691,7 @@ routing_key = ""            # PagerDuty integration key; required with template 
 - Webhook delivery is async and never blocks the main supervision loop
 - Webhook timeout default is 5 seconds
 - Multiple webhooks can subscribe to the same event
+- `events` names exact event types (case-sensitive). An unknown name, or an empty or missing list, is a warning, not an error, so a notification typo never keeps the daemon and its programs from starting: "webhooks.{name}.events: unknown event type: {type} (valid: {list}); ignored" and "webhooks.{name}: no events; the webhook never fires" (decided 2026-11-16)
 - Webhook failures do not affect process management
 - Circuit breaker state transitions logged at INFO level
 - `max_retries` counts retries after the first attempt (3 means up to 4 POSTs); the older key `retries` is accepted as an alias with the warning "webhooks.{name}.retries is deprecated; use max_retries"
