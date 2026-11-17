@@ -196,6 +196,21 @@ func (m *mockConfigManager) Reload() (config.ReloadResult, error) {
 
 // PreviewReload reports a fixed diff and records that it ran, so tests can
 // tell a preview from an applied reload.
+func (m *mockConfigManager) ReloadGroups(groups []string) (config.ReloadResult, error) {
+	if groups[0] == "nosuch" {
+		return config.ReloadResult{}, fmt.Errorf("no such group: nosuch")
+	}
+	return config.ReloadResult{Changed: groups}, nil
+}
+
+func (m *mockConfigManager) PreviewReloadGroups(groups []string) (config.ReloadResult, error) {
+	return config.ReloadResult{Changed: groups}, nil
+}
+
+func (m *mockConfigManager) Avail() ([]config.AvailEntry, error) {
+	return []config.AvailEntry{{Name: "web", Group: "web", InUse: true, Autostart: true, Priority: 999}}, nil
+}
+
 func (m *mockConfigManager) PreviewReload() (config.ReloadResult, error) {
 	m.previewed = true
 	return config.ReloadResult{Added: []string{"new"}, Warnings: []string{"supervisor.nocleanup is not implemented yet and is ignored"}}, nil
@@ -1561,5 +1576,27 @@ func TestReadLogTruncatedHeader(t *testing.T) {
 		if !truncated && got != "" {
 			t.Errorf("complete read: X-Kahi-Log-Truncated = %q, want unset", got)
 		}
+	}
+}
+
+// groups=a,b limits a reload; avail lists the config file (FUNC-085).
+func TestReloadGroupsAndAvail(t *testing.T) {
+	srv, _, _ := testServer()
+	do := func(method, path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		srv.handler.ServeHTTP(w, httptest.NewRequest(method, path, nil))
+		return w
+	}
+	if w := do("POST", "/api/v1/config/reload?groups=web,%20worker"); w.Code != 200 || !strings.Contains(w.Body.String(), `"changed":["web","worker"]`) {
+		t.Errorf("groups: %d %s", w.Code, w.Body)
+	}
+	if w := do("POST", "/api/v1/config/reload?groups=web&dry_run=true"); w.Code != 200 || !strings.Contains(w.Body.String(), `"status":"preview"`) {
+		t.Errorf("preview groups: %d %s", w.Code, w.Body)
+	}
+	if w := do("POST", "/api/v1/config/reload?groups=nosuch"); w.Code != 404 || !strings.Contains(w.Body.String(), "no such group: nosuch") {
+		t.Errorf("unknown group: %d %s", w.Code, w.Body)
+	}
+	if w := do("GET", "/api/v1/config/avail"); w.Code != 200 || !strings.Contains(w.Body.String(), `"group":"web"`) || !strings.Contains(w.Body.String(), `"in_use":true`) {
+		t.Errorf("avail: %d %s", w.Code, w.Body)
 	}
 }

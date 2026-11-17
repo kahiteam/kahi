@@ -57,6 +57,13 @@ func (m *mockConfigManager) Reload() (config.ReloadResult, error) {
 	return config.ReloadResult{}, nil
 }
 
+func (m *mockConfigManager) ReloadGroups([]string) (config.ReloadResult, error) {
+	return config.ReloadResult{}, nil
+}
+func (m *mockConfigManager) PreviewReloadGroups([]string) (config.ReloadResult, error) {
+	return config.ReloadResult{}, nil
+}
+func (m *mockConfigManager) Avail() ([]config.AvailEntry, error) { return nil, nil }
 func (m *mockConfigManager) PreviewReload() (config.ReloadResult, error) {
 	return config.ReloadResult{}, nil
 }

@@ -77,6 +77,33 @@ type ReloadOutcome struct {
 // defines but that was removed at runtime counts as added, and one that is
 // inactive and no longer defined is not reported (ADR-034).
 func (m *Manager) PlanReload(oldCfg, newCfg *config.Config) (added, changed, removed []string) {
+	return m.planReload(oldCfg, newCfg, nil)
+}
+
+// PlanReloadGroups is PlanReload limited to the groups in only (FUNC-085).
+func (m *Manager) PlanReloadGroups(oldCfg, newCfg *config.Config, only map[string]bool) (added, changed, removed []string) {
+	return m.planReload(oldCfg, newCfg, only)
+}
+
+// planReload is PlanReload limited to the groups in only (nil: all).
+func (m *Manager) planReload(oldCfg, newCfg *config.Config, only map[string]bool) (added, changed, removed []string) {
+	added, changed, removed = m.planAll(oldCfg, newCfg)
+	if only == nil {
+		return added, changed, removed
+	}
+	keep := func(names []string) []string {
+		var out []string
+		for _, n := range names {
+			if only[n] {
+				out = append(out, n)
+			}
+		}
+		return out
+	}
+	return keep(added), keep(changed), keep(removed)
+}
+
+func (m *Manager) planAll(oldCfg, newCfg *config.Config) (added, changed, removed []string) {
 	_, c, r := ConfigDiff(oldCfg, newCfg)
 	m.mu.RLock()
 	active := make(map[string]bool, len(m.groups))
@@ -131,7 +158,14 @@ type reloadUnit struct {
 // A group or program whose processes do not stop within stopwaitsecs plus
 // stopWaitMargin keeps its old processes and is reported as stuck.
 func (m *Manager) ApplyReload(oldCfg, newCfg *config.Config) ReloadOutcome {
-	added, changed, removed := m.PlanReload(oldCfg, newCfg)
+	return m.ApplyReloadGroups(oldCfg, newCfg, nil)
+}
+
+// ApplyReloadGroups is ApplyReload limited to the named groups (FUNC-085,
+// ADR-051); nil applies everything. A group removed at runtime is added
+// back only when it is named.
+func (m *Manager) ApplyReloadGroups(oldCfg, newCfg *config.Config, only map[string]bool) ReloadOutcome {
+	added, changed, removed := m.planReload(oldCfg, newCfg, only)
 	og, ng := effectiveGroups(oldCfg), effectiveGroups(newCfg)
 
 	var units []reloadUnit
@@ -393,4 +427,29 @@ func (m *Manager) startProgram(prog string, honourAutostart bool) {
 			m.logger.Error("reload start failed", "program", prog, "process", p.Name(), "error", err)
 		}
 	}
+}
+
+// CheckGroups reports the first name that is not a group of newCfg nor an
+// active group, as FUNC-011 names it: a member program of a [groups] table
+// is addressed through its table (FUNC-085).
+func (m *Manager) CheckGroups(names []string, newCfg *config.Config) error {
+	specs := effectiveGroups(newCfg)
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, n := range names {
+		if _, ok := specs[n]; ok {
+			continue
+		}
+		if _, ok := m.groups[n]; ok && tableOf(newCfg, n) == "" {
+			continue
+		}
+		return unknownGroup(n, newCfg)
+	}
+	return nil
+}
+
+// InUse reports whether a program or pool has processes in the running
+// state (FUNC-085).
+func (m *Manager) InUse(prog string) bool {
+	return len(m.programProcesses(prog)) > 0
 }
