@@ -281,3 +281,25 @@ func TestConfigCheck_SocketPathNotSocket(t *testing.T) {
 		t.Errorf("file changed: %q %v", b, err)
 	}
 }
+
+// An [eventlisteners.x] mistake that stops the daemon stops the check with
+// the same text; a pool whose command is missing is a warning, as for a
+// program (FUNC-087, FUNC-055).
+func TestConfigCheck_ListenerPools(t *testing.T) {
+	t.Parallel()
+	dir, path := checkConfig(t, "[eventlisteners.l]\nevents = [\"PROCESS_STATE_EXITED\"]\n")
+	stdout, stderr, code := runKahi(t, dir, "config", "check", "-c", path)
+	_, dstderr, dcode := runKahi(t, dir, "daemon", "-c", path)
+	if code != 1 || stdout != "" || !strings.Contains(stderr, "eventlisteners.l: command is required") {
+		t.Errorf("missing command: %d %q %q", code, stdout, stderr)
+	}
+	if dcode != 1 || dstderr != stderr {
+		t.Errorf("daemon %d %q, check %q", dcode, dstderr, stderr)
+	}
+
+	dir, path = checkConfig(t, "[eventlisteners.l]\ncommand = \"/nonexistent/lst\"\nevents = [\"PROCESS_STATE_EXITED\"]\n")
+	stdout, stderr, code = runKahi(t, dir, "config", "check", "-c", path)
+	if code != 0 || stdout != "config OK: "+path+"\n" || !strings.Contains(stderr, "warning: eventlisteners.l.command: /nonexistent/lst: no such file or directory") {
+		t.Errorf("missing pool command: %d %q %q", code, stdout, stderr)
+	}
+}
