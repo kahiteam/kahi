@@ -12,8 +12,11 @@
 //	missing	<id>
 //	unknown	<id>	<test>
 //
-// and exits 0 when it finds problems, 1 only when the check cannot run. It
-// also exits 1 when the feature list schema no longer declares verified_by:
+// and exits 0 when it finds problems, 1 when the check cannot run or the
+// list is malformed: a duplicate id, a dependency on an unknown id, or a
+// dependency cycle (#273; scripts/check-verified-by.sh validates the list
+// against its JSON schema before this runs). It also exits 1 when the
+// feature list schema no longer declares verified_by:
 // the schema is a specforge template that an upgrade can overwrite, and
 // specforge validates feature_list.json against it.
 package main
@@ -37,6 +40,7 @@ type feature struct {
 	Category   string   `json:"category"`
 	Passes     bool     `json:"passes"`
 	VerifiedBy []string `json:"verified_by"`
+	Deps       []string `json:"dependencies"`
 }
 
 type finding struct {
@@ -74,6 +78,9 @@ func check(root string) ([]finding, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkGraph(features); err != nil {
+		return nil, err
+	}
 	tests, err := e2eTests(filepath.Join(root, "e2e"))
 	if err != nil {
 		return nil, err
@@ -95,6 +102,62 @@ func evaluate(features []feature, tests map[string]bool) []finding {
 		}
 	}
 	return out
+}
+
+// checkGraph reports the first structural problem of the list: a duplicate
+// id, a dependency on an id the list does not have, or a dependency cycle.
+func checkGraph(features []feature) error {
+	byID := make(map[string]feature, len(features))
+	for _, f := range features {
+		if _, dup := byID[f.ID]; dup {
+			return fmt.Errorf("feature_list.json: duplicate id %s", f.ID)
+		}
+		byID[f.ID] = f
+	}
+	for _, f := range features {
+		for _, d := range f.Deps {
+			if _, ok := byID[d]; !ok {
+				return fmt.Errorf("feature_list.json: %s depends on unknown id %s", f.ID, d)
+			}
+		}
+	}
+	// Depth-first search; a node met again while on the stack closes a cycle.
+	const (
+		unvisited = iota
+		onStack
+		done
+	)
+	state := make(map[string]int, len(features))
+	var stack []string
+	var visit func(id string) error
+	visit = func(id string) error {
+		switch state[id] {
+		case onStack:
+			i := len(stack) - 1
+			for stack[i] != id {
+				i--
+			}
+			return fmt.Errorf("feature_list.json: dependency cycle %s", strings.Join(append(stack[i:], id), " -> "))
+		case done:
+			return nil
+		}
+		state[id] = onStack
+		stack = append(stack, id)
+		for _, d := range byID[id].Deps {
+			if err := visit(d); err != nil {
+				return err
+			}
+		}
+		stack = stack[:len(stack)-1]
+		state[id] = done
+		return nil
+	}
+	for _, f := range features {
+		if err := visit(f.ID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func loadFeatures(path string) ([]feature, error) {
