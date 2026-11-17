@@ -6,10 +6,9 @@ import (
 	"io"
 	"log/slog"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
-	"time"
+	"sync/atomic"
 )
 
 // ListenerState tracks event listener process state.
@@ -33,6 +32,8 @@ type ListenerPool struct {
 	stopCh    chan struct{}
 	done      chan struct{}
 	subIDs    []uint64
+
+	poolSerial atomic.Uint64 // deliveries to this pool
 }
 
 // Listener represents a single event listener process.
@@ -125,7 +126,7 @@ func (lp *ListenerPool) sendToReady(event Event) {
 			l.mu.Unlock()
 
 			// Format event as protocol payload.
-			payload := formatEventPayload(event)
+			payload := formatEventPayload(event, lp.nextEnvelope())
 			if _, err := fmt.Fprint(l.stdin, payload); err != nil {
 				lp.logger.Error("failed to send event to listener", "listener", l.name, "error", err)
 			}
@@ -137,56 +138,93 @@ func (lp *ListenerPool) sendToReady(event Event) {
 	lp.logger.Warn("no ready listeners for event", "pool", lp.name, "event", string(event.Type))
 }
 
-// formatEventPayload renders an event for delivery to a listener's stdin.
-//
-// The wire format is a length-framed payload, mirroring supervisord: a
-// trusted header line "TYPE TIMESTAMP len:N\n" is followed by exactly N
-// bytes of body. The header is composed only of supervisor-controlled
-// values (event type and timestamp); the body carries the event data,
-// whose values may originate from managed process output and are therefore
-// untrusted under a process-compromise assumption. Length-framing the body
-// ensures an embedded newline or header-like text is carried as opaque data
-// and cannot be parsed as a forged protocol line. An empty body is framed
-// with len:0. The READY/RESULT handshake framing is unchanged.
-func formatEventPayload(event Event) string {
-	body := formatEventBody(event)
-
-	var sb strings.Builder
-	sb.WriteString(string(event.Type))
-	sb.WriteString(" ")
-	sb.WriteString(event.Timestamp.Format(time.RFC3339))
-	sb.WriteString(" len:")
-	sb.WriteString(strconv.Itoa(len(body)))
-	sb.WriteString("\n")
-	sb.WriteString(body)
-	return sb.String()
+// Envelope is what identifies one delivery of an event to a pool
+// (FUNC-055): serial counts events across all pools, poolserial within one.
+type Envelope struct {
+	Serial     uint64
+	Pool       string
+	PoolSerial uint64
 }
 
-// formatEventBody renders the space-separated key:value data pairs that make
-// up the length-framed payload body. Keys are sorted for deterministic
-// output. The body carries no trailing newline; the listener reads exactly
-// the announced number of bytes.
+// eventSerial numbers events for pools daemon-wide. Plan step 7b assigns a
+// serial once per event, when it enters a pool's buffer, and keeps it on
+// redelivery; today's pool numbers each send.
+var eventSerial atomic.Uint64
+
+// nextEnvelope numbers the pool's next delivery.
+func (lp *ListenerPool) nextEnvelope() Envelope {
+	return Envelope{Serial: eventSerial.Add(1), Pool: lp.name, PoolSerial: lp.poolSerial.Add(1)}
+}
+
+// formatEventPayload renders an event for delivery to a listener's stdin
+// (FUNC-055, SEC-020, ADR-023, ADR-042).
+//
+// The wire format is supervisord's: a header line
+// "ver:3.0 server:kahi serial:N pool:P poolserial:N eventname:TYPE len:N\n"
+// built only from supervisor-controlled values, followed by exactly len bytes
+// of body. The body carries event data, whose values may come from managed
+// process output and are therefore untrusted; length-framing it keeps an
+// embedded newline or header-like text opaque, so it cannot be parsed as a
+// forged protocol line. An empty body is framed with len:0. The READY/RESULT
+// handshake framing is unchanged.
+func formatEventPayload(event Event, env Envelope) string {
+	body := formatEventBody(event)
+	return fmt.Sprintf("ver:3.0 server:kahi serial:%d pool:%s poolserial:%d eventname:%s len:%d\n%s",
+		env.Serial, env.Pool, env.PoolSerial, event.Type, len(body), body)
+}
+
+// formatEventBody renders the payload body in supervisord's format, so
+// supervisord listeners (superlance and the like) parse it unchanged
+// (decided 2026-11-16): space-separated key:value pairs with Kahi's name and
+// group as processname and groupname, those two first and the rest sorted.
+// A log event's body is "processname:x groupname:y [pid:N] channel:stdout"
+// followed by a newline and the raw output. The body carries no trailing
+// newline of its own; the listener reads exactly the announced length.
 func formatEventBody(event Event) string {
+	if event.Type == ProcessLogStdout || event.Type == ProcessLogStderr {
+		channel := "stdout"
+		if event.Type == ProcessLogStderr {
+			channel = "stderr"
+		}
+		var head []string
+		for _, kv := range [][2]string{{"processname", event.Data["name"]}, {"groupname", event.Data["group"]}, {"pid", event.Data["pid"]}} {
+			if kv[1] != "" {
+				head = append(head, kv[0]+":"+kv[1])
+			}
+		}
+		head = append(head, "channel:"+channel)
+		return strings.Join(head, " ") + "\n" + event.Data["data"]
+	}
 	if len(event.Data) == 0 {
 		return ""
 	}
-
+	var pairs []string
+	for _, kv := range [][2]string{{"processname", "name"}, {"groupname", "group"}} {
+		if v, ok := event.Data[kv[1]]; ok {
+			pairs = append(pairs, kv[0]+":"+v)
+		}
+	}
 	keys := make([]string, 0, len(event.Data))
 	for k := range event.Data {
-		keys = append(keys, k)
+		if k != "name" && k != "group" {
+			keys = append(keys, k)
+		}
 	}
 	sort.Strings(keys)
-
-	var sb strings.Builder
-	for i, k := range keys {
-		if i > 0 {
-			sb.WriteString(" ")
+	for _, k := range keys {
+		v := event.Data[k]
+		// supervisord sends expected as 0 or 1; listeners int() it.
+		if k == "expected" {
+			switch v {
+			case "true":
+				v = "1"
+			case "false":
+				v = "0"
+			}
 		}
-		sb.WriteString(k)
-		sb.WriteString(":")
-		sb.WriteString(event.Data[k])
+		pairs = append(pairs, k+":"+v)
 	}
-	return sb.String()
+	return strings.Join(pairs, " ")
 }
 
 // Stop shuts down the listener pool.

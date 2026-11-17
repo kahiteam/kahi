@@ -41,26 +41,35 @@ func instanceName(program string, p ProgramConfig, num int) string {
 // the daemon tracks processes by name, so all but one would never run
 // (#166). It runs after includes, on fully expanded program configs.
 func validateProcessNames(cfg *Config) []error {
-	programs := make([]string, 0, len(cfg.Programs))
-	for name := range cfg.Programs {
-		programs = append(programs, name)
+	// Programs and event listener pools share one namespace (ADR-042).
+	type entry struct {
+		label string // "programs.x" or "eventlisteners.x"
+		name  string
+		p     ProgramConfig
 	}
-	sort.Strings(programs)
+	var entries []entry
+	for name, p := range cfg.Programs {
+		entries = append(entries, entry{"programs." + name, name, p})
+	}
+	for name, l := range cfg.EventListeners {
+		entries = append(entries, entry{"eventlisteners." + name, name, l.ProgramConfig})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].label < entries[j].label })
 
 	var errs []error
 	owner := make(map[string]string)
-	for _, prog := range programs {
-		p := cfg.Programs[prog]
+	for _, e := range entries {
+		p := e.p
 		if p.Numprocs > 1 && p.ProcessName != "" && !strings.Contains(p.ProcessName, "%(process_num)d") {
-			errs = append(errs, fmt.Errorf("programs.%s: process_name %q must contain %%(process_num)d when numprocs > 1", prog, p.ProcessName))
+			errs = append(errs, fmt.Errorf("%s: process_name %q must contain %%(process_num)d when numprocs > 1", e.label, p.ProcessName))
 			continue
 		}
-		for _, name := range InstanceNames(prog, p) {
+		for _, name := range InstanceNames(e.name, p) {
 			if other, ok := owner[name]; ok {
-				errs = append(errs, fmt.Errorf("duplicate process name: %s (programs.%s and programs.%s)", name, other, prog))
+				errs = append(errs, fmt.Errorf("duplicate process name: %s (%s and %s)", name, other, e.label))
 				continue
 			}
-			owner[name] = prog
+			owner[name] = e.label
 		}
 	}
 	return errs

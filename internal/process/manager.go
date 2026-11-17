@@ -280,10 +280,10 @@ func (m *Manager) createProgramLocked(progName string, progCfg config.ProgramCon
 		if stdoutCW != nil {
 			// With redirect_stderr, stderr output arrives here too and is
 			// published as PROCESS_LOG_STDOUT (FUNC-051).
-			opts = append(opts, WithStdoutHandler(m.logPublisher(bus, stdoutCW, "stdout", inst.Config.StdoutEventsEnabled)))
+			opts = append(opts, WithStdoutHandler(m.logPublisher(bus, stdoutCW, "stdout", group, inst.Config.StdoutEventsEnabled)))
 		}
 		if stderrCW != nil {
-			opts = append(opts, WithStderrHandler(m.logPublisher(bus, stderrCW, "stderr", inst.Config.StderrEventsEnabled)))
+			opts = append(opts, WithStderrHandler(m.logPublisher(bus, stderrCW, "stderr", group, inst.Config.StderrEventsEnabled)))
 		}
 
 		if h := m.passthroughHandler(inst.Config); h != nil {
@@ -809,7 +809,7 @@ func (m *Manager) ReadLog(name string, stream string, offset int64, length int) 
 // stream id to the log stream subscribers (ADR-040) and, when the program
 // enables log events for the stream, publishes it on the bus (FUNC-051).
 // Both run under the capture writer's lock, so ids stay in order.
-func (m *Manager) logPublisher(bus *events.Bus, cw *logging.CaptureWriter, stream string, eventsEnabled bool) func(name string, data []byte) {
+func (m *Manager) logPublisher(bus *events.Bus, cw *logging.CaptureWriter, stream, group string, eventsEnabled bool) func(name string, data []byte) {
 	t := events.ProcessLogStdout
 	if stream == "stderr" {
 		t = events.ProcessLogStderr
@@ -820,7 +820,9 @@ func (m *Manager) logPublisher(bus *events.Bus, cw *logging.CaptureWriter, strea
 			if eventsEnabled && bus != nil {
 				bus.Publish(events.Event{
 					Type: t,
-					Data: map[string]string{"name": name, "data": string(out), "id": id},
+					// The group lets a listener name the process the way
+					// supervisord does (processname, groupname; FUNC-055).
+					Data: map[string]string{"name": name, "group": group, "data": string(out), "id": id},
 				})
 			}
 		})
