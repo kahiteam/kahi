@@ -197,9 +197,6 @@ func sameTypes(a, b []EventType) bool {
 	return true
 }
 
-// Name is the pool's name.
-func (p *Pool) Name() string { return p.cfg.Name }
-
 // enqueue puts an event into the buffer and numbers it (bus goroutine).
 func (p *Pool) enqueue(e Event) {
 	p.mu.Lock()
