@@ -371,3 +371,23 @@ func TestMigrateValidationRunsMergedChecks(t *testing.T) {
 		})
 	}
 }
+
+// An event listener keeps its comments like a program (FUNC-069, FUNC-055).
+func TestMigrateListenerComments(t *testing.T) {
+	input := "[eventlistener:l] ; pool\n; the listener\ncommand=/bin/cat\nevents=PROCESS_STATE_EXITED ; exits only\nbuffer_size=5 ; small\nresult_handler=x:y ; custom\n"
+	result, err := MigrateReader(strings.NewReader(input), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"[eventlisteners.l] # pool\n",
+		"buffer_size = 5 # small\n",
+		"# the listener\ncommand = \"/bin/cat\"\n",
+		"events = [\"PROCESS_STATE_EXITED\"] # exits only\n",
+		"# (from supervisord) custom\n# UNSUPPORTED: result_handler = x:y",
+	} {
+		if !strings.Contains(result.TOML, want) {
+			t.Errorf("missing %q in:\n%s", want, result.TOML)
+		}
+	}
+}

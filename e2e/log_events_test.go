@@ -230,3 +230,40 @@ stdout_events_enabled = true
 		time.Sleep(100 * time.Millisecond)
 	}
 }
+
+// A log event names the process's group, so a listener can address the
+// process the way supervisord does (processname, groupname; FUNC-055).
+func TestLogEvents_CarryGroup(t *testing.T) {
+	t.Parallel()
+	script := writeScript(t, t.TempDir(), "g.sh", "read l\necho hi\nexec sleep 300")
+	client, socket := startDaemon(t, `
+[programs.web]
+command = "`+script+`"
+startsecs = 0
+stdout_events_enabled = true
+
+[groups.site]
+programs = ["web"]
+`)
+	waitForState(t, client, "web", "RUNNING", 5*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	msgs := streamEvents(t, ctx, socket, "?types=PROCESS_LOG_STDOUT")
+	sendStdin(t, socket, "web", "go\n")
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case m := <-msgs:
+			var d map[string]string
+			if m.event != "PROCESS_LOG_STDOUT" || json.Unmarshal([]byte(m.data), &d) != nil || d["name"] != "web" {
+				continue
+			}
+			if d["group"] != "site" || d["data"] != "hi\n" {
+				t.Errorf("log event data = %v, want group site and data hi", d)
+			}
+			return
+		case <-deadline:
+			t.Fatal("no PROCESS_LOG_STDOUT for web")
+		}
+	}
+}

@@ -91,6 +91,7 @@ func generateTOML(ini *INIFile, result *Result) string {
 	var supervisordSections []INISection
 	var programSections []INISection
 	var groupSections []INISection
+	var listenerSections []INISection
 	var other []INISection
 
 	for _, sec := range ini.Sections {
@@ -101,6 +102,8 @@ func generateTOML(ini *INIFile, result *Result) string {
 			programSections = append(programSections, sec)
 		case "group":
 			groupSections = append(groupSections, sec)
+		case "eventlistener":
+			listenerSections = append(listenerSections, sec)
 		case "include":
 			// Written before the first table, above.
 		case "unix_http_server":
@@ -121,6 +124,13 @@ func generateTOML(ini *INIFile, result *Result) string {
 	})
 	for _, sec := range programSections {
 		writeProgramSection(&b, sec, result)
+	}
+
+	sort.Slice(listenerSections, func(i, j int) bool {
+		return listenerSections[i].Name < listenerSections[j].Name
+	})
+	for _, sec := range listenerSections {
+		writeListenerSection(&b, sec, result)
 	}
 
 	sort.Slice(groupSections, func(i, j int) bool {
@@ -169,7 +179,13 @@ func writeSupervisorSection(b *strings.Builder, sec INISection, result *Result) 
 }
 
 func writeProgramSection(b *strings.Builder, sec INISection, result *Result) {
-	writeHeader(b, fmt.Sprintf("[programs.%s]", sec.Name), sec)
+	writeProgramTable(b, sec, result, "programs", nil)
+}
+
+// writeProgramTable writes a program-like section as [table.name]; listener
+// handles the keys only an event listener has and reports whether it did.
+func writeProgramTable(b *strings.Builder, sec INISection, result *Result, table string, listener func(key, value string) bool) {
+	writeHeader(b, fmt.Sprintf("[%s.%s]", table, sec.Name), sec)
 
 	var envPairs map[string]string
 	keys := sortedKeys(sec.Options)
@@ -180,18 +196,21 @@ func writeProgramSection(b *strings.Builder, sec INISection, result *Result) {
 			envPairs = parseEnvironment(value)
 			continue
 		}
+		if listener != nil && listener(key, value) {
+			continue
+		}
 		// supervisord's stopwaitsecs = 0 SIGKILLs right after the stop
 		// signal; Kahi rejects it (#138), so write the shortest valid value.
 		if key == "stopwaitsecs" && strings.TrimSpace(value) == "0" {
 			value = "1"
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("programs.%s: stopwaitsecs = 0 is not allowed; wrote 1 (use stopsignal = SIGKILL for an immediate kill)", sec.Name))
+				fmt.Sprintf("%s.%s: stopwaitsecs = 0 is not allowed; wrote 1 (use stopsignal = SIGKILL for an immediate kill)", table, sec.Name))
 		}
 		mapped := MapProgramOption(key, value)
 		writeOption(b, mapped, sec.Notes[key])
 		if mapped.Unsupported {
 			result.Warnings = append(result.Warnings,
-				fmt.Sprintf("programs.%s: unsupported option %q", sec.Name, key))
+				fmt.Sprintf("%s.%s: unsupported option %q", table, sec.Name, key))
 		}
 	}
 
@@ -205,7 +224,7 @@ func writeProgramSection(b *strings.Builder, sec INISection, result *Result) {
 		if env.Inline != "" {
 			writeComments(b, []string{env.Inline})
 		}
-		fmt.Fprintf(b, "[programs.%s.environment]\n", sec.Name)
+		fmt.Fprintf(b, "[%s.%s.environment]\n", table, sec.Name)
 		envKeys := sortedKeys(envPairs)
 		for _, k := range envKeys {
 			fmt.Fprintf(b, "%s = %q\n", k, envPairs[k])
