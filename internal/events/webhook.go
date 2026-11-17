@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -103,6 +104,21 @@ func (m *WebhookManager) Apply(cfgs []WebhookConfig) {
 	}
 }
 
+// Breakers returns, per webhook name, whether its circuit breaker is open
+// (FUNC-060). Webhooks are named, never shown by URL.
+func (m *WebhookManager) Breakers() map[string]bool {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]bool, len(m.hooks))
+	for name, w := range m.hooks {
+		out[name] = w.openState.Load()
+	}
+	return out
+}
+
 // Stop ends every webhook, aborting in-flight requests, and waits for the
 // workers to return.
 func (m *WebhookManager) Stop() {
@@ -132,6 +148,9 @@ type webhook struct {
 	failures  int
 	open      bool
 	nextProbe time.Time
+
+	// openState mirrors open for the metrics (FUNC-060).
+	openState atomic.Bool
 }
 
 func (m *WebhookManager) start(c WebhookConfig) *webhook {
@@ -183,6 +202,7 @@ func (w *webhook) handle(e Event) {
 		}
 		if r := w.post(e); r.ok {
 			w.open, w.failures = false, 0
+			w.openState.Store(false)
 			log.Info("webhook circuit breaker closed for " + name)
 		} else {
 			w.nextProbe = time.Now().Add(webhookBreakerInterval)
@@ -217,6 +237,7 @@ func (w *webhook) failed() {
 	w.failures++
 	if w.failures >= breakerThreshold && !w.open {
 		w.open = true
+		w.openState.Store(true)
 		w.nextProbe = time.Now().Add(webhookBreakerInterval)
 		w.m.logger.Info("webhook circuit breaker open for " + w.cfg.Name)
 	}

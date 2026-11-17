@@ -34,6 +34,9 @@
 # enabled = false               # serve the Web UI
 # static_dir = ""               # optional per-file overlay for /ui/static/
 
+# [server.metrics]              # Prometheus metrics at /metrics (requires [server.http])
+# enabled = false               # serve /metrics; Basic Auth on TCP, open on the Unix socket
+
 # Process definitions
 # [programs.example]
 # command = "/usr/bin/example"  # REQUIRED: command to run
