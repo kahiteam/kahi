@@ -147,13 +147,16 @@ killasgroup=0
 		`stopsignal = "SIGINT"`,
 		`stdout_logfile_maxbytes = "50MB"`,
 		`A = "1"`, `B = "two"`,
-		"# UNSUPPORTED: stdout_syslog = true\n",
+		"\nstdout_syslog = true\n",
 		"# UNSUPPORTED: frobnicate = 42 (unknown option)\n",
 	)
 	if strings.Contains(out, "comment") || strings.Contains(out, "ten seconds") {
 		t.Errorf("a comment reached the output:\n%s", out)
 	}
-	wantLines(t, "stderr", stderr, `programs.web: unsupported option "stdout_syslog"`, `programs.web: unsupported option "frobnicate"`)
+	wantLines(t, "stderr", stderr, `programs.web: unsupported option "frobnicate"`)
+	if strings.Contains(out, "# UNSUPPORTED: stdout_syslog") || strings.Contains(stderr, `"stdout_syslog"`) {
+		t.Errorf("stdout_syslog flagged as unsupported (#152 implements it):\n%s\n%s", out, stderr)
+	}
 
 	// The output is a valid Kahi config with the same values.
 	cfg, _, err := config.LoadBytes([]byte(out), "migrated.toml")

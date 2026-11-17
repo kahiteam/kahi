@@ -643,7 +643,7 @@
       "description": "Forward process output to syslog one message per line (FUNC-020, #152, ADR-050): per-program syslog_facility/syslog_priority, [supervisor] syslog_address (local socket, unix://, udp://, tcp://), reconnect with backoff.",
       "testing_steps": [
         "e2e: bind a unixgram socket S, syslog_address = \"unix://S\", stdout_syslog = true, program prints 'hello'; within 5 s one message arrives whose body ends in 'hello' and whose tag is the process name",
-        "e2e: program prints 'a\\nb\\nc'; three messages arrive with bodies ending 'a', 'b', 'c', none containing a newline",
+        "e2e: program prints 'a\\nb\\nc'; three messages arrive with bodies 'a', 'b', 'c' (each message's one trailing newline, which log/syslog's format adds, aside)",
         "e2e: syslog_facility = \"LOCAL3\", syslog_priority = \"NOTICE\"; the received message starts with '<157>'",
         "e2e: facility and priority unset; the received message starts with '<134>'",
         "e2e: numprocs = 2; messages are tagged web_0 and web_1",
@@ -662,7 +662,20 @@
         "e2e: with a tcp:// listener receiving, close it; within 5 s output has exactly one 'syslog connection failed for p stdout' and the stdout log file keeps growing; rebind and 'syslog connection restored for p stdout' appears within 65 s",
         "e2e: change syslog_facility and reload; the program's pid changes (program change)"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestSyslog_LinesTagAndDefaultPriority",
+        "TestSyslog_FacilityAndNumprocsTags",
+        "TestSyslog_StreamsSplitStripTail",
+        "TestSyslog_RedirectStderr",
+        "TestSyslog_ConfigErrors",
+        "TestSyslog_NetworkTransports",
+        "TestSyslog_OutageAndRecovery",
+        "TestSyslog_TCPReconnect",
+        "TestSyslog_SIGUSR2KeepsConnection",
+        "TestSyslog_ReloadRules",
+        "TestMigrate_Values"
+      ],
       "dependencies": [
         "process-output-capture",
         "ansi-escape-stripping",
