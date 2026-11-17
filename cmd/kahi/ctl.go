@@ -359,11 +359,11 @@ var ctlSendCmd = &cobra.Command{
 }
 
 var ctlRereadCmd = &cobra.Command{
-	Use:   "reread",
+	Use:   "reread [group...]",
 	Short: "Preview config changes without applying",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := newCtlClient()
-		result, err := c.Reread()
+		result, err := c.Reread(args...)
 		if err != nil {
 			return err
 		}
@@ -375,17 +375,40 @@ var ctlRereadCmd = &cobra.Command{
 }
 
 var ctlUpdateCmd = &cobra.Command{
-	Use:   "update",
-	Short: "Reload config and apply all changes",
+	Use:   "update [group...|all]",
+	Short: "Reload config and apply its changes (all, or to the named groups)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := newCtlClient()
-		result, err := c.Reload()
+		result, err := c.Reload(args...)
 		if err != nil {
 			return err
 		}
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "updated: added=%s changed=%s removed=%s\n",
 			nameList(result["added"]), nameList(result["changed"]), nameList(result["removed"]))
 		printConfigWarnings(cmd, result)
+		return nil
+	},
+}
+
+var ctlAvailCmd = &cobra.Command{
+	Use:   "avail",
+	Short: "List the programs in the config file and whether they are in use",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		entries, err := newCtlClient().Avail()
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			use, auto := "avail", "manual"
+			if e.InUse {
+				use = "in use"
+			}
+			if e.Autostart {
+				auto = "auto"
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s %d\n", e.Name, use, auto, e.Priority)
+		}
 		return nil
 	},
 }
@@ -495,7 +518,7 @@ func init() {
 		ctlStartCmd, ctlStopCmd, ctlRestartCmd, ctlSignalCmd,
 		ctlStatusCmd, ctlTailCmd,
 		ctlShutdownCmd, ctlReloadCmd, ctlVersionCmd, ctlPIDCmd,
-		ctlHealthCmd, ctlReadyCmd, ctlSendCmd, ctlRereadCmd,
+		ctlHealthCmd, ctlReadyCmd, ctlSendCmd, ctlRereadCmd, ctlAvailCmd,
 		ctlUpdateCmd, ctlAddCmd, ctlRemoveCmd, ctlAttachCmd,
 	)
 	rootCmd.AddCommand(ctlCmd)

@@ -1028,3 +1028,32 @@ func TestCopySSEData(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 }
+
+func TestClientAvailAndGroups(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.RequestURI())
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/config/avail" {
+			_, _ = w.Write([]byte(`[{"name":"web","group":"web","in_use":true,"autostart":true,"priority":999}]`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"reloaded"}`))
+	}))
+	defer srv.Close()
+	c := NewTCPClient(strings.TrimPrefix(srv.URL, "http://"), "", "")
+	entries, err := c.Avail()
+	if err != nil || len(entries) != 1 || entries[0].Group != "web" || !entries[0].InUse {
+		t.Fatalf("avail %+v %v", entries, err)
+	}
+	if _, err := c.Reload("web", "worker"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Reread("web"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/api/v1/config/avail", "/api/v1/config/reload?groups=web%2Cworker", "/api/v1/config/reload?dry_run=true&groups=web"}
+	if strings.Join(paths, " ") != strings.Join(want, " ") {
+		t.Errorf("paths %v", paths)
+	}
+}

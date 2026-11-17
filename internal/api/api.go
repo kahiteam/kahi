@@ -103,6 +103,12 @@ type ConfigManager interface {
 	// (FUNC-011, ADR-034).
 	AddGroup(name string) error
 	RemoveGroup(name string, stop bool) error
+	// ReloadGroups and PreviewReloadGroups limit a reload to the named
+	// groups; Avail lists the programs and pools of the config file
+	// (FUNC-085, ADR-051).
+	ReloadGroups(groups []string) (config.ReloadResult, error)
+	PreviewReloadGroups(groups []string) (config.ReloadResult, error)
+	Avail() ([]config.AvailEntry, error)
 }
 
 // DaemonInfo describes the running daemon.
@@ -256,6 +262,7 @@ func (s *Server) buildMux() *http.ServeMux {
 
 	mux.HandleFunc("GET /api/v1/config", s.requireAuth(s.handleGetConfig))
 	mux.HandleFunc("POST /api/v1/config/reload", s.requireAuth(s.handleReloadConfig))
+	mux.HandleFunc("GET /api/v1/config/avail", s.requireAuth(s.handleAvail))
 
 	mux.HandleFunc("POST /api/v1/shutdown", s.requireAuth(s.handleShutdown))
 	mux.HandleFunc("GET /api/v1/version", s.requireAuth(s.handleVersion))
@@ -836,6 +843,20 @@ func (s *Server) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	if preview {
 		reload, status = s.config.PreviewReload, "preview"
 	}
+	// groups=a,b limits the reload to those groups (FUNC-085).
+	var groups []string
+	for g := range strings.SplitSeq(r.URL.Query().Get("groups"), ",") {
+		if g = strings.TrimSpace(g); g != "" {
+			groups = append(groups, g)
+		}
+	}
+	if len(groups) > 0 {
+		apply := s.config.ReloadGroups
+		if preview {
+			apply = s.config.PreviewReloadGroups
+		}
+		reload = func() (config.ReloadResult, error) { return apply(groups) }
+	}
 	res, err := reload()
 	if err != nil {
 		// A config the daemon refuses is the request's problem, not the
@@ -847,6 +868,8 @@ func (s *Server) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 		case strings.Contains(err.Error(), "shutting down"):
 			writeError(w, http.StatusConflict, err.Error(), "SHUTTING_DOWN")
 			return
+		case strings.Contains(err.Error(), "no such group"), strings.Contains(err.Error(), "; use "):
+			statusCode = http.StatusNotFound
 		}
 		writeError(w, statusCode, err.Error(), errorCode(statusCode))
 		return
@@ -858,6 +881,20 @@ func (s *Server) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 		"removed":  res.Removed,
 		"warnings": res.Warnings,
 	})
+}
+
+// handleAvail lists the programs and pools of the config file the daemon
+// would load on reload, for kahi ctl avail (FUNC-085).
+func (s *Server) handleAvail(w http.ResponseWriter, r *http.Request) {
+	entries, err := s.config.Avail()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error(), errorCode(http.StatusBadRequest))
+		return
+	}
+	if entries == nil {
+		entries = []config.AvailEntry{}
+	}
+	writeJSON(w, http.StatusOK, entries)
 }
 
 func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {

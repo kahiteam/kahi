@@ -9,9 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kahiteam/kahi/internal/config"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -518,8 +520,34 @@ func (c *Client) Shutdown() error {
 }
 
 // Reload triggers config reload.
-func (c *Client) Reload() (map[string]any, error) {
-	return c.doJSON("POST", "/api/v1/config/reload", nil)
+// Reload reloads the config; with groups, only those groups (FUNC-085).
+func (c *Client) Reload(groups ...string) (map[string]any, error) {
+	return c.doJSON("POST", "/api/v1/config/reload"+groupsQuery("?", groups), nil)
+}
+
+func groupsQuery(sep string, groups []string) string {
+	if len(groups) == 0 {
+		return ""
+	}
+	return sep + "groups=" + url.QueryEscape(strings.Join(groups, ","))
+}
+
+// Avail lists the programs and pools of the daemon's config file
+// (FUNC-085).
+func (c *Client) Avail() ([]config.AvailEntry, error) {
+	resp, err := c.do("GET", "/api/v1/config/avail", nil)
+	if err != nil {
+		return nil, fmt.Errorf("connection failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 400 {
+		return nil, responseError(resp)
+	}
+	var out []config.AvailEntry
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("invalid response: %w", err)
+	}
+	return out, nil
 }
 
 // Version returns daemon version info.
@@ -643,8 +671,8 @@ func (c *Client) Ready(processes []string) (string, error) {
 }
 
 // Reread previews config changes without applying.
-func (c *Client) Reread() (map[string]any, error) {
-	return c.doJSON("POST", "/api/v1/config/reload?dry_run=true", nil)
+func (c *Client) Reread(groups ...string) (map[string]any, error) {
+	return c.doJSON("POST", "/api/v1/config/reload?dry_run=true"+groupsQuery("&", groups), nil)
 }
 
 // WriteStdin writes data to a process's stdin.

@@ -195,26 +195,27 @@ kahi ctl [command] [flags]
 
 **Subcommands:**
 
-| Subcommand | Arguments          | Description                                  |
-| ---------- | ------------------ | -------------------------------------------- |
-| `start`    | `process...`       | Start processes (`group:*`, or `all`)        |
-| `stop`     | `process...`       | Stop processes (`group:*`, or `all`)         |
-| `restart`  | `process...`       | Restart processes (`group:*`, or `all`)      |
-| `status`   | `[process...]`     | Show process status (`--json`, `--no-color`) |
-| `signal`   | `signal process`   | Send a signal to a process                   |
-| `tail`     | `process [stream]` | Tail process log output (`-f` to follow)     |
-| `send`     | `process data`     | Write data to a process stdin                |
-| `shutdown` |                    | Initiate daemon shutdown                     |
-| `reload`   |                    | Reload daemon configuration                  |
-| `reread`   |                    | Preview config changes without applying      |
-| `update`   |                    | Reload config and apply all changes          |
-| `add`      | `group`            | Add back a removed group (`--reload`)        |
-| `remove`   | `group`            | Remove a stopped group (`--stop`)            |
-| `attach`   | `process`          | Attach to a process (stdin/stdout)           |
-| `health`   |                    | Check daemon liveness                        |
-| `ready`    |                    | Check daemon readiness (`--process` filter)  |
-| `pid`      | `[process]`        | Show daemon or process PID                   |
-| `version`  |                    | Show remote daemon version                   |
+| Subcommand | Arguments          | Description                                             |
+| ---------- | ------------------ | ------------------------------------------------------- |
+| `start`    | `process...`       | Start processes (`group:*`, or `all`)                   |
+| `stop`     | `process...`       | Stop processes (`group:*`, or `all`)                    |
+| `restart`  | `process...`       | Restart processes (`group:*`, or `all`)                 |
+| `status`   | `[process...]`     | Show process status (`--json`, `--no-color`)            |
+| `signal`   | `signal process`   | Send a signal to a process                              |
+| `tail`     | `process [stream]` | Tail process log output (`-f` to follow)                |
+| `send`     | `process data`     | Write data to a process stdin                           |
+| `shutdown` |                    | Initiate daemon shutdown                                |
+| `reload`   |                    | Reload daemon configuration                             |
+| `reread`   | `[group...]`       | Preview config changes without applying                 |
+| `update`   | `[group...\|all]`  | Apply config changes (all, or named groups)             |
+| `avail`    |                    | List config programs: in use/avail, autostart, priority |
+| `add`      | `group`            | Add back a removed group (`--reload`)                   |
+| `remove`   | `group`            | Remove a stopped group (`--stop`)                       |
+| `attach`   | `process`          | Attach to a process (stdin/stdout)                      |
+| `health`   |                    | Check daemon liveness                                   |
+| `ready`    |                    | Check daemon readiness (`--process` filter)             |
+| `pid`      | `[process]`        | Show daemon or process PID                              |
+| `version`  |                    | Show remote daemon version                              |
 
 `start`, `stop` and `restart` try every target and exit 1 if any of them
 failed, after printing `{n} of {m} failed`. `all` acts on every process in
