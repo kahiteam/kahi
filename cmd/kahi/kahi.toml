@@ -77,7 +77,6 @@
 # priority = 999               # group priority
 
 # Event listener pools: supervisord's event listener protocol on stdin/stdout
-# (not run yet: parsed and validated; the daemon runs pools from a later v0.3.0 step)
 # [eventlisteners.notify]
 # command = "/usr/local/bin/notify-listener"
 # events = ["PROCESS_STATE_EXITED", "PROCESS_STATE_FATAL"]

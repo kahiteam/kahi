@@ -57,6 +57,13 @@ type Process struct {
 	// message is shown in status as is.
 	preSpawn func() error
 
+	// stdoutReader, when set, takes the stdin and stdout pipes of each new
+	// child instead of the stdout capture: an event listener pool member
+	// speaks the listener protocol there (ADR-042).
+	stdoutReader func(stdin io.Writer, stdout io.Reader)
+	// stdinRefused, when set, is why WriteStdin refuses every write.
+	stdinRefused string
+
 	// spawnErr is the last spawn failure, cleared by a successful spawn.
 	spawnErr string
 }
@@ -84,6 +91,17 @@ func WithLineHandler(fn func(name, stream string, line []byte)) ProcessOption {
 // the program's log files (FUNC-018).
 func WithPreSpawn(fn func() error) ProcessOption {
 	return func(p *Process) { p.preSpawn = fn }
+}
+
+// WithStdoutReader hands each new child's stdin and stdout pipes to fn in
+// place of the stdout capture (event listener pools, ADR-042).
+func WithStdoutReader(fn func(stdin io.Writer, stdout io.Reader)) ProcessOption {
+	return func(p *Process) { p.stdoutReader = fn }
+}
+
+// WithStdinRefused makes WriteStdin fail with "process {name}: {reason}".
+func WithStdinRefused(reason string) ProcessOption {
+	return func(p *Process) { p.stdinRefused = reason }
 }
 
 // WithShutdownCh sets the daemon shutdown channel.
@@ -343,6 +361,12 @@ func (p *Process) spawnLocked() error {
 	p.logger.Info("started", "pid", spawned.Pid())
 
 	// Start pipe readers (check pipe non-nil for mock spawners).
+	if p.stdoutReader != nil {
+		stdin, stdout := spawned.StdinPipe(), spawned.StdoutPipe()
+		if stdin != nil && stdout != nil {
+			go p.stdoutReader(stdin, stdout)
+		}
+	}
 	if p.onStdout != nil {
 		if pipe := spawned.StdoutPipe(); pipe != nil {
 			go p.readPipe(pipe, "stdout", p.onStdout)
@@ -566,6 +590,9 @@ func (p *Process) WriteStdin(data []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if p.stdinRefused != "" {
+		return fmt.Errorf("process %s: %s", p.name, p.stdinRefused)
+	}
 	if p.spawned == nil {
 		return fmt.Errorf("process not running: %s", p.name)
 	}
