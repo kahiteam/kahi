@@ -1,11 +1,13 @@
 package logging
 
 import (
+	"bufio"
 	"bytes"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -193,4 +195,70 @@ func TestSyslogSinkQueueBounded(t *testing.T) {
 	s.Close()
 	s.Close()
 	s.Send([]byte("after close"))
+}
+
+// udp and tcp use the network format (RFC 3339 time, hostname); "" tries
+// the local sockets.
+func TestSyslogDialTransports(t *testing.T) {
+	udp, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = udp.Close() }()
+	s := NewSyslogSink(SyslogConfig{Address: "udp://" + udp.LocalAddr().String(), Process: "u", Stream: "stdout"})
+	defer s.Close()
+	s.Send([]byte("over udp"))
+	buf := make([]byte, 4096)
+	_ = udp.SetReadDeadline(time.Now().Add(5 * time.Second))
+	n, _, err := udp.ReadFrom(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, _ := os.Hostname()
+	if m := string(buf[:n]); !strings.HasPrefix(m, "<134>") || !strings.Contains(m, " "+host+" u[") || !strings.HasSuffix(m, "over udp\n") {
+		t.Errorf("udp message %q", m)
+	}
+
+	tcp, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tcp.Close() }()
+	got := make(chan string, 1)
+	go func() {
+		c, err := tcp.Accept()
+		if err != nil {
+			return
+		}
+		line, _ := bufio.NewReader(c).ReadString('\n')
+		got <- line
+	}()
+	s2 := NewSyslogSink(SyslogConfig{Address: "tcp://" + tcp.Addr().String(), Process: "t", Stream: "stderr"})
+	defer s2.Close()
+	s2.Send([]byte("over tcp"))
+	select {
+	case m := <-got:
+		if !strings.HasSuffix(m, " t["+strconv.Itoa(os.Getpid())+"]: over tcp\n") {
+			t.Errorf("tcp message %q", m)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("nothing over tcp")
+	}
+
+	// The local socket: the paths log/syslog tries, here one test socket.
+	path := filepath.Join(sockDir(t), "dev-log")
+	ch := listenGram(t, path)
+	old := localSyslogPaths
+	localSyslogPaths = []string{"/nonexistent/kahi-log", path}
+	t.Cleanup(func() { localSyslogPaths = old })
+	s3 := NewSyslogSink(SyslogConfig{Process: "l", Stream: "stdout"})
+	defer s3.Close()
+	s3.Send([]byte("local"))
+	if m := recv(t, ch); !strings.HasSuffix(m, " l["+strconv.Itoa(os.Getpid())+"]: local") {
+		t.Errorf("local message %q", m)
+	}
+	localSyslogPaths = []string{"/nonexistent/kahi-log"}
+	if _, err := dialSyslog("", "", 0, "x"); err == nil || !strings.Contains(err.Error(), "no local syslog socket") {
+		t.Errorf("no local socket: %v", err)
+	}
 }
