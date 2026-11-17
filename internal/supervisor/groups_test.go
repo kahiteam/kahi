@@ -33,6 +33,8 @@ func prog(name, env string) string {
 // config (FUNC-085, ADR-051).
 func TestReloadGroups(t *testing.T) {
 	s, path := groupsSupervisor(t, prog("web", "1")+prog("worker", "1")+prog("old", "1"))
+	rec := &countingRecorder{}
+	s.SetReloadRecorder(rec)
 	write := func(body string) {
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
@@ -83,5 +85,11 @@ func TestReloadGroups(t *testing.T) {
 	}
 	if _, err := s.Avail(); err == nil {
 		t.Error("avail of a broken file")
+	}
+	// Each update counts once, refused names and a broken file as errors;
+	// update all counts through the full reload, previews not at all
+	// (FUNC-062).
+	if rec.total != 6 || rec.errors != 3 {
+		t.Errorf("reloads %d, errors %d; want 6, 3", rec.total, rec.errors)
 	}
 }

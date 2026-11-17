@@ -17,11 +17,15 @@ import (
 // changes. Groups that are not named keep their old config, so a later
 // reread still reports them; [supervisor] settings and webhooks change only
 // on a full reload.
-func (s *Supervisor) ReloadGroups(groups []string) (config.ReloadResult, error) {
+func (s *Supervisor) ReloadGroups(groups []string) (res config.ReloadResult, err error) {
 	s.reloadMu.Lock()
 	defer s.reloadMu.Unlock()
 	if isAll(groups) {
 		return s.applyReload()
+	}
+	// One attempt per update, refused names included (FUNC-062).
+	if s.reloads != nil {
+		defer func() { s.reloads.ReloadAttempt(err != nil) }()
 	}
 	s.mu.Lock()
 	if s.shutting {
