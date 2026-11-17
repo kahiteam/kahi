@@ -76,7 +76,13 @@ func writeListenerSection(b *strings.Builder, sec INISection, result *Result) {
 			for i, n := range names {
 				quoted[i] = strconv.Quote(n)
 			}
-			fmt.Fprintf(b, "events = [%s]\n", strings.Join(quoted, ", "))
+			c := sec.Notes[key]
+			writeComments(b, c.Above)
+			line := fmt.Sprintf("events = [%s]", strings.Join(quoted, ", "))
+			if c.Inline != "" {
+				line += " # " + oneLine(c.Inline)
+			}
+			b.WriteString(line + "\n")
 			for _, d := range dropped {
 				result.Warnings = append(result.Warnings,
 					fmt.Sprintf("eventlisteners.%s: event type %s has no kahi equivalent; dropped", sec.Name, d))
@@ -84,12 +90,12 @@ func writeListenerSection(b *strings.Builder, sec INISection, result *Result) {
 		case "buffer_size":
 			m := MapProgramOption("numprocs", value) // an int, like numprocs
 			m.Key = "buffer_size"
-			writeOption(b, m)
+			writeOption(b, m, sec.Notes[key])
 		case "result_handler":
-			writeOption(b, unsupported(key, value, "kahi parses RESULT itself: OK acknowledges, anything else re-queues"))
+			writeOption(b, unsupported(key, value, "kahi parses RESULT itself: OK acknowledges, anything else re-queues"), sec.Notes[key])
 			result.Warnings = append(result.Warnings, fmt.Sprintf("eventlisteners.%s: unsupported option %q", sec.Name, key))
 		case "redirect_stderr":
-			writeOption(b, unsupported(key, value, "not allowed for an event listener: stdout carries the protocol"))
+			writeOption(b, unsupported(key, value, "not allowed for an event listener: stdout carries the protocol"), sec.Notes[key])
 			result.Warnings = append(result.Warnings, fmt.Sprintf("eventlisteners.%s: unsupported option %q", sec.Name, key))
 		default:
 			return false
