@@ -198,6 +198,9 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 		Username:   cfg.Server.HTTP.Username,
 		Password:   cfg.Server.HTTP.Password,
 		UI:         buildUIHandler(cfg.Server.Web, mgr, web.NewHandler, logger),
+
+		MetricsEnabled: cfg.Server.Metrics.Enabled,
+		Metrics:        buildMetrics(cfg.Server.Metrics.Enabled, sup, logger),
 	}
 
 	server := api.NewServer(apiCfg, mgr, mgr, sup, sup, sup.Bus(), logger)

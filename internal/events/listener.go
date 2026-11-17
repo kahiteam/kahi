@@ -100,7 +100,8 @@ type Pool struct {
 	mu         sync.Mutex
 	buf        []*pending
 	poolSerial uint64
-	dropped    int
+	dropped    int           // drops not logged yet
+	drops      atomic.Uint64 // every drop, for kahi_event_buffer_drops_total
 	lastRep    time.Time
 	repTimer   *time.Timer
 	stopped    bool
@@ -165,6 +166,7 @@ func (p *Pool) Reconfigure(cfg PoolConfig) {
 		}
 		p.buf = append(p.buf[:i], p.buf[i+1:]...)
 		p.dropped++
+		p.drops.Add(1)
 	}
 	if p.dropped > 0 {
 		p.reportDropsLocked()
@@ -219,6 +221,7 @@ func (p *Pool) enqueue(e Event) {
 			p.buf = append(p.buf, pe)
 		}
 		p.dropped++
+		p.drops.Add(1)
 		p.reportDropsLocked()
 	} else {
 		p.buf = append(p.buf, pe)
@@ -368,6 +371,10 @@ func (p *Pool) Stop() {
 	close(p.stop)
 	<-p.done
 }
+
+// Drops returns the number of events the pool dropped because its buffer
+// was full, since it was created (FUNC-060).
+func (p *Pool) Drops() uint64 { return p.drops.Load() }
 
 // Buffered returns the number of buffered events (not in flight).
 func (p *Pool) Buffered() int {
