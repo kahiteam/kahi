@@ -3283,6 +3283,7 @@
         "e2e: config check -d, an unknown flag, or a positional argument: exit 2; 'kahi config' alone prints help, exit 0",
         "e2e: a regular file at the [server.unix] socket path with no daemon running: exit 1, stderr contains 'exists and is not a socket'; the file is unchanged",
         "e2e: logfile parent is a symlink to an absolute directory: exit 1 with the daemon's 'cannot open log file: ' text",
+        "e2e: [eventlisteners.x] without command: exit 1 with the same text kahi daemon prints; a pool whose command is missing gives 'warning: eventlisteners.l.command: ...' and exit 0",
         "unit: each probe and its startup step agree on missing / not a directory / not writable / symlink / ok fixtures with the same error text (ADR-054 parity tests)"
       ],
       "passes": true,
@@ -3298,7 +3299,8 @@
         "TestConfigCheck_DropUser",
         "TestConfigCheck_Usage",
         "TestConfigCheck_SocketPathNotSocket",
-        "TestConfigCheck_LogParentSymlink"
+        "TestConfigCheck_LogParentSymlink",
+        "TestConfigCheck_ListenerPools"
       ],
       "dependencies": [
         "config-search-paths",

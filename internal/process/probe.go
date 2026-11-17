@@ -23,40 +23,56 @@ import (
 // numprocs instance is checked with its own expanded values; a message is
 // returned once however many instances produce it. Nothing is spawned.
 func ProbePrograms(cfg *config.Config) []string {
-	names := make([]string, 0, len(cfg.Programs))
-	for name := range cfg.Programs {
-		names = append(names, name)
+	type unit struct {
+		table, name string
+		cfg         config.ProgramConfig
 	}
-	slices.Sort(names)
+	var units []unit
+	for name, p := range cfg.Programs {
+		units = append(units, unit{"programs", name, p})
+	}
+	// Pool members are spawned like programs (FUNC-055); their stdout carries
+	// the protocol, so only stderr has a log file to check.
+	for name, l := range cfg.EventListeners {
+		p := l.ProgramConfig
+		p.StdoutLogfile = ""
+		units = append(units, unit{"eventlisteners", name, p})
+	}
+	slices.SortFunc(units, func(a, b unit) int {
+		if a.table != b.table {
+			return strings.Compare(b.table, a.table) // programs first
+		}
+		return strings.Compare(a.name, b.name)
+	})
 
 	var out []string
 	seen := map[string]bool{}
-	add := func(prog, key string, err error) {
-		msg := fmt.Sprintf("programs.%s.%s: %v", prog, key, err)
-		if !seen[msg] {
-			seen[msg] = true
-			out = append(out, msg)
+	for _, u := range units {
+		add := func(key string, err error) {
+			msg := fmt.Sprintf("%s.%s.%s: %v", u.table, u.name, key, err)
+			if !seen[msg] {
+				seen[msg] = true
+				out = append(out, msg)
+			}
 		}
-	}
-	for _, prog := range names {
-		for _, inst := range ExpandNumprocs(prog, cfg.Programs[prog]) {
+		for _, inst := range ExpandNumprocs(u.name, u.cfg) {
 			c := inst.Config
 			dirOK := true
 			if err := probeProgramDir(c.Directory); err != nil {
-				add(prog, "directory", err)
+				add("directory", err)
 				dirOK = false
 			}
 			if err := probeCommand(inst, dirOK); err != nil {
-				add(prog, "command", err)
+				add("command", err)
 			}
 			if c.StdoutLogfile != "" {
 				if err := logging.ProbeLogFile(c.StdoutLogfile); err != nil {
-					add(prog, "stdout_logfile", err)
+					add("stdout_logfile", err)
 				}
 			}
 			if c.StderrLogfile != "" && !c.RedirectStderr {
 				if err := logging.ProbeLogFile(c.StderrLogfile); err != nil {
-					add(prog, "stderr_logfile", err)
+					add("stderr_logfile", err)
 				}
 			}
 		}
