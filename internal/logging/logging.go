@@ -118,6 +118,24 @@ func OpenDaemonLog(level, format, logfile string) (*DaemonLog, error) {
 	return dl, nil
 }
 
+// ProbeDaemonLog reports whether OpenDaemonLog would fail to open logfile,
+// with the same text, without creating or opening it (FUNC-087).
+func ProbeDaemonLog(logfile string) error {
+	if logfile == "" {
+		return nil
+	}
+	if err := probeLogFile(logfile); err != nil {
+		return fmt.Errorf("cannot open log file: %s: %w", logfile, err)
+	}
+	return nil
+}
+
+// ProbeLogFile reports whether a capture log at path could be opened,
+// without creating or opening it (FUNC-087).
+func ProbeLogFile(path string) error {
+	return probeLogFile(path)
+}
+
 // Reopen reopens the log file at its path; a no-op when logging to stdout.
 func (d *DaemonLog) Reopen() error {
 	if d.file == nil {
