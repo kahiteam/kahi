@@ -81,10 +81,20 @@ func WithStderrHandler(fn func(name string, data []byte)) ProcessOption {
 	return func(p *Process) { p.onStderr = fn }
 }
 
-// WithLineHandler sets a callback for each line of output, split per pipe so
-// stdout and stderr never mix within a line.
+// WithLineHandler adds a callback for each line of output, split per pipe so
+// stdout and stderr never mix within a line. Several handlers run in the
+// order they were added (passthrough, syslog).
 func WithLineHandler(fn func(name, stream string, line []byte)) ProcessOption {
-	return func(p *Process) { p.onLine = fn }
+	return func(p *Process) {
+		if prev := p.onLine; prev != nil {
+			p.onLine = func(name, stream string, line []byte) {
+				prev(name, stream, line)
+				fn(name, stream, line)
+			}
+			return
+		}
+		p.onLine = fn
+	}
 }
 
 // WithPreSpawn sets a check that runs before every spawn, such as opening

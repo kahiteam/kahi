@@ -35,7 +35,7 @@ Key differences from supervisord:
 - CLI control client (`kahi ctl`) with all standard operations
 - Liveness and readiness probes (`/healthz`, `/readyz`)
 - Event system with pub/sub, an SSE event stream and webhook notifications (Slack, PagerDuty and generic JSON templates, retries, circuit breaker); event listener pools are planned for 0.3.0: [#106](https://github.com/kahiteam/kahi/issues/106)
-- Structured logging with file rotation, an in-memory output buffer (64 KB per stream, up to 16 MB with `*_capture_maxbytes`), ANSI stripping (syslog forwarding is planned for 0.3.0: [#152](https://github.com/kahiteam/kahi/issues/152))
+- Structured logging with file rotation, an in-memory output buffer (64 KB per stream, up to 16 MB with `*_capture_maxbytes`), ANSI stripping, syslog forwarding (one message per line, local socket, unix, UDP or TCP)
 - Process groups with priority-ordered startup and shutdown: shutdown stops one priority level at a time, in reverse order, within one `shutdown_timeout`
 - Per-process uid/gid, umask, resource limits (see [Resource limits](#resource-limits)), environment control
 - supervisord.conf migration tool
@@ -306,6 +306,8 @@ kahi init --stdout            # print to stdout
 # user = ""                    # drop to this user after binding (name or uid, optionally :group);
 #                               # needs root; kahi daemon -u takes precedence
 # nocleanup = false             # no effect: kahi does not auto-name child logs
+# syslog_address = ""           # where *_syslog output goes: "" (local socket), unix:///path,
+#                               # udp://host:port or tcp://host:port; takes effect after restart
 # shutdown_timeout = 30         # total seconds for an ordered shutdown, then SIGKILL; levels stop one after
 #                               # another, so keep it >= the sum of the largest stopwaitsecs in each level,
 #                               # and below your service manager's stop timeout (TimeoutStopSec, docker stop -t)
@@ -360,6 +362,10 @@ kahi init --stdout            # print to stdout
 # stderr_logfile_backups = 10
 # stdout_capture_maxbytes = "64KB" # in-memory buffer for tail and the log viewer, 1KB..16MB
 # stderr_capture_maxbytes = "64KB"
+# stdout_syslog = false        # forward stdout to syslog, one message per line (tag: process name)
+# stderr_syslog = false        # forward stderr to syslog
+# syslog_facility = "LOCAL0"   # KERN, USER, DAEMON, ..., LOCAL0..LOCAL7
+# syslog_priority = "INFO"     # EMERG, ALERT, CRIT, ERR, WARNING, NOTICE, INFO, DEBUG
 # description = ""             # process description
 # [programs.example.environment]
 # KEY = "value"

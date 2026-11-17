@@ -1322,7 +1322,7 @@ syslog_priority = "INFO"     # EMERG, ALERT, CRIT, ERR, WARNING, NOTICE, INFO, D
 - Lines are forwarded after ANSI stripping when `strip_ansi = true`, the same data the log file receives; a partial last line is forwarded when the process exits
 - With `redirect_stderr = true`, stderr lines follow `stdout_syslog`; setting `stderr_syslog` as well logs a config warning "programs.{name}.stderr_syslog has no effect with redirect_stderr"
 - Both streams use the same facility and priority
-- Messages use the RFC 3164 format Go's `log/syslog` writes; TCP is newline-framed; lines over 2048 bytes are split into several messages
+- Messages use the RFC 3164 format Go's `log/syslog` writes (`<PRI>Stamp tag[pid]: msg` on Unix sockets, with an RFC 3339 time and the hostname over the network), each ending in a newline; TCP is newline-framed; lines over 2048 bytes are split into several messages. A Unix datagram reader that is behind (ENOBUFS) is waited for, up to about a second, before a write counts as failed
 - The default local socket is `/dev/log` on Linux and `/var/run/syslog` on macOS
 - One connection per process and stream; each has its own goroutine and a bounded queue of 1000 lines that drops the oldest while disconnected or slow, so a slow syslog never blocks the capture writer (FUNC-018); dials and reconnects happen only in that goroutine
 - Outage state is tracked per connection (process and stream); each connection logs its own WARN and INFO

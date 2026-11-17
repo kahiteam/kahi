@@ -39,8 +39,6 @@ events = ["PROCESS_STATE_FATAL"]
 	joined := strings.Join(warnings, "\n")
 	for _, want := range []string{
 		"supervisor.identifier",
-		"programs.web.stdout_syslog",
-		"programs.web.stderr_syslog",
 	} {
 		if !strings.Contains(joined, want+" ") && !strings.Contains(joined, want+":") {
 			t.Errorf("no ignored-setting warning for %s; warnings:\n%s", want, joined)
@@ -48,6 +46,7 @@ events = ["PROCESS_STATE_FATAL"]
 	}
 	// Implemented in v0.3.0 (#113): no ignored warning.
 	for _, gone := range []string{
+		"programs.web.stdout_syslog", "programs.web.stderr_syslog", // #152
 		"supervisor.directory", "supervisor.minfds", "supervisor.minprocs",
 		"programs.web.stdout_capture_maxbytes", "programs.web.stderr_capture_maxbytes",
 		"[webhooks]", // delivered since v0.3.0 (#106)
