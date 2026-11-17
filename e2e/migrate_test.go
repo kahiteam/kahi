@@ -131,10 +131,10 @@ killasgroup=0
 		t.Fatalf("exit %d, stderr %q", code, stderr)
 	}
 	wantLines(t, "stdout", out,
-		`command = "/bin/sh -c \"echo a;echo b\""`,
+		"# a whole-line comment\n"+`command = "/bin/sh -c \"echo a;echo b\"" # inline comment`+"\n",
 		`command = "/bin/echo x;y"`,
 		`directory = "${HOME}/app"`,
-		"startsecs = 10\n",
+		"startsecs = 10 # ten seconds\n",
 		"autostart = true\n", "autostart = false\n",
 		`autorestart = "unexpected"`,
 		"redirect_stderr = true\n", "stopasgroup = true\n", "killasgroup = true\n",
@@ -146,8 +146,9 @@ killasgroup=0
 		"# UNSUPPORTED: stdout_syslog = true\n",
 		"# UNSUPPORTED: frobnicate = 42 (unknown option)\n",
 	)
-	if strings.Contains(out, "comment") || strings.Contains(out, "ten seconds") {
-		t.Errorf("a comment reached the output:\n%s", out)
+	// Comments are kept (#158), but never inside a value.
+	if strings.Contains(out, `comment"`) || strings.Contains(out, `seconds"`) {
+		t.Errorf("a comment reached a value:\n%s", out)
 	}
 	wantLines(t, "stderr", stderr, `programs.web: unsupported option "stdout_syslog"`, `programs.web: unsupported option "frobnicate"`)
 
@@ -204,5 +205,33 @@ startsecs=0
 		if code != 0 || !strings.Contains(out, name+" ") {
 			t.Errorf("status %s: exit %d, %q", name, code, out)
 		}
+	}
+}
+
+// kahi migrate keeps comments with the item they belong to (FUNC-069,
+// ADR-053, #158): e2e/testdata/commented.conf migrates to commented.toml
+// byte for byte.
+func TestMigrate_CommentsGolden(t *testing.T) {
+	t.Parallel()
+	src, err := filepath.Abs("testdata/commented.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile("testdata/commented.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := runKahi(t, t.TempDir(), "migrate", src)
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if stdout != string(want) {
+		t.Errorf("output differs from testdata/commented.toml:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "comment on continuation line 4 dropped") {
+		t.Errorf("stderr lacks the continuation warning: %q", stderr)
+	}
+	if strings.Contains(stdout, "continuation comment") {
+		t.Error("the continuation-line comment was kept")
 	}
 }

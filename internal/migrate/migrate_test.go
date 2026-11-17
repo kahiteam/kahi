@@ -257,12 +257,56 @@ command = /usr/bin/python app.py ; start the web server
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// The command value should have the comment stripped.
-	if strings.Contains(result.TOML, "start the web server") {
-		t.Error("inline comment should be stripped from value")
+	// The comment leaves the value and is kept at the end of the line
+	// (FUNC-069, #158).
+	if !strings.Contains(result.TOML, `command = "/usr/bin/python app.py" # start the web server`+"\n") {
+		t.Errorf("inline comment not kept after the clean value:\n%s", result.TOML)
 	}
-	if !strings.Contains(result.TOML, `command = "/usr/bin/python app.py"`) {
-		t.Errorf("TOML should contain clean command, got: %s", result.TOML)
+}
+
+// Comments travel with their item (FUNC-069, ADR-053).
+func TestMigrateCommentPlacement(t *testing.T) {
+	input := `; top of file
+[supervisord] ; daemon
+loglevel = debug ; chatty
+identifier = h ; host id
+
+; about web
+[program:web]
+; the binary
+command = /bin/web
+environment = A="1", ; continued
+  B="2" ; dropped
+; end of web
+
+; group notes
+[group:g]
+programs = web
+; trailing at end of file
+`
+	result, err := MigrateReader(strings.NewReader(input), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"# top of file\n[supervisor] # daemon\n",
+		"# (from supervisord) host id\n# UNSUPPORTED: identifier = h\n",
+		`log_level = "debug" # chatty (renamed from "loglevel")` + "\n",
+		"# about web\n[programs.web]\n# the binary\ncommand = \"/bin/web\"\n# end of web\n# continued\n[programs.web.environment]\n",
+		"# group notes\n[groups.g]\nprograms = [\"web\"]\n# trailing at end of file\n",
+	} {
+		if !strings.Contains(result.TOML, want) {
+			t.Errorf("missing %q in:\n%s", want, result.TOML)
+		}
+	}
+	if !strings.Contains(strings.Join(result.Warnings, "\n"), "comment on continuation line 11 dropped") {
+		t.Errorf("no continuation warning: %v", result.Warnings)
+	}
+	if strings.Contains(result.TOML, "dropped") {
+		t.Error("continuation comment kept")
+	}
+	if len(result.ValidErrs) != 0 {
+		t.Errorf("generated TOML invalid: %v", result.ValidErrs)
 	}
 }
 
