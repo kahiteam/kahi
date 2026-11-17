@@ -93,13 +93,14 @@ func TestCLI_InitDocumentsEveryKey(t *testing.T) {
 		t.Fatalf("init --stdout: exit %d", code)
 	}
 	for section, v := range map[string]any{
-		"supervisor":  config.SupervisorConfig{},
-		"server.unix": config.UnixServerConfig{},
-		"server.http": config.HTTPServerConfig{},
-		"server.web":  config.WebServerConfig{},
-		"programs":    config.ProgramConfig{},
-		"groups":      config.GroupConfig{},
-		"webhooks":    config.WebhookConfig{},
+		"supervisor":     config.SupervisorConfig{},
+		"server.unix":    config.UnixServerConfig{},
+		"server.http":    config.HTTPServerConfig{},
+		"server.web":     config.WebServerConfig{},
+		"programs":       config.ProgramConfig{},
+		"groups":         config.GroupConfig{},
+		"webhooks":       config.WebhookConfig{},
+		"eventlisteners": config.EventListenerConfig{},
 	} {
 		typ := reflect.TypeOf(v)
 		for i := 0; i < typ.NumField(); i++ {

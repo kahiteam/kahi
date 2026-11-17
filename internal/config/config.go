@@ -13,7 +13,9 @@ type Config struct {
 	Groups     map[string]GroupConfig   `toml:"groups"`
 	Server     ServerConfig             `toml:"server"`
 	Webhooks   map[string]WebhookConfig `toml:"webhooks"`
-	Include    []string                 `toml:"include"`
+	// EventListeners are event listener pools (FUNC-055, ADR-042).
+	EventListeners map[string]EventListenerConfig `toml:"eventlisteners"`
+	Include        []string                       `toml:"include"`
 }
 
 // SupervisorConfig holds daemon-level settings.
@@ -109,6 +111,20 @@ type HTTPServerConfig struct {
 type WebServerConfig struct {
 	Enabled   bool   `toml:"enabled"`
 	StaticDir string `toml:"static_dir"`
+}
+
+// EventListenerConfig is an event listener pool: a program whose stdin and
+// stdout carry the supervisord event listener protocol (FUNC-055, ADR-042).
+// Every program key applies; the pool's group is its own name.
+type EventListenerConfig struct {
+	ProgramConfig
+	Events        []string `toml:"events"`
+	BufferSize    int      `toml:"buffer_size"`    // queued events per pool, default 10
+	ResultTimeout int      `toml:"result_timeout"` // seconds to answer RESULT, default 60
+
+	// StdoutKeysSet lists the stdout output keys set in the file; they have
+	// no effect on a pool and are warned about.
+	StdoutKeysSet []string `toml:"-" json:"-"`
 }
 
 // WebhookConfig holds per-webhook settings (FUNC-056..059, ADR-043).

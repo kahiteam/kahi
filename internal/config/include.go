@@ -110,6 +110,11 @@ func resolveIncludes(cfg *Config, configDir string, st *includeState, label stri
 				return warnings, err
 			}
 
+			// Event listener pools merge like programs (ADR-042).
+			if err := mergeEventListeners(cfg, included, label, absPath, st); err != nil {
+				return warnings, err
+			}
+
 			// Merge groups from included files.
 			mergeGroups(cfg, included)
 
@@ -237,6 +242,7 @@ func LoadWithIncludes(path string) (*Config, []string, error) {
 	warnings = append(warnings, redirectWarnings(cfg)...)
 	warnings = append(warnings, userWarnings(cfg)...)
 	warnings = append(warnings, webhookWarnings(cfg)...)
+	warnings = append(warnings, listenerWarnings(cfg)...)
 
 	return cfg, warnings, nil
 }
@@ -285,6 +291,7 @@ func shutdownWarnings(cfg *Config) []string {
 // must run both too (#245).
 func ValidateMerged(cfg *Config) []error {
 	errs := append(validateGroupReferences(cfg), validateProcessNames(cfg)...)
+	errs = append(errs, validateListenerNames(cfg)...)
 	// Webhook URLs are checked after ${VAR} expansion (FUNC-058, FUNC-059).
 	return append(errs, validateWebhookURLs(cfg)...)
 }
