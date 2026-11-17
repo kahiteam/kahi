@@ -1139,7 +1139,14 @@
         "e2e: 'kahi __complete ctl start --' output contains '--help'",
         "e2e: completion honours -c {config} and the TCP flags (--addr with credentials) typed on the command line: names come from that daemon"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestCompletion_ScriptsAndStatic",
+        "TestCompletion_ProcessNames",
+        "TestCompletion_Groups",
+        "TestCompletion_NoOrSlowDaemon",
+        "TestCompletion_ConfigAndTCPFlags"
+      ],
       "dependencies": [
         "cli-framework",
         "cli-config-avail-update-group",
