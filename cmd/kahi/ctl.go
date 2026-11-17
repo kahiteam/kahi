@@ -485,11 +485,13 @@ var ctlAttachCmd = &cobra.Command{
 	Use:   "attach <process>",
 	Short: "Attach to a process (stdin/stdout forwarding)",
 	Args:  cobra.ExactArgs(1),
+	Long: `Attach forwards your input to the process's stdin and its stdout and stderr
+to yours. On a terminal, input is raw (^C, ^Z go to the process) and Ctrl+]
+detaches; the process keeps running. With input from a pipe, the session ends
+when the process exits, or 1 s after the input ends without further output.
+Supervisorctl calls this command fg.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c := newCtlClient()
-		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-		defer cancel()
-		return c.Attach(ctx, args[0], os.Stdin, os.Stdout)
+		return runAttach(cmd, newCtlClient(), args[0])
 	},
 }
 

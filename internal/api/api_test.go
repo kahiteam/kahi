@@ -49,6 +49,8 @@ type mockProcessManager struct {
 	logMu   sync.Mutex
 	logFns  map[int]func(data []byte, id string)
 	logNext int
+
+	attach *mockSession // nil: Attach answers "not running"
 }
 
 func (m *mockProcessManager) SubscribeLog(name, stream string, fn func(data []byte, id string)) (func(), error) {
@@ -131,6 +133,25 @@ func (m *mockProcessManager) Signal(name string, sig string) error {
 	}
 	return nil
 }
+func (m *mockProcessManager) Attach(name string) (AttachSession, error) {
+	if _, err := m.Get(name); err != nil {
+		return nil, err
+	}
+	if m.attach == nil {
+		return nil, fmt.Errorf("process not running: %s", name)
+	}
+	return m.attach, nil
+}
+
+// mockSession records an attach session's input and release.
+type mockSession struct {
+	in       chan []byte
+	released chan struct{}
+}
+
+func (s *mockSession) Write(data []byte) error { s.in <- data; return nil }
+func (s *mockSession) Release()                { close(s.released) }
+
 func (m *mockProcessManager) WriteStdin(name string, data []byte) error {
 	_, err := m.Get(name)
 	return err

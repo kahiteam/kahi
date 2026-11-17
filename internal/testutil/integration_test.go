@@ -4,6 +4,7 @@ package testutil
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -29,6 +30,9 @@ func (m *mockProcessManager) Stop(name string) error                    { return
 func (m *mockProcessManager) Restart(name string) error                 { return nil }
 func (m *mockProcessManager) Signal(name string, sig string) error      { return nil }
 func (m *mockProcessManager) WriteStdin(name string, data []byte) error { return nil }
+func (m *mockProcessManager) Attach(name string) (api.AttachSession, error) {
+	return nil, fmt.Errorf("process not running: %s", name)
+}
 func (m *mockProcessManager) ReadLog(name string, stream string, offset int64, length int) ([]byte, bool, error) {
 	return []byte("log output"), false, nil
 }

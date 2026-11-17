@@ -43,6 +43,8 @@ type Client struct {
 	password      string
 	queryTimeout  time.Duration
 	actionTimeout time.Duration
+	// dial opens a raw connection to the daemon, for attach (ADR-044).
+	dial func(ctx context.Context) (net.Conn, error)
 }
 
 // NewUnixClient creates a client that connects via Unix socket.
@@ -58,6 +60,9 @@ func NewUnixClient(socketPath string) *Client {
 		},
 		baseURL:      "http://unix",
 		queryTimeout: defaultQueryTimeout,
+		dial: func(ctx context.Context) (net.Conn, error) {
+			return dialer.DialContext(ctx, "unix", socketPath)
+		},
 	}
 }
 
@@ -70,6 +75,9 @@ func NewTCPClient(addr, username, password string) *Client {
 		username:     username,
 		password:     password,
 		queryTimeout: defaultQueryTimeout,
+		dial: func(ctx context.Context) (net.Conn, error) {
+			return dialer.DialContext(ctx, "tcp", addr)
+		},
 	}
 }
 
@@ -685,48 +693,4 @@ func (c *Client) WriteStdin(name, data string) error {
 	_, err = c.doJSON("POST", "/api/v1/processes/"+name+"/stdin",
 		bytes.NewReader(body))
 	return err
-}
-
-// Attach enters raw terminal mode, forwarding stdin to the process
-// and streaming stdout/stderr back. Press Ctrl-C to detach.
-func (c *Client) Attach(ctx context.Context, name string, stdin io.Reader, stdout io.Writer) error {
-	// Verify process exists and is running.
-	resp, err := c.do("GET", "/api/v1/processes/"+name, nil)
-	if err != nil {
-		return fmt.Errorf("connection failed: %w", err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("no such process: %s", name)
-	}
-
-	// Start streaming stdout.
-	errCh := make(chan error, 2)
-	go func() {
-		errCh <- c.TailFollow(ctx, name, "stdout", stdout)
-	}()
-
-	// Forward stdin lines.
-	go func() {
-		scanner := newLineScanner(stdin)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if err := c.WriteStdin(name, line); err != nil {
-				errCh <- err
-				return
-			}
-		}
-		errCh <- scanner.Err()
-	}()
-
-	select {
-	case <-ctx.Done():
-		return nil
-	case err := <-errCh:
-		return err
-	}
-}
-
-func newLineScanner(r io.Reader) *bufio.Scanner {
-	return bufio.NewScanner(r)
 }

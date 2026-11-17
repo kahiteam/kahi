@@ -63,6 +63,9 @@ type Process struct {
 	stdoutReader func(stdin io.Writer, stdout io.Reader)
 	// stdinRefused, when set, is why WriteStdin refuses every write.
 	stdinRefused string
+	// attached is set while a kahi ctl attach session holds the process
+	// (FUNC-034, ADR-044); WriteStdin is refused meanwhile.
+	attached bool
 	// recorder counts spawns and exits for the metrics (ADR-049); nil when
 	// metrics are off.
 	recorder Recorder
@@ -626,11 +629,50 @@ func (p *Process) Signal(sig string) error {
 	return p.spawned.Signal(s)
 }
 
+// Attach takes the process for a kahi ctl attach session (FUNC-034,
+// ADR-044): it must accept stdin, run, and not be attached already.
+func (p *Process) Attach() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.stdinRefused != "" {
+		return fmt.Errorf("process %s: %s", p.name, p.stdinRefused)
+	}
+	if p.spawned == nil || p.sm.State() != Running {
+		return fmt.Errorf("process not running: %s", p.name)
+	}
+	if p.attached {
+		return fmt.Errorf("process %s: already attached", p.name)
+	}
+	p.attached = true
+	return nil
+}
+
+// Detach releases an attach session's hold.
+func (p *Process) Detach() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.attached = false
+}
+
+// WriteAttached writes an attach session's input to stdin, as it arrives
+// (no newline added).
+func (p *Process) WriteAttached(data []byte) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.writeStdinLocked(data)
+}
+
 // WriteStdin writes data to the process stdin pipe.
 func (p *Process) WriteStdin(data []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.attached {
+		return fmt.Errorf("process %s: attached", p.name)
+	}
+	return p.writeStdinLocked(data)
+}
 
+func (p *Process) writeStdinLocked(data []byte) error {
 	if p.stdinRefused != "" {
 		return fmt.Errorf("process %s: %s", p.name, p.stdinRefused)
 	}
