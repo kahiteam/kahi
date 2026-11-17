@@ -86,7 +86,7 @@ tasks:
       - ./scripts/check-wiring.sh
 
   verified-by:
-    desc: Report passing feature_list entries without e2e proof (warnings only)
+    desc: Validate feature_list.json (schema, ids, dependencies) and report passing entries without e2e proof (warnings)
     cmds:
       - ./scripts/check-verified-by.sh
 
