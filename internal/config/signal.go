@@ -21,6 +21,12 @@ var signals = map[string]syscall.Signal{
 	"CONT": syscall.SIGCONT,
 }
 
+// SignalNames lists the signals kahi ctl signal accepts, in <signal.h>
+// form, in a fixed order (for completion, FUNC-037).
+func SignalNames() []string {
+	return []string{"SIGTERM", "SIGHUP", "SIGINT", "SIGQUIT", "SIGKILL", "SIGUSR1", "SIGUSR2", "SIGSTOP", "SIGCONT"}
+}
+
 // stopSignals is the subset allowed as a program's stopsignal.
 var stopSignals = map[string]bool{
 	"TERM": true, "HUP": true, "INT": true, "QUIT": true,

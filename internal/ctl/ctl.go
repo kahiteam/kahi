@@ -81,6 +81,30 @@ func NewTCPClient(addr, username, password string) *Client {
 	}
 }
 
+// SetQueryTimeout bounds each query, the dial included; completion uses a
+// short one (FUNC-037).
+func (c *Client) SetQueryTimeout(d time.Duration) {
+	c.queryTimeout = d
+}
+
+// Processes returns every process the daemon manages, sorted by name.
+func (c *Client) Processes() ([]ProcessInfo, error) {
+	resp, err := c.do("GET", "/api/v1/processes", nil)
+	if err != nil {
+		return nil, fmt.Errorf("connection failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 400 {
+		return nil, responseError(resp)
+	}
+	var procs []ProcessInfo
+	if err := json.NewDecoder(resp.Body).Decode(&procs); err != nil {
+		return nil, fmt.Errorf("invalid response: %w", err)
+	}
+	sort.Slice(procs, func(i, j int) bool { return procs[i].Name < procs[j].Name })
+	return procs, nil
+}
+
 // SetActionTimeout bounds actions that wait on processes (start, stop,
 // restart, all, groups). 0, the default, waits as long as the daemon works.
 func (c *Client) SetActionTimeout(d time.Duration) {

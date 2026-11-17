@@ -39,7 +39,7 @@ Key differences from supervisord:
 - Process groups with priority-ordered startup and shutdown: shutdown stops one priority level at a time, in reverse order, within one `shutdown_timeout`
 - Per-process uid/gid, umask, resource limits (see [Resource limits](#resource-limits)), environment control
 - supervisord.conf migration tool
-- Shell completion for commands and flags (bash, zsh, fish, powershell)
+- Shell completion for commands, flags, signals and, from the running daemon, process and group names (bash, zsh, fish, powershell)
 - Web UI under `/ui/`: process status, actions and live log tailing (off by default; see [Web UI](#web-ui))
 - FIPS 140-3 mode on by default in every binary (`GOFIPS140=v1.0.0`)
 
