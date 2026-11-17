@@ -14,6 +14,13 @@ type usageError struct{ err error }
 func (e usageError) Error() string { return e.err.Error() }
 func (e usageError) Unwrap() error { return e.err }
 
+// silentError ends a command with exit 1 after it printed its own errors;
+// main prints nothing for it.
+type silentError struct{ err error }
+
+func (e silentError) Error() string { return e.err.Error() }
+func (e silentError) Unwrap() error { return e.err }
+
 // exitCode maps the error returned by the root command to the exit code.
 func exitCode(err error) int {
 	var u usageError

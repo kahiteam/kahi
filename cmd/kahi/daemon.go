@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -62,27 +63,7 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 		}()
 	}
 
-	// Resolve config path. The daemon excludes the current directory from its
-	// default search order so a root daemon cannot be tricked into loading a
-	// ./kahi.toml planted in an attacker-writable working directory (SEC-017).
-	// Explicit -c and KAHI_CONFIG are still honored.
-	cfgPath, err := config.ResolveDaemon(configFlag)
-	if err != nil {
-		return err
-	}
-	// Absolute before [supervisor] directory changes the working directory,
-	// so a reload re-reads the same file (FUNC-045 startup order).
-	if cfgPath, err = filepath.Abs(cfgPath); err != nil {
-		return err
-	}
-
-	// Load config with includes and variable expansion.
-	// Warnings come first, also for a refused config: the all-interfaces
-	// warning accompanies the missing-credentials error (SEC-015).
-	cfg, warnings, err := config.LoadWithIncludes(cfgPath)
-	for _, w := range warnings {
-		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
-	}
+	cfgPath, cfg, err := loadDaemonConfig(configFlag, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -254,6 +235,38 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 
 	// Run main loop (blocks until shutdown signal).
 	return sup.Run()
+}
+
+// loadDaemonConfig is the config half of the daemon's start, shared with
+// kahi config check so the check follows the start (ADR-054): resolve the
+// path, make it absolute and load it with includes. Warnings are written to
+// w first, also for a refused config.
+func loadDaemonConfig(flag string, w io.Writer) (string, *config.Config, error) {
+	// Resolve config path. The daemon excludes the current directory from its
+	// default search order so a root daemon cannot be tricked into loading a
+	// ./kahi.toml planted in an attacker-writable working directory (SEC-017).
+	// Explicit -c and KAHI_CONFIG are still honored.
+	cfgPath, err := config.ResolveDaemon(flag)
+	if err != nil {
+		return "", nil, err
+	}
+	// Absolute before [supervisor] directory changes the working directory,
+	// so a reload re-reads the same file (FUNC-045 startup order).
+	if cfgPath, err = filepath.Abs(cfgPath); err != nil {
+		return "", nil, err
+	}
+
+	// Load config with includes and variable expansion.
+	// Warnings come first, also for a refused config: the all-interfaces
+	// warning accompanies the missing-credentials error (SEC-015).
+	cfg, warnings, err := config.LoadWithIncludes(cfgPath)
+	for _, wn := range warnings {
+		_, _ = fmt.Fprintf(w, "warning: %s\n", wn)
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	return cfgPath, cfg, nil
 }
 
 // parseSocketMode parses a chmod string (e.g. "0700") into os.FileMode.
