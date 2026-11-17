@@ -131,6 +131,13 @@ func (m *mockProcessManager) Signal(name string, sig string) error {
 	}
 	return nil
 }
+func (m *mockProcessManager) Attach(name string) (AttachSession, error) {
+	if _, err := m.Get(name); err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("process not running: %s", name)
+}
+
 func (m *mockProcessManager) WriteStdin(name string, data []byte) error {
 	_, err := m.Get(name)
 	return err
