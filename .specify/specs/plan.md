@@ -1372,6 +1372,8 @@ Spec changes on `docs/v030-spec` (2026-11-14/15), decisions recorded in the spec
 
 **Details (analyze 2026-11-15):** each connection (process and stream) has a goroutine and a bounded 1000-line drop-oldest queue; dials, writes and reconnects happen only there, so `log/syslog` never blocks the capture writer. `unix://` dials `unixgram` first and falls back to `unix`. `WithLineHandler` holds one handler today (the passthrough); it becomes a list, and the syslog handler strips ANSI itself when `strip_ansi` is set, since line handlers receive raw lines.
 
+**As built (step 9, 2026-11-16):** the writer is Kahi's own (`logging.syslogConn`), not `log/syslog`'s, with the same message format: `log/syslog` hides its socket, and macOS refuses Unix datagrams over 2048 bytes unless the send buffer is raised (`SetWriteBuffer(64 KB)`), so a 2048-byte body plus header would fail there. A datagram write that fails with ENOBUFS (the reader is behind) is retried for up to about a second before it counts as an outage. `SyslogSink.Close` does not wait for a dial or write in progress (each is bounded by 5 s), so the manager never stalls on an unreachable syslog while holding its lock.
+
 **Consequences:** e2e binds a unixgram socket and sets `syslog_address = "unix://..."`.
 
 ### ADR-051: Partial Reload and avail

@@ -102,6 +102,16 @@ func Validate(cfg *Config) []error {
 		}
 
 		errs = append(errs, validateRLimits(prefix, p.Environment)...)
+
+		if !logging.ValidSyslogFacility(p.SyslogFacility) {
+			errs = append(errs, fmt.Errorf("%s.syslog_facility: unknown facility %s", prefix, p.SyslogFacility))
+		}
+		if !logging.ValidSyslogPriority(p.SyslogPriority) {
+			errs = append(errs, fmt.Errorf("%s.syslog_priority: unknown priority %s", prefix, p.SyslogPriority))
+		}
+	}
+	if _, _, err := logging.ParseSyslogAddress(cfg.Supervisor.SyslogAddress); err != nil {
+		errs = append(errs, fmt.Errorf("supervisor.syslog_address: %v", err))
 	}
 
 	// shutdown_timeout 0 or less would SIGKILL every process the moment

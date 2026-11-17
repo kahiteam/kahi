@@ -24,6 +24,8 @@ type Manager struct {
 	processes  map[string]*Process
 	groups     map[string]*Group
 	captures   map[string]*logging.CaptureWriter
+	syslogs    map[string]*logging.SyslogSink // by "name:stream" (FUNC-020)
+	syslogAddr string                         // [supervisor] syslog_address at startup
 	logs       *logHub
 	bus        *events.Bus
 	logger     *slog.Logger
@@ -61,6 +63,7 @@ func NewManager(spawner ProcessSpawner, bus *events.Bus, logger *slog.Logger) *M
 		processes:  make(map[string]*Process),
 		groups:     make(map[string]*Group),
 		captures:   make(map[string]*logging.CaptureWriter),
+		syslogs:    make(map[string]*logging.SyslogSink),
 		logs:       newLogHub(),
 		bus:        bus,
 		logger:     logger,
@@ -108,6 +111,52 @@ func (m *Manager) passthroughHandler(cfg config.ProgramConfig) func(name, stream
 		m.passMu.Lock()
 		_, _ = w.Write(out)
 		m.passMu.Unlock()
+	}
+}
+
+// SetSyslogAddress sets where stdout_syslog/stderr_syslog forward to. It is
+// read once at startup: a change takes effect after a restart (FUNC-020).
+// It must be called before LoadConfig.
+func (m *Manager) SetSyslogAddress(addr string) {
+	m.syslogAddr = addr
+}
+
+// syslogHandlerLocked returns the line handler that forwards a process's
+// output to syslog, one message per line, or nil when no stream is
+// forwarded. With redirect_stderr, stderr lines follow stdout_syslog.
+// Callers hold m.mu.
+func (m *Manager) syslogHandlerLocked(name string, cfg config.ProgramConfig) func(name, stream string, line []byte) {
+	sinks := map[string]*logging.SyslogSink{}
+	open := func(stream string) *logging.SyslogSink {
+		s := logging.NewSyslogSink(logging.SyslogConfig{
+			Address: m.syslogAddr, Facility: cfg.SyslogFacility, Priority: cfg.SyslogPriority,
+			Process: name, Stream: stream, Logger: m.logger,
+		})
+		m.syslogs[name+":"+stream] = s
+		return s
+	}
+	if cfg.StdoutSyslog {
+		sinks["stdout"] = open("stdout")
+	}
+	if cfg.StderrSyslog && !cfg.RedirectStderr {
+		sinks["stderr"] = open("stderr")
+	}
+	if len(sinks) == 0 {
+		return nil
+	}
+	redirect, strip := cfg.RedirectStderr, cfg.StripAnsi
+	return func(_, stream string, line []byte) {
+		if redirect {
+			stream = "stdout"
+		}
+		s := sinks[stream]
+		if s == nil {
+			return
+		}
+		if strip {
+			line = logging.StripANSI(line)
+		}
+		s.Send(line)
 	}
 }
 
@@ -166,6 +215,12 @@ func (m *Manager) deactivateLocked(name string) []string {
 // deleteProcessLocked removes one process and closes its capture writers.
 func (m *Manager) deleteProcessLocked(name string) {
 	delete(m.processes, name)
+	for _, key := range []string{name + ":stdout", name + ":stderr"} {
+		if s := m.syslogs[key]; s != nil {
+			s.Close()
+			delete(m.syslogs, key)
+		}
+	}
 	for _, key := range []string{name + ":stdout", name + ":stderr"} {
 		if cw := m.captures[key]; cw != nil {
 			if err := cw.Close(); err != nil {
@@ -287,6 +342,9 @@ func (m *Manager) createProgramLocked(progName string, progCfg config.ProgramCon
 		}
 
 		if h := m.passthroughHandler(inst.Config); h != nil {
+			opts = append(opts, WithLineHandler(h))
+		}
+		if h := m.syslogHandlerLocked(inst.Name, inst.Config); h != nil {
 			opts = append(opts, WithLineHandler(h))
 		}
 
@@ -666,6 +724,12 @@ func (m *Manager) ReopenLogs() {
 // CloseLogs closes every capture log file. The daemon calls it last during
 // shutdown.
 func (m *Manager) CloseLogs() {
+	m.mu.Lock()
+	for key, s := range m.syslogs {
+		s.Close()
+		delete(m.syslogs, key)
+	}
+	m.mu.Unlock()
 	for key, cw := range m.captureWriters() {
 		if err := cw.Close(); err != nil {
 			m.logger.Warn("capture writer close failed during shutdown", "capture", key, "error", err)

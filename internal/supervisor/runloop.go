@@ -83,6 +83,9 @@ func New(cfg SupervisorConfig) *Supervisor {
 	spawner := &process.ExecSpawner{}
 	mgr := process.NewManager(spawner, bus, cfg.Logger)
 	mgr.SetOutput(cfg.Stdout, cfg.Stderr)
+	if cfg.Config != nil {
+		mgr.SetSyslogAddress(cfg.Config.Supervisor.SyslogAddress)
+	}
 
 	var startupWeb config.WebServerConfig
 	if cfg.Config != nil {
@@ -662,6 +665,7 @@ func (s *Supervisor) warnRestartOnly(oldCfg, newCfg *config.Config) {
 		{"minfds", o.Minfds != n.Minfds},
 		{"minprocs", o.Minprocs != n.Minprocs},
 		{"user", o.User != n.User},
+		{"syslog_address", o.SyslogAddress != n.SyslogAddress},
 	} {
 		if c.changed {
 			s.logger.Warn("supervisor." + c.key + " change takes effect after restart")
