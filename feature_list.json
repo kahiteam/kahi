@@ -3252,11 +3252,19 @@
         "e2e: [groups.g] programs = [\"web\"]; 'kahi ctl update web' exits 1 with 'web is in group g; use g'",
         "e2e: with a syntax error in the file, 'kahi ctl update web' exits 1 with 'config error:' and nothing changes",
         "e2e: avail lists an [eventlisteners.l] pool like a program and each API entry carries group",
-        "container: root-owned 0600 config (files-map mode), daemon -u kahi; 'exec --user 1000 /kahi ctl -s /run/kahi/kahi.sock avail' output contains 'web in use auto 999'",
+        "container: root-owned 0644 config, daemon -u kahi (a daemon that dropped to kahi re-reads the file as kahi on reload and avail, so a 0600 root file cannot be read after the drop); 'exec --user 1000 /kahi ctl -s /run/kahi/kahi.sock avail' output contains 'web in use auto 999'",
         "e2e: [groups.g] programs = [\"a\",\"b\"]: avail prints lines for a and b and no line for g",
         "e2e: change [webhooks.t] and web, run 'kahi ctl update web': t still POSTs with its old config; a plain 'kahi ctl update' then applies it"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestAvail_Listing",
+        "TestAvail_UpdateOneGroup",
+        "TestAvail_UpdateErrorsAndRemoval",
+        "TestAvail_PoolsAndAPI",
+        "TestAvail_PartialUpdateKeepsWebhooks",
+        "TestRootContainer_AvailAsDropUser"
+      ],
       "dependencies": [
         "cli-config-operations",
         "config-hot-reload",
