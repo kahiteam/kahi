@@ -6,7 +6,7 @@ import (
 )
 
 // ignoredSettingWarnings flags settings that parse and validate but that
-// nothing in the daemon acts on yet (#152), so a user does not rely on
+// nothing in the daemon acts on yet, so a user does not rely on
 // them silently. Each warning names the setting and says it is ignored.
 func ignoredSettingWarnings(cfg *Config) []string {
 	var warnings []string
@@ -24,27 +24,6 @@ func ignoredSettingWarnings(cfg *Config) []string {
 		ignored("supervisor.identifier")
 	}
 
-	names := make([]string, 0, len(cfg.Programs))
-	for name := range cfg.Programs {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		p := cfg.Programs[name]
-		if p.StdoutSyslog {
-			ignored(fmt.Sprintf("programs.%s.stdout_syslog", name))
-		}
-		if p.StderrSyslog {
-			ignored(fmt.Sprintf("programs.%s.stderr_syslog", name))
-		}
-	}
-	// A pool's stdout carries the protocol (stdout_syslog is warned about
-	// with the other stdout keys); its stderr is a program's.
-	for _, name := range listenerNames(cfg) {
-		if cfg.EventListeners[name].StderrSyslog {
-			ignored(fmt.Sprintf("eventlisteners.%s.stderr_syslog", name))
-		}
-	}
 	return warnings
 }
 
@@ -61,6 +40,9 @@ func redirectWarnings(cfg *Config) []string {
 		p := cfg.Programs[name]
 		if p.RedirectStderr && p.StderrEventsEnabled {
 			warnings = append(warnings, fmt.Sprintf("programs.%s.stderr_events_enabled has no effect with redirect_stderr", name))
+		}
+		if p.RedirectStderr && p.StderrSyslog {
+			warnings = append(warnings, fmt.Sprintf("programs.%s.stderr_syslog has no effect with redirect_stderr", name))
 		}
 		if p.RedirectStderr && p.StderrCaptureMaxbytes != "" {
 			warnings = append(warnings, fmt.Sprintf("programs.%s.stderr_capture_maxbytes has no effect with redirect_stderr", name))

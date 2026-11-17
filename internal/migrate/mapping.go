@@ -48,13 +48,11 @@ var programMappings = map[string]OptionMapping{
 	// output buffer (FUNC-086), so the value is not carried over.
 	"stdout_capture_maxbytes": {Unsupported: true, Note: captureNote},
 	"stderr_capture_maxbytes": {Unsupported: true, Note: captureNote},
-	// The daemon ignores these until #152 implements them, so migrate flags
-	// them rather than writing settings that have no effect.
-	"stdout_syslog":           {Unsupported: true},
+	"stdout_syslog":           {Type: "bool"},
 	"stderr_logfile":          {Type: "string"},
 	"stderr_logfile_maxbytes": {Type: "bytes"},
 	"stderr_logfile_backups":  {Type: "int"},
-	"stderr_syslog":           {Unsupported: true},
+	"stderr_syslog":           {Type: "bool"},
 	"stdout_events_enabled":   {Type: "bool"},
 	"stderr_events_enabled":   {Type: "bool"},
 	"serverurl":               {Unsupported: true},
