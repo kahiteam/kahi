@@ -58,3 +58,32 @@ func TestProbePrograms(t *testing.T) {
 		t.Errorf("ProbePrograms:\n got %q\nwant %q", got, want)
 	}
 }
+
+func TestProbeProgramDir(t *testing.T) {
+	base := t.TempDir()
+	file := filepath.Join(base, "file")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := probeProgramDir(""); err != nil {
+		t.Errorf("empty: %v", err)
+	}
+	if err := probeProgramDir(base); err != nil {
+		t.Errorf("ok: %v", err)
+	}
+	if err := probeProgramDir(file); err == nil || err.Error() != "directory does not exist: "+file {
+		t.Errorf("file: %v", err)
+	}
+	if err := probeProgramDir(filepath.Join(file, "x")); err == nil || !strings.HasPrefix(err.Error(), "cannot access directory: ") {
+		t.Errorf("below a file: %v", err)
+	}
+	if os.Geteuid() != 0 {
+		locked := filepath.Join(base, "locked")
+		if err := os.Mkdir(locked, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := probeProgramDir(locked); err == nil || err.Error() != "cannot access directory: "+locked+": permission denied" {
+			t.Errorf("no search permission: %v", err)
+		}
+	}
+}

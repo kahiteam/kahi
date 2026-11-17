@@ -51,13 +51,6 @@ func sameFailure(t *testing.T, name, path string, probe, step error) {
 	}
 }
 
-func skipAsRoot(t *testing.T) {
-	t.Helper()
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores directory modes")
-	}
-}
-
 func TestProbeDirectory_MatchesChangeDirectory(t *testing.T) {
 	t.Chdir(t.TempDir())
 	base := t.TempDir()
@@ -277,5 +270,23 @@ func TestCheckDrop(t *testing.T) {
 	getuid = func() int { return 0 }
 	if dc, err := CheckDrop("", "app"); err != nil || !dc.Drop || dc.Override || dc.Note != "" {
 		t.Errorf("root [supervisor] user: %+v %v", dc, err)
+	}
+}
+
+// ProbeLimits uses the real getrlimit and changes nothing.
+func TestProbeLimits_Real(t *testing.T) {
+	var before, after unix.Rlimit
+	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &before); err != nil {
+		t.Fatal(err)
+	}
+	logger, _ := logBuf()
+	if err := ProbeLimits(config.SupervisorConfig{Minfds: int(before.Cur), MinfdsSet: true}, logger); err != nil {
+		t.Errorf("minfds at the soft limit: %v", err)
+	}
+	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &after); err != nil {
+		t.Fatal(err)
+	}
+	if before != after {
+		t.Errorf("limits changed: %+v -> %+v", before, after)
 	}
 }
