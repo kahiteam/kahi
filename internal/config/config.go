@@ -92,9 +92,10 @@ type GroupConfig struct {
 
 // ServerConfig holds server listener settings.
 type ServerConfig struct {
-	Unix UnixServerConfig `toml:"unix"`
-	HTTP HTTPServerConfig `toml:"http"`
-	Web  WebServerConfig  `toml:"web"`
+	Unix    UnixServerConfig    `toml:"unix"`
+	HTTP    HTTPServerConfig    `toml:"http"`
+	Web     WebServerConfig     `toml:"web"`
+	Metrics MetricsServerConfig `toml:"metrics"`
 }
 
 // UnixServerConfig holds Unix domain socket settings.
@@ -110,6 +111,12 @@ type HTTPServerConfig struct {
 	Listen   string `toml:"listen"`
 	Username string `toml:"username" json:"-"`
 	Password string `toml:"password" json:"-"`
+}
+
+// MetricsServerConfig configures the Prometheus /metrics route (FUNC-060,
+// ADR-049). It needs the TCP listener and is off by default.
+type MetricsServerConfig struct {
+	Enabled bool `toml:"enabled"`
 }
 
 // WebServerConfig holds Web UI settings. The UI is served under /ui/ on the

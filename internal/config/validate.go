@@ -101,6 +101,9 @@ func Validate(cfg *Config) []error {
 	if cfg.Server.Web.Enabled && !cfg.Server.HTTP.Enabled {
 		errs = append(errs, fmt.Errorf("server.web.enabled requires server.http.enabled"))
 	}
+	if cfg.Server.Metrics.Enabled && !cfg.Server.HTTP.Enabled {
+		errs = append(errs, fmt.Errorf("server.metrics.enabled requires server.http.enabled"))
+	}
 
 	errs = append(errs, validateWebhooks(cfg)...)
 	return errs

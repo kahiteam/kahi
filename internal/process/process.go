@@ -63,6 +63,9 @@ type Process struct {
 	stdoutReader func(stdin io.Writer, stdout io.Reader)
 	// stdinRefused, when set, is why WriteStdin refuses every write.
 	stdinRefused string
+	// recorder counts spawns and exits for the metrics (ADR-049); nil when
+	// metrics are off.
+	recorder Recorder
 
 	// spawnErr is the last spawn failure, cleared by a successful spawn.
 	spawnErr string
@@ -112,6 +115,30 @@ func WithStdoutReader(fn func(stdin io.Writer, stdout io.Reader)) ProcessOption 
 // WithStdinRefused makes WriteStdin fail with "process {name}: {reason}".
 func WithStdinRefused(reason string) ProcessOption {
 	return func(p *Process) { p.stdinRefused = reason }
+}
+
+// Recorder receives a process's spawns and exits, counted directly so no
+// count is lost (FUNC-061, ADR-049).
+type Recorder interface {
+	ProcessStarted(name string)
+	ProcessExited(name string, expected bool)
+}
+
+// WithRecorder counts the process's spawns and exits.
+func WithRecorder(r Recorder) ProcessOption {
+	return func(p *Process) { p.recorder = r }
+}
+
+func (p *Process) recordStart() {
+	if p.recorder != nil {
+		p.recorder.ProcessStarted(p.name)
+	}
+}
+
+func (p *Process) recordExit(expected bool) {
+	if p.recorder != nil {
+		p.recorder.ProcessExited(p.name, expected)
+	}
 }
 
 // WithShutdownCh sets the daemon shutdown channel.
@@ -277,6 +304,9 @@ var geteuid = os.Geteuid
 // spawnLocked does the actual spawn without state transitions.
 // Called by startLocked (after RequestStart) and retryAfterBackoff (after RetryFromBackoff).
 func (p *Process) spawnLocked() error {
+	// Every spawn counts as a start, also one that fails before exec
+	// (FUNC-061): failStartLocked then counts an unexpected exit.
+	p.recordStart()
 	// exec reports a missing working directory as an error about the
 	// command, so check it first and name it (FUNC-002, FUNC-067). Both are
 	// spawn errors: BACKOFF, then FATAL after startretries, so a directory
@@ -421,6 +451,7 @@ func (p *Process) failSpawnLocked(err error) error {
 // failStartLocked is failSpawnLocked with the status description given as is.
 func (p *Process) failStartLocked(desc string, err error) error {
 	p.logger.Error("spawn failed", "error", err)
+	p.recordExit(false)
 	p.spawnErr = desc
 	newState, fErr := p.sm.ProcessExitedEarly()
 	if fErr != nil {
@@ -658,6 +689,7 @@ func (p *Process) HandleExitStatus(exitCode int, signal string) {
 	switch state {
 	case Starting:
 		// Exited before startsecs -- backoff or fatal.
+		p.recordExit(false)
 		newState, err := p.sm.ProcessExitedEarly()
 		if err != nil {
 			p.logger.Error("state transition failed", "error", err)
@@ -673,6 +705,7 @@ func (p *Process) HandleExitStatus(exitCode int, signal string) {
 		}
 	case Running:
 		// Exited from running state.
+		p.recordExit(p.exitExpected(exitCode, signal))
 		if _, err := p.sm.ProcessExited(); err != nil {
 			p.logger.Error("state transition failed", "error", err)
 		}
@@ -684,6 +717,7 @@ func (p *Process) HandleExitStatus(exitCode int, signal string) {
 		}
 	case Stopping:
 		// Expected exit from stop.
+		p.recordExit(true)
 		if _, err := p.sm.ProcessExited(); err != nil {
 			p.logger.Error("state transition failed", "error", err)
 		}

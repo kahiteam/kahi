@@ -27,6 +27,7 @@ type Manager struct {
 	syslogs    map[string]*logging.SyslogSink // by "name:stream" (FUNC-020)
 	syslogAddr string                         // [supervisor] syslog_address at startup
 	pools      map[string]*events.Pool        // event listener pools by name (ADR-042)
+	metrics    MetricsSink                    // nil when metrics are off (ADR-049)
 	logs       *logHub
 	bus        *events.Bus
 	logger     *slog.Logger
@@ -114,6 +115,33 @@ func (m *Manager) passthroughHandler(cfg config.ProgramConfig) func(name, stream
 		_, _ = w.Write(out)
 		m.passMu.Unlock()
 	}
+}
+
+// MetricsSink receives the process counters (FUNC-061, ADR-049).
+type MetricsSink interface {
+	Recorder
+	RemoveProcess(name string)
+}
+
+// SetMetrics counts spawns and exits of every process created from now on,
+// and deletes the counters of processes a reload removes. It must be called
+// before LoadConfig.
+func (m *Manager) SetMetrics(s MetricsSink) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.metrics = s
+}
+
+// PoolDrops returns, per event listener pool, the events dropped because its
+// buffer was full (FUNC-060).
+func (m *Manager) PoolDrops() map[string]uint64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]uint64, len(m.pools))
+	for name, pool := range m.pools {
+		out[name] = pool.Drops()
+	}
+	return out
 }
 
 // SetSyslogAddress sets where stdout_syslog/stderr_syslog forward to. It is
@@ -324,6 +352,7 @@ func (m *Manager) createProgramLocked(progName string, progCfg config.ProgramCon
 		bus := m.bus
 		name := inst.Name
 		opts := []ProcessOption{
+			WithRecorder(m.metrics),
 			WithShutdownCh(m.shutdownCh),
 			WithProgram(progName),
 			WithPreSpawn(func() error {

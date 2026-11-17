@@ -165,6 +165,8 @@ func (m *Manager) ApplyReload(oldCfg, newCfg *config.Config) ReloadOutcome {
 // ADR-051); nil applies everything. A group removed at runtime is added
 // back only when it is named.
 func (m *Manager) ApplyReloadGroups(oldCfg, newCfg *config.Config, only map[string]bool) ReloadOutcome {
+	before := m.processNames()
+	defer m.dropRemovedMetrics(before)
 	added, changed, removed := m.planReload(oldCfg, newCfg, only)
 	og, ng := effectiveGroups(oldCfg), effectiveGroups(newCfg)
 
@@ -452,4 +454,34 @@ func (m *Manager) CheckGroups(names []string, newCfg *config.Config) error {
 // state (FUNC-085).
 func (m *Manager) InUse(prog string) bool {
 	return len(m.programProcesses(prog)) > 0
+}
+
+func (m *Manager) processNames() map[string]bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]bool, len(m.processes))
+	for name := range m.processes {
+		out[name] = true
+	}
+	return out
+}
+
+// dropRemovedMetrics deletes the counters of processes a reload removed
+// (FUNC-061); a recreated process keeps its counters.
+func (m *Manager) dropRemovedMetrics(before map[string]bool) {
+	m.mu.RLock()
+	sink := m.metrics
+	var gone []string
+	for name := range before {
+		if _, ok := m.processes[name]; !ok {
+			gone = append(gone, name)
+		}
+	}
+	m.mu.RUnlock()
+	if sink == nil {
+		return
+	}
+	for _, name := range gone {
+		sink.RemoveProcess(name)
+	}
 }

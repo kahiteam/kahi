@@ -327,6 +327,9 @@ kahi init --stdout            # print to stdout
 # enabled = false               # serve the Web UI
 # static_dir = ""               # optional per-file overlay for /ui/static/
 
+# [server.metrics]              # Prometheus metrics at /metrics (requires [server.http])
+# enabled = false               # serve /metrics; Basic Auth on TCP, open on the Unix socket
+
 # Process definitions
 # [programs.example]
 # command = "/usr/bin/example"  # REQUIRED: command to run
@@ -440,6 +443,36 @@ hard limit too when it is lower and the daemon may), so every program gets that
 many open files; set it higher to give programs more. Without `minfds`, NOFILE
 is left alone and programs keep the limit they were started with. A value you
 set that cannot be met stops the daemon; the defaults (1024, 200) only warn.
+
+### Metrics
+
+Prometheus metrics are off by default. `[server.metrics]` needs the TCP
+listener; `GET /metrics` then asks for the HTTP credentials on TCP and is open
+on the Unix socket (which is owner-only).
+
+```toml
+[server.metrics]
+enabled = true
+```
+
+Series (FUNC-060..062):
+
+| Metric                                                    | Labels                          | Meaning                                                                            |
+| --------------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------- |
+| `kahi_process_state`                                      | `name`, `group`                 | STOPPED 0, STARTING 10, RUNNING 20, BACKOFF 30, STOPPING 40, EXITED 100, FATAL 200 |
+| `kahi_process_start_total`                                | `name`                          | every spawn: manual, autorestart, backoff retry, failed spawn                      |
+| `kahi_process_exit_total`                                 | `name`, `expected`              | `expected="true"` after a stop or an `exitcodes` exit from RUNNING                 |
+| `kahi_process_uptime_seconds`                             | `name`                          | 0 unless RUNNING                                                                   |
+| `kahi_supervisor_uptime_seconds`                          |                                 |                                                                                    |
+| `kahi_supervisor_processes`                               | `state`                         | one series per state, zeros included                                               |
+| `kahi_supervisor_config_reload_total`, `..._errors_total` |                                 | reload attempts (dry runs excluded) and rejected ones                              |
+| `kahi_event_buffer_drops_total`                           | `pool`                          | events a listener pool dropped on a full buffer                                    |
+| `kahi_webhook_circuit_breaker`                            | `webhook`, `status`             | the current status (`open`/`closed`) is 1                                          |
+| `kahi_info`                                               | `version`, `go_version`, `fips` | always 1                                                                           |
+
+plus the Go runtime and process collectors. A process removed by a reload
+loses its series; a changed one keeps its counters. Changes to
+`[server.metrics]` take effect after a restart.
 
 ### Web UI
 
