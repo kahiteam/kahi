@@ -1061,7 +1061,8 @@ func classifyError(err error) int {
 		return http.StatusConflict
 	case strings.Contains(msg, "invalid signal"),
 		strings.Contains(msg, "not running"),
-		strings.Contains(msg, "does not accept stdin"):
+		strings.Contains(msg, "does not accept stdin"),
+		strings.Contains(msg, "stdin carries the event listener protocol"):
 		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError

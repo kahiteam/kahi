@@ -1580,14 +1580,30 @@
         "e2e: events = [\"BOGUS\", ...]: the daemon starts and its output contains 'eventlisteners.l.events: unknown event type: BOGUS (valid: ' (a warning, decided 2026-11-16); a name shared with [programs.l]: daemon exits 1 with 'eventlisteners.l: name already used by programs.l'; buffer_size = 0: 'eventlisteners.l.buffer_size must be >= 1'",
         "e2e: kahi ctl status lists the pool's process; kahi ctl stop then start toggles STOPPED and RUNNING",
         "e2e: add [eventlisteners.m] and reload: output 'added=[m]' and m is RUNNING",
-        "e2e: keys omitted; GET /api/v1/config shows buffer_size 10 and result_timeout 60",
+        "e2e: keys omitted; GET /api/v1/config shows BufferSize 10 and ResultTimeout 60 (the config API prints Go field names, as for every key)",
         "e2e: kahi migrate on '[eventlistener:x]' with 'events=PROCESS_STATE' prints '[eventlisteners.x]' with 'events = [' listing PROCESS_STATE_STARTING, PROCESS_STATE_RUNNING, PROCESS_STATE_BACKOFF, PROCESS_STATE_STOPPING, PROCESS_STATE_EXITED, PROCESS_STATE_STOPPED, PROCESS_STATE_FATAL; PROCESS_COMMUNICATION warns 'eventlisteners.x: event type PROCESS_COMMUNICATION has no kahi equivalent; dropped'",
         "e2e: change l while its member sleeps before READY with 2 buffered events and reload: the pid changes and the new member's stderr shows both serials",
         "e2e: remove l with buffered events and reload: l is gone from status and no other member receives those serials (sentinel: a later event reaches m)",
         "e2e: result_timeout = 0: daemon exits 1 and stderr contains 'eventlisteners.l.result_timeout must be >= 1'",
-        "e2e: POST /api/v1/processes/l_0/stdin and 'kahi ctl send' to the listener return 400 / exit 1 with 'stdin carries the event listener protocol'"
+        "e2e: POST /api/v1/processes/l/stdin and 'kahi ctl send' to the listener return 400 / exit 1 with 'stdin carries the event listener protocol'"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestListenerPool_DeliversAndAcknowledges",
+        "TestListenerPool_FailDropsAfterThree",
+        "TestListenerPool_ExitRedelivers",
+        "TestListenerPool_BufferOverflow",
+        "TestListenerPool_InvalidResult",
+        "TestListenerPool_ResultTimeout",
+        "TestListenerPool_RoundRobin",
+        "TestListenerPool_TwoTypes",
+        "TestEventListener_ConfigErrors",
+        "TestEventListener_ConfigWarnings",
+        "TestListenerPool_ControlAndAPI",
+        "TestListenerPool_AddedByReload",
+        "TestMigrate_EventListener",
+        "TestListenerPool_ReloadKeepsOrDiscardsBuffer"
+      ],
       "dependencies": [
         "event-bus",
         "process-state-events",
@@ -2898,7 +2914,11 @@
         "e2e: the program prints 'hello'; the listener's body is 'processname:p groupname:p ... channel:stdout\\nhello\\n' (supervisord-compatible, decided 2026-11-16)",
         "Unit (extra check): TestFormatEventPayload, TestFormatEventPayloadEmptyData (len:0), TestFormatEventPayloadLogEvent and TestFormatEventPayloadFramesEmbeddedNewline cover the header and framing; a failed stdin write to a member marks it failed, logs, and re-queues the event"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestListenerPool_LogEventFraming",
+        "TestListenerPool_DeliversAndAcknowledges"
+      ],
       "dependencies": ["event-listener-pools", "process-log-events"]
     },
     {
