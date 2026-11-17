@@ -29,5 +29,12 @@ func userWarnings(cfg *Config) []string {
 			warnings = append(warnings, fmt.Sprintf("programs.%s.user: %v", name, err))
 		}
 	}
+	for _, name := range listenerNames(cfg) {
+		if u := cfg.EventListeners[name].User; u != "" {
+			if _, err := resolveUser(u); err != nil {
+				warnings = append(warnings, fmt.Sprintf("eventlisteners.%s.user: %v", name, err))
+			}
+		}
+	}
 	return warnings
 }

@@ -34,6 +34,15 @@ func Sanitized(c *Config) *Config {
 		out.Programs = programs
 	}
 
+	if c.EventListeners != nil {
+		pools := make(map[string]EventListenerConfig, len(c.EventListeners))
+		for name, l := range c.EventListeners {
+			l.Environment = maskValues(l.Environment)
+			pools[name] = l
+		}
+		out.EventListeners = pools
+	}
+
 	if c.Webhooks != nil {
 		webhooks := make(map[string]WebhookConfig, len(c.Webhooks))
 		for name, w := range c.Webhooks {
