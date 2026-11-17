@@ -218,6 +218,21 @@ func newAssets(staticDir string, logger *slog.Logger) (*assets, error) {
 	return a, nil
 }
 
+// ProbeStaticDir logs the warning newAssets logs for staticDir, without
+// keeping anything open (FUNC-087).
+func ProbeStaticDir(staticDir string, logger *slog.Logger) {
+	if staticDir == "" {
+		return
+	}
+	if info, err := os.Stat(staticDir); err != nil || !info.IsDir() {
+		logger.Warn("static_dir not found, using embedded assets", "path", staticDir)
+	} else if root, err := os.OpenRoot(staticDir); err != nil {
+		logger.Warn("static_dir not found, using embedded assets", "path", staticDir, "error", err)
+	} else {
+		_ = root.Close()
+	}
+}
+
 // read returns a static file and its ETag. The overlay is consulted only for
 // the asset types the UI uses (contentTypes): an overlay .html or
 // extension-less file would be served as HTML and could run same-origin
