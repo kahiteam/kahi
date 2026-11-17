@@ -141,14 +141,20 @@ func generateTOML(ini *INIFile, result *Result) string {
 	}
 
 	for _, sec := range other {
+		writeComments(&b, sec.Above)
 		fmt.Fprintf(&b, "# UNSUPPORTED SECTION: [%s", sec.Type)
 		if sec.Name != "" {
 			b.WriteString(":" + sec.Name)
 		}
-		b.WriteString("]\n")
-		for k, v := range sec.Options {
-			fmt.Fprintf(&b, "# %s = %s\n", k, v)
+		b.WriteString("]")
+		if sec.Comment != "" {
+			b.WriteString(" # " + oneLine(sec.Comment))
 		}
+		b.WriteString("\n")
+		for _, k := range sortedKeys(sec.Options) {
+			writeUnsupported(&b, sec.Notes[k], fmt.Sprintf("%s = %s", k, sec.Options[k]))
+		}
+		writeComments(&b, sec.Trailing)
 		b.WriteString("\n")
 		result.Warnings = append(result.Warnings,
 			fmt.Sprintf("unsupported section type: %s", sec.Type))
@@ -158,16 +164,17 @@ func generateTOML(ini *INIFile, result *Result) string {
 }
 
 func writeSupervisorSection(b *strings.Builder, sec INISection, result *Result) {
-	b.WriteString("[supervisor]\n")
+	writeHeader(b, "[supervisor]", sec)
 	keys := sortedKeys(sec.Options)
 	for _, key := range keys {
 		mapped := MapSupervisordOption(key, sec.Options[key])
-		writeOption(b, mapped)
+		writeOption(b, mapped, sec.Notes[key])
 		if mapped.Unsupported {
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("supervisord: unsupported option %q", key))
 		}
 	}
+	writeComments(b, sec.Trailing)
 	b.WriteString("\n")
 }
 
@@ -178,7 +185,7 @@ func writeProgramSection(b *strings.Builder, sec INISection, result *Result) {
 // writeProgramTable writes a program-like section as [table.name]; listener
 // handles the keys only an event listener has and reports whether it did.
 func writeProgramTable(b *strings.Builder, sec INISection, result *Result, table string, listener func(key, value string) bool) {
-	fmt.Fprintf(b, "[%s.%s]\n", table, sec.Name)
+	writeHeader(b, fmt.Sprintf("[%s.%s]", table, sec.Name), sec)
 
 	var envPairs map[string]string
 	keys := sortedKeys(sec.Options)
@@ -200,14 +207,23 @@ func writeProgramTable(b *strings.Builder, sec INISection, result *Result, table
 				fmt.Sprintf("%s.%s: stopwaitsecs = 0 is not allowed; wrote 1 (use stopsignal = SIGKILL for an immediate kill)", table, sec.Name))
 		}
 		mapped := MapProgramOption(key, value)
-		writeOption(b, mapped)
+		writeOption(b, mapped, sec.Notes[key])
 		if mapped.Unsupported {
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("%s.%s: unsupported option %q", table, sec.Name, key))
 		}
 	}
 
+	// The section's end-of-section comments follow its last key, before
+	// the environment subtable, so they stay in [programs.x].
+	writeComments(b, sec.Trailing)
 	if len(envPairs) > 0 {
+		// Comments on environment= go above the subtable (FUNC-069).
+		env := sec.Notes["environment"]
+		writeComments(b, env.Above)
+		if env.Inline != "" {
+			writeComments(b, []string{env.Inline})
+		}
 		fmt.Fprintf(b, "[%s.%s.environment]\n", table, sec.Name)
 		envKeys := sortedKeys(envPairs)
 		for _, k := range envKeys {
@@ -218,59 +234,60 @@ func writeProgramTable(b *strings.Builder, sec INISection, result *Result, table
 }
 
 func writeGroupSection(b *strings.Builder, sec INISection, result *Result) {
-	fmt.Fprintf(b, "[groups.%s]\n", sec.Name)
+	writeHeader(b, fmt.Sprintf("[groups.%s]", sec.Name), sec)
 	keys := sortedKeys(sec.Options)
 	for _, key := range keys {
 		mapped := MapGroupOption(key, sec.Options[key])
-		writeOption(b, mapped)
+		writeOption(b, mapped, sec.Notes[key])
 		if mapped.Unsupported {
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("groups.%s: unsupported option %q", sec.Name, key))
 		}
 	}
+	writeComments(b, sec.Trailing)
 	b.WriteString("\n")
 }
 
 func writeUnixServerSection(b *strings.Builder, sec INISection, result *Result) {
-	b.WriteString("[server.unix]\n")
-	if file, ok := sec.Options["file"]; ok {
-		fmt.Fprintf(b, "file = %q\n", file)
-	}
-	if chmod, ok := sec.Options["chmod"]; ok {
-		fmt.Fprintf(b, "chmod = %q\n", chmod)
+	writeHeader(b, "[server.unix]", sec)
+	for _, k := range []string{"chmod", "file"} {
+		if v, ok := sec.Options[k]; ok {
+			writeOption(b, MappedOption{Key: k, Value: fmt.Sprintf("%q", v)}, sec.Notes[k])
+		}
 	}
 	// chown is not emitted: the control socket is locked to the service
 	// identity (owner-only) and Kahi rejects server.unix.chown, so it is
 	// reported as unsupported rather than written as active config.
-	for k, v := range sec.Options {
+	for _, k := range sortedKeys(sec.Options) {
 		if k != "file" && k != "chmod" {
-			fmt.Fprintf(b, "# UNSUPPORTED: %s = %s\n", k, v)
+			writeUnsupported(b, sec.Notes[k], fmt.Sprintf("UNSUPPORTED: %s = %s", k, sec.Options[k]))
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("server.unix: unsupported option %q", k))
 		}
 	}
+	writeComments(b, sec.Trailing)
 	b.WriteString("\n")
 }
 
 func writeHTTPServerSection(b *strings.Builder, sec INISection, result *Result) {
-	b.WriteString("[server.http]\n")
+	writeHeader(b, "[server.http]", sec)
 	b.WriteString("enabled = true\n")
 	if port, ok := sec.Options["port"]; ok {
-		fmt.Fprintf(b, "listen = %q\n", listenAddress(port))
+		writeOption(b, MappedOption{Key: "listen", Value: fmt.Sprintf("%q", listenAddress(port))}, sec.Notes["port"])
 	}
-	if user, ok := sec.Options["username"]; ok {
-		fmt.Fprintf(b, "username = %q\n", user)
+	for _, k := range []string{"password", "username"} {
+		if v, ok := sec.Options[k]; ok {
+			writeOption(b, MappedOption{Key: k, Value: fmt.Sprintf("%q", v)}, sec.Notes[k])
+		}
 	}
-	if pass, ok := sec.Options["password"]; ok {
-		fmt.Fprintf(b, "password = %q\n", pass)
-	}
-	for k, v := range sec.Options {
+	for _, k := range sortedKeys(sec.Options) {
 		if k != "port" && k != "username" && k != "password" {
-			fmt.Fprintf(b, "# UNSUPPORTED: %s = %s\n", k, v)
+			writeUnsupported(b, sec.Notes[k], fmt.Sprintf("UNSUPPORTED: %s = %s", k, sec.Options[k]))
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("server.http: unsupported option %q", k))
 		}
 	}
+	writeComments(b, sec.Trailing)
 	b.WriteString("\n")
 }
 
@@ -300,6 +317,8 @@ func writeIncludeSection(b *strings.Builder, sec INISection, result *Result) {
 	for i, g := range globs {
 		quoted[i] = fmt.Sprintf("%q", g)
 	}
+	writeComments(b, sec.Above)
+	writeComments(b, sec.Notes["files"].Above)
 	b.WriteString("# supervisord includes INI files; migrate each one with `kahi migrate`,\n")
 	b.WriteString("# then enable this include with the .toml names:\n")
 	fmt.Fprintf(b, "# include = [%s]\n\n", strings.Join(quoted, ", "))
@@ -307,16 +326,64 @@ func writeIncludeSection(b *strings.Builder, sec INISection, result *Result) {
 		fmt.Sprintf("[include] files = %s: included INI files are not converted; migrate each and enable the commented include", files))
 }
 
-func writeOption(b *strings.Builder, opt MappedOption) {
+// writeOption writes one key with its comments (FUNC-069): those above it
+// first; the user's inline comment at the end of the line, then a note such
+// as renamed from "x" in parentheses; for a key written as # UNSUPPORTED,
+// its inline comment goes above as "# (from supervisord) ...".
+func writeOption(b *strings.Builder, opt MappedOption, c OptionComments) {
 	if opt.Unsupported {
-		b.WriteString("# " + opt.Comment + "\n")
+		writeUnsupported(b, c, opt.Comment)
 		return
 	}
-	if opt.Comment != "" {
-		fmt.Fprintf(b, "%s = %s # %s\n", opt.Key, opt.Value, opt.Comment)
+	writeComments(b, c.Above)
+	trail := oneLine(c.Inline)
+	switch {
+	case trail != "" && opt.Comment != "":
+		trail += " (" + opt.Comment + ")"
+	case opt.Comment != "":
+		trail = opt.Comment
+	}
+	if trail != "" {
+		fmt.Fprintf(b, "%s = %s # %s\n", opt.Key, opt.Value, trail)
 	} else {
 		fmt.Fprintf(b, "%s = %s\n", opt.Key, opt.Value)
 	}
+}
+
+// writeUnsupported writes a commented-out line with the key's comments.
+func writeUnsupported(b *strings.Builder, c OptionComments, line string) {
+	writeComments(b, c.Above)
+	if c.Inline != "" {
+		b.WriteString("# (from supervisord) " + oneLine(c.Inline) + "\n")
+	}
+	b.WriteString("# " + line + "\n")
+}
+
+// writeHeader writes a table header with the comments above it and its
+// inline comment at the end of the line.
+func writeHeader(b *strings.Builder, title string, sec INISection) {
+	writeComments(b, sec.Above)
+	if sec.Comment != "" {
+		fmt.Fprintf(b, "%s # %s\n", title, oneLine(sec.Comment))
+		return
+	}
+	b.WriteString(title + "\n")
+}
+
+// writeComments writes each comment as one "# " line.
+func writeComments(b *strings.Builder, lines []string) {
+	for _, l := range lines {
+		if t := oneLine(l); t != "" {
+			b.WriteString("# " + t + "\n")
+		} else {
+			b.WriteString("#\n")
+		}
+	}
+}
+
+// oneLine collapses whitespace, so a comment is one TOML comment line.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func parseEnvironment(value string) map[string]string {

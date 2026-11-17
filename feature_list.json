@@ -2021,7 +2021,8 @@
         "Golden case: '[program:web] ; note' gives '[programs.web] # note'; a comment on environment= goes above [programs.web.environment]",
         "e2e: TestMigrate_Values expects the comments it now keeps; Unit (extra check): TestMigrateCommentsPreserved asserts kept comments"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": ["TestMigrate_CommentsGolden", "TestMigrate_Values"],
       "dependencies": [
         "config-migration-tool",
         "migration-ini-parser",
