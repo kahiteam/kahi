@@ -5,7 +5,7 @@
 #
 # Pins live in two places, by tool type:
 #   .tool-versions  golangci-lint, shellcheck, installed as verified binary downloads
-#   tools/go.mod    gotestsum, govulncheck, goreleaser, deadcode, as tool directives
+#   tools/go.mod    gotestsum, govulncheck, goreleaser, deadcode, jv, as tool directives
 #   tools/actionlint/go.mod  actionlint, as a tool directive (own module: its
 #                   yaml/v4 version conflicts with goreleaser's)
 set -uo pipefail
@@ -77,6 +77,7 @@ check_tool gotestsum   gotest.tools/gotestsum              gotest.tools/gotestsu
 check_tool govulncheck golang.org/x/vuln                   golang.org/x/vuln/cmd/govulncheck
 check_tool goreleaser  github.com/goreleaser/goreleaser/v2 github.com/goreleaser/goreleaser/v2
 check_tool deadcode    golang.org/x/tools                  golang.org/x/tools/cmd/deadcode
+check_tool jv          github.com/santhosh-tekuri/jsonschema/cmd/jv github.com/santhosh-tekuri/jsonschema/cmd/jv
 check_tool actionlint  github.com/rhysd/actionlint         github.com/rhysd/actionlint/cmd/actionlint tools/actionlint/go.mod
 
 # The release job's goreleaser must equal the one pinned in tools/go.mod,
