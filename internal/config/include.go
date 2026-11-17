@@ -252,6 +252,9 @@ func LoadWithIncludes(path string) (*Config, []string, error) {
 // its own priority. Programs with the same key form one shutdown level.
 func OrderKey(cfg *Config, prog string) (group, own int) {
 	own = cfg.Programs[prog].Priority
+	if l, ok := cfg.EventListeners[prog]; ok {
+		own = l.Priority // a pool is never in a [groups] table
+	}
 	for _, g := range cfg.Groups {
 		if slices.Contains(g.Programs, prog) {
 			return g.Priority, own
@@ -271,6 +274,11 @@ func shutdownWarnings(cfg *Config) []string {
 		g, o := OrderKey(cfg, name)
 		k := key{g, o}
 		largest[k] = max(largest[k], p.Stopwaitsecs)
+	}
+	for name, l := range cfg.EventListeners {
+		g, o := OrderKey(cfg, name)
+		k := key{g, o}
+		largest[k] = max(largest[k], l.Stopwaitsecs)
 	}
 	sum := 0
 	for _, w := range largest {

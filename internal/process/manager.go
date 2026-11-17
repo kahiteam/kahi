@@ -26,6 +26,7 @@ type Manager struct {
 	captures   map[string]*logging.CaptureWriter
 	syslogs    map[string]*logging.SyslogSink // by "name:stream" (FUNC-020)
 	syslogAddr string                         // [supervisor] syslog_address at startup
+	pools      map[string]*events.Pool        // event listener pools by name (ADR-042)
 	logs       *logHub
 	bus        *events.Bus
 	logger     *slog.Logger
@@ -64,6 +65,7 @@ func NewManager(spawner ProcessSpawner, bus *events.Bus, logger *slog.Logger) *M
 		groups:     make(map[string]*Group),
 		captures:   make(map[string]*logging.CaptureWriter),
 		syslogs:    make(map[string]*logging.SyslogSink),
+		pools:      make(map[string]*events.Pool),
 		logs:       newLogHub(),
 		bus:        bus,
 		logger:     logger,
@@ -184,7 +186,7 @@ func (m *Manager) LoadConfig(cfg *config.Config) {
 func (m *Manager) activateLocked(name string, spec groupSpec, cfg *config.Config) []string {
 	var procs []string
 	for _, prog := range spec.Programs {
-		procs = append(procs, m.createProgramLocked(prog, cfg.Programs[prog], name)...)
+		procs = append(procs, m.createUnitLocked(prog, cfg, name)...)
 	}
 	sort.Strings(procs)
 	m.groups[name] = &Group{
@@ -208,6 +210,7 @@ func (m *Manager) deactivateLocked(name string) []string {
 	for _, procName := range g.Processes {
 		m.deleteProcessLocked(procName)
 	}
+	m.stopPoolLocked(name)
 	delete(m.groups, name)
 	return g.Processes
 }
@@ -267,8 +270,10 @@ func bufferSize(v string) int {
 }
 
 // createProgramLocked creates the processes of one program, in group, with
-// their capture writers, and returns their names. Callers hold m.mu.
-func (m *Manager) createProgramLocked(progName string, progCfg config.ProgramConfig, group string) []string {
+// their capture writers, and returns their names. With a pool, the processes
+// are its members: their stdin and stdout go to the pool, stderr is
+// captured as a program's (ADR-042). Callers hold m.mu.
+func (m *Manager) createProgramLocked(progName string, progCfg config.ProgramConfig, group string, pool *events.Pool) []string {
 	var procNames []string
 	for _, inst := range ExpandNumprocs(progName, progCfg) {
 		if _, exists := m.processes[inst.Name]; exists {
@@ -276,22 +281,27 @@ func (m *Manager) createProgramLocked(progName string, progCfg config.ProgramCon
 		}
 
 		// Create capture writers for stdout (and stderr if not redirected).
-		stdoutCW, err := logging.NewCaptureWriter(logging.CaptureConfig{
-			ProcessName: inst.Name,
-			Stream:      "stdout",
-			Logfile:     inst.Config.StdoutLogfile,
-			StripAnsi:   inst.Config.StripAnsi,
-			MaxBytes:    inst.Config.StdoutLogfileMaxbytes,
-			Backups:     inst.Config.StdoutLogfileBackups,
-			BufferSize:  bufferSize(inst.Config.StdoutCaptureMaxbytes),
-			Logger:      m.logger,
-		})
-		// A log file that cannot be opened fails each start until it can
-		// (FUNC-018, #171); the writer still keeps the ring buffer.
-		if err != nil {
-			m.logger.Error("create stdout capture", "process", inst.Name, "error", err)
+		// A pool member's stdout carries the protocol and is not captured.
+		var stdoutCW *logging.CaptureWriter
+		var err error
+		if pool == nil {
+			stdoutCW, err = logging.NewCaptureWriter(logging.CaptureConfig{
+				ProcessName: inst.Name,
+				Stream:      "stdout",
+				Logfile:     inst.Config.StdoutLogfile,
+				StripAnsi:   inst.Config.StripAnsi,
+				MaxBytes:    inst.Config.StdoutLogfileMaxbytes,
+				Backups:     inst.Config.StdoutLogfileBackups,
+				BufferSize:  bufferSize(inst.Config.StdoutCaptureMaxbytes),
+				Logger:      m.logger,
+			})
+			// A log file that cannot be opened fails each start until it can
+			// (FUNC-018, #171); the writer still keeps the ring buffer.
+			if err != nil {
+				m.logger.Error("create stdout capture", "process", inst.Name, "error", err)
+			}
+			m.captures[inst.Name+":stdout"] = stdoutCW
 		}
-		m.captures[inst.Name+":stdout"] = stdoutCW
 
 		var stderrCW *logging.CaptureWriter
 		if !inst.Config.RedirectStderr {
@@ -346,6 +356,12 @@ func (m *Manager) createProgramLocked(progName string, progCfg config.ProgramCon
 		}
 		if h := m.syslogHandlerLocked(inst.Name, inst.Config); h != nil {
 			opts = append(opts, WithLineHandler(h))
+		}
+		if pool != nil {
+			opts = append(opts,
+				WithStdoutReader(func(stdin io.Writer, stdout io.Reader) { pool.Attach(name, stdin, stdout) }),
+				WithStdinRefused(listenerStdinRefusal),
+			)
 		}
 
 		p := NewProcess(
@@ -1084,7 +1100,7 @@ func groupChanged(o, n groupSpec, old, new *config.Config) bool {
 		return true
 	}
 	for _, prog := range n.Programs {
-		if programChanged(old.Programs[prog], new.Programs[prog]) {
+		if unitChanged(old, new, prog) {
 			return true
 		}
 	}

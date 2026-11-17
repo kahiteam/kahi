@@ -287,8 +287,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache-dependency-path: go.sum
-      - name: Report passing entries without e2e proof
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      - name: Check feature_list.json and its e2e proof
         run: ./scripts/check-verified-by.sh
 
   commit-standards:

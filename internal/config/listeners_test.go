@@ -24,9 +24,9 @@ events = ["PROCESS_STATE_EXITED"]
 	if l.Numprocs != 1 || l.Startsecs != 1 || l.Stopsignal != "SIGTERM" || l.Priority != 999 {
 		t.Errorf("program defaults not applied: %+v", l.ProgramConfig)
 	}
-	// Until plan step 7b no pool runs, and the config says so.
-	if !strings.Contains(strings.Join(warnings, "\n"), "[eventlisteners] (l): no event listener runs is not implemented yet") {
-		t.Errorf("no not-run warning: %v", warnings)
+	// Pools run since plan step 7b: no not-run warning.
+	if strings.Contains(strings.Join(warnings, "\n"), "no event listener runs") {
+		t.Errorf("stale not-run warning: %v", warnings)
 	}
 }
 

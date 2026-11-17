@@ -289,6 +289,8 @@ func (s *Supervisor) applyReload() (config.ReloadResult, error) {
 	for _, prog := range out.Stuck {
 		if old, ok := oldCfg.Programs[prog]; ok {
 			newCfg.Programs[prog] = old
+		} else if old, ok := oldCfg.EventListeners[prog]; ok {
+			newCfg.EventListeners[prog] = old
 		}
 	}
 	for _, name := range out.StuckGroups {
