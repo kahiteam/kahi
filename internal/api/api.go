@@ -49,6 +49,9 @@ type ProcessManager interface {
 	Restart(name string) error
 	Signal(name string, sig string) error
 	WriteStdin(name string, data []byte) error
+	// Attach takes a running process for a kahi ctl attach session
+	// (FUNC-034, ADR-044); WriteStdin refuses writes until Release.
+	Attach(name string) (AttachSession, error)
 	// ReadLog returns the last length bytes of a stream's in-memory buffer
 	// and whether they start after the beginning of the captured output.
 	ReadLog(name string, stream string, offset int64, length int) ([]byte, bool, error)
@@ -68,6 +71,12 @@ type ProcessManager interface {
 	RestartAllOrdered() []ActionResult
 	// ShuttingDown reports whether process shutdown has begun.
 	ShuttingDown() bool
+}
+
+// AttachSession is a held attach session.
+type AttachSession interface {
+	Write(data []byte) error
+	Release()
 }
 
 // ActionResult statuses.
@@ -132,6 +141,7 @@ type Server struct {
 	unixServer *http.Server
 	tcpServer  *http.Server
 	ui         http.Handler // Web UI under /ui/; nil when disabled
+	attach     attachConns  // hijacked kahi ctl attach sessions
 	metricsOn  bool         // [server.metrics] enabled
 	metrics    http.Handler // /metrics; nil when metrics are off or unavailable
 
@@ -254,6 +264,7 @@ func (s *Server) buildMux() *http.ServeMux {
 	mux.HandleFunc("POST /api/v1/processes/{name}/restart", s.requireAuth(s.handleRestartProcess))
 	mux.HandleFunc("POST /api/v1/processes/{name}/signal", s.requireAuth(s.handleSignalProcess))
 	mux.HandleFunc("POST /api/v1/processes/{name}/stdin", s.requireAuth(s.handleWriteStdin))
+	mux.HandleFunc("POST /api/v1/processes/{name}/attach", s.requireAuth(s.handleAttach))
 	mux.HandleFunc("GET /api/v1/processes/{name}/log/{stream}", s.requireAuth(s.handleReadLog))
 	mux.HandleFunc("GET /api/v1/processes/{name}/log/{stream}/stream", s.requireAuth(s.handleStreamLog))
 
@@ -389,6 +400,8 @@ func (s *Server) StartTCP(addr string) error {
 // handlers, and an SSE stream only ends when its client goes away, so once ctx
 // expires the remaining connections are closed.
 func (s *Server) Stop(ctx context.Context) error {
+	// Hijacked attach connections are no longer the servers' to close.
+	s.attach.closeAll()
 	var errs []error
 	for _, srv := range []*http.Server{s.unixServer, s.tcpServer} {
 		if srv == nil {
@@ -1071,7 +1084,9 @@ func classifyError(err error) int {
 		strings.Contains(msg, "has running processes"),
 		strings.Contains(msg, "is still active"),
 		strings.Contains(msg, "did not stop"),
-		strings.Contains(msg, "stdin pipe broken"):
+		strings.Contains(msg, "stdin pipe broken"),
+		strings.Contains(msg, ": already attached"),
+		strings.HasSuffix(msg, ": attached"):
 		return http.StatusConflict
 	case strings.Contains(msg, "invalid signal"),
 		strings.Contains(msg, "not running"),

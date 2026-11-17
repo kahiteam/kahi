@@ -887,6 +887,27 @@ func (m *Manager) Signal(name string, sig string) error {
 	return p.Signal(sig)
 }
 
+// AttachSession is a held kahi ctl attach session (ADR-044).
+type AttachSession struct{ p *Process }
+
+// Write sends session input to the process's stdin.
+func (s AttachSession) Write(data []byte) error { return s.p.WriteAttached(data) }
+
+// Release ends the hold.
+func (s AttachSession) Release() { s.p.Detach() }
+
+// Attach takes a process for an attach session (FUNC-034).
+func (m *Manager) Attach(name string) (api.AttachSession, error) {
+	p, err := m.GetProcess(name)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.Attach(); err != nil {
+		return nil, err
+	}
+	return AttachSession{p: p}, nil
+}
+
 // WriteStdin writes to a process stdin.
 func (m *Manager) WriteStdin(name string, data []byte) error {
 	p, err := m.GetProcess(name)

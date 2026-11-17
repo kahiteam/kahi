@@ -58,9 +58,9 @@ shutdown.
 **Development environment.**
 Run a project's background services (API server, worker, file watcher) from a
 single `kahi.toml`. Use `kahi ctl tail -f <process>` to stream logs and
-`kahi ctl attach <process>` to send input lines to a process and follow its
-output (line by line; raw terminal mode is planned:
-[#157](https://github.com/kahiteam/kahi/issues/157)).
+`kahi ctl attach <process>` to work with a process interactively: on a terminal
+your keystrokes go to its stdin raw (^C included) and Ctrl+] detaches, with the
+process left running (supervisorctl calls this `fg`).
 
 **Supervised worker pools.**
 Use `numprocs` to spawn multiple instances of the same program (e.g.,
@@ -236,7 +236,7 @@ kahi ctl [command] [flags]
 | `update`   |                    | Reload config and apply all changes          |
 | `add`      | `group`            | Add back a removed group (`--reload`)        |
 | `remove`   | `group`            | Remove a stopped group (`--stop`)            |
-| `attach`   | `process`          | Attach to a process (stdin/stdout)           |
+| `attach`   | `process`          | Attach to a process; Ctrl+] detaches         |
 | `health`   |                    | Check daemon liveness                        |
 | `ready`    |                    | Check daemon readiness (`--process` filter)  |
 | `pid`      | `[process]`        | Show daemon or process PID                   |
