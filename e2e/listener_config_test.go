@@ -24,7 +24,7 @@ func TestEventListener_ConfigErrors(t *testing.T) {
 
 // An unknown event type and stdout output keys only warn; the daemon runs
 // (decided 2026-11-16: a listener typo must not keep the programs from
-// starting). Until plan step 7b no pool runs, and the warning says so.
+// starting).
 func TestEventListener_ConfigWarnings(t *testing.T) {
 	t.Parallel()
 	client, _, out := startDaemonOut(t, `[eventlisteners.l]
@@ -42,11 +42,13 @@ stopwaitsecs = 2
 	for _, want := range []string{
 		"eventlisteners.l.events: unknown event type: BOGUS (valid: ",
 		"eventlisteners.l.stdout_logfile has no effect: stdout carries the protocol",
-		"[eventlisteners] (l): no event listener runs is not implemented yet and is ignored",
 	} {
 		if !strings.Contains(o, want) {
 			t.Errorf("output lacks %q:\n%s", want, o)
 		}
+	}
+	if strings.Contains(o, "no event listener runs") {
+		t.Errorf("stale not-run warning:\n%s", o)
 	}
 }
 
