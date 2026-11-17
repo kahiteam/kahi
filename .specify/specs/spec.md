@@ -4001,6 +4001,87 @@ static_dir = ""      # optional per-file overlay for /ui/static/ (FUNC-080)
 
 ---
 
+### FUNC-087: Offline Config Check
+
+**Description:** `kahi config check [-c FILE] [-u USER] [-p PIDFILE]` reports whether `kahi daemon` with the same flags would start, without starting it. It runs the daemon's config path (search, load, includes, validation, warnings, user resolution) and read-only probes of the startup steps that touch the system, then exits 0 or 1. It creates, binds, signals and spawns nothing, so it can run in CI, an image build, an init container, or before restarting a running daemon. It is stricter than a non-root start for privilege-drop users (see Edge Cases). v0.3.0 (#272).
+
+**Acceptance Criteria:**
+
+- **Given** a valid config at `/etc/kahi/kahi.toml` that loads without warnings, run by a non-root user whose NOFILE and NPROC hard limits meet the defaults
+  **When** `kahi config check` is issued
+  **Then** stdout is `config OK: /etc/kahi/kahi.toml` (the absolute path of the config file), stderr is empty, and it exits 0
+
+- **Given** a valid config whose program `web` has `command = "/opt/missing/web"`
+  **When** `kahi config check -c FILE` is issued
+  **Then** stderr carries `warning: programs.web.command: /opt/missing/web: no such file or directory`, stdout is `config OK: {abs FILE}`, and it exits 0
+
+- **Given** a config that `kahi daemon -c FILE` refuses (for example `stopwaitsecs = 0` on `web`)
+  **When** `kahi config check -c FILE` is issued
+  **Then** stderr carries the same text `kahi daemon -c FILE` prints (`config validation failed in {abs FILE}:` followed by `programs.web: stopwaitsecs must be >= 1, got 0; ...`), stdout is empty, and it exits 1
+
+- **Given** a config that loads with warnings (for example an unknown key)
+  **When** `kahi config check -c FILE` is issued
+  **Then** each warning is printed to stderr as `warning: {text}`, exactly as `kahi daemon` prints it, stdout is `config OK: {abs FILE}`, and it exits 0
+
+- **Given** a valid config whose `[supervisor] directory` does not exist, whose `[supervisor] logfile` parent directory does not exist, and `-p` names a file in a missing directory
+  **When** `kahi config check -c FILE -p /missing/kahi.pid` is issued
+  **Then** all three problems are reported, one `error: {text}` line each on stderr, with the text the daemon fails with (`directory does not exist: {path}`, `cannot open log file: {path}: {reason}`, `cannot write PID file: {path}: {reason}`); stdout is empty, it exits 1, and nothing was created
+
+- **Given** `minfds = 1024` and the invoking non-root user's NOFILE hard limit is 256
+  **When** `kahi config check -c FILE` is issued
+  **Then** stderr carries `error: cannot set NOFILE to 1024: ...` with the daemon's text (on darwin it can name `kern.maxfilesperproc` instead of the hard limit) and it exits 1
+
+- **Given** a daemon is running with this config
+  **When** `kahi config check -c FILE` is issued
+  **Then** stderr carries `note: a daemon is running (pid {pid}); checked as a fresh start` when the PID file names a live process, or `note: a daemon is running (socket {path}); checked as a fresh start` when only the Unix socket accepts a connection; the running-daemon refusal and the socket checks are skipped, the exit code reflects only the other checks, and the running daemon is untouched
+
+- **Given** `kahi config check -d`, an unknown flag, or a positional argument
+  **When** it is issued
+  **Then** it exits 2 with a usage error
+
+**Error Handling:**
+
+| Error Condition                             | Expected Behavior                     | User-Facing Message                                           |
+| ------------------------------------------- | ------------------------------------- | ------------------------------------------------------------- |
+| No config found / unreadable                | Exit 1, no probes run                 | Same as `kahi daemon` (FUNC-015, SEC-017)                     |
+| Parse, include, expansion, validation error | Exit 1, no probes run                 | Same as `kahi daemon`                                         |
+| `-u`/`[supervisor] user` unresolvable       | Exit 1                                | The resolver's text, e.g. "user not found: {name}" (FUNC-045) |
+| A startup probe fails                       | Every probe runs; exit 1 if any fails | `error: {daemon's error text}` per failure                    |
+| Usage error                                 | Exit 2                                | cobra usage error, as every other command                     |
+
+**Startup probes (run only when the config loads):**
+
+| Daemon step (would fail at start)                        | Probe (no side effect)                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `[supervisor] directory` chdir                           | stat and access(X_OK): "directory does not exist: {dir}" or "cannot access directory: {dir}: {err}" (not a directory, not searchable)                                                                                                                                                                   |
+| `[supervisor] logfile` open                              | the parent resolves as the daemon resolves it (read-only `os.Root` walk: no symlink to an absolute target) and, when the file does not exist, is writable; an existing file is not a symlink (O_NOFOLLOW) and is writable; it is never opened: "cannot open log file: {path}: {err}"                    |
+| `minfds` / `minprocs` raise                              | getrlimit: an explicit value above the hard limit (or above `kern.maxfilesperproc` on darwin) is the daemon's error as non-root; as root it is a note, because whether root may raise the hard limit (CAP_SYS_RESOURCE) is known only by trying. minprocs on darwin is a warning, as the daemon logs it |
+| socket directory preparation                             | the parent exists, is a directory and writable; a missing directory is fine when the daemon would create it (one level, 0700); the per-user default directory, when present, must be a real directory (lstat) owned by the euid with no group or other bits; the daemon's texts                         |
+| PID file write (`-p`)                                    | the parent exists and is writable: "cannot write PID file: {path}: {err}"; an existing PID file that cannot be read or is a directory: the daemon's "cannot read PID file: ..." text                                                                                                                    |
+| an existing file at the socket path that is not a socket | the daemon's "cannot create socket: {path}: ... exists and is not a socket" text                                                                                                                                                                                                                        |
+| PID file or socket names a live daemon                   | a note, not an error (a running daemon is the normal case before a restart)                                                                                                                                                                                                                             |
+
+**Edge Cases:**
+
+- `-c`, `-u` and `-p` mean what they mean for `kahi daemon`, and the search order is the daemon's (`-c`, `KAHI_CONFIG`, `/etc/kahi/kahi.toml`, `/etc/kahi.toml`; not the current directory, SEC-017). The PID file is set only by `-p` (there is no config key)
+- Relative logfile, socket and PID file paths are probed relative to `[supervisor] directory`, as the daemon resolves them after its chdir; when that directory is missing they are skipped (the directory error covers them)
+- `[supervisor] umask` has no probe: it is validated at load, and setting it cannot fail
+- Run as root with `-u USER` or `[supervisor] user`, the user is resolved, no note is printed, and the probes run as root, as the daemon prepares the socket directory, log and PID file before it drops privileges; the drop itself (setgroups/setgid/setuid) is not tried
+- Probes use the invoking user's access rights: run the check as the user that starts the daemon. A non-root check of a config for a root daemon can report permission errors the daemon would not have
+- Run as non-root with `-u USER` or `[supervisor] user`, the check resolves the user and its groups (an unresolvable name is an error, exit 1) and prints `note: not root; the privilege drop was not checked` instead of the daemon's "dropping privileges needs root" refusal (`-u`) or "supervisor.user ignored" warning (`[supervisor] user`). This is a deliberate difference from a non-root start, so a non-root CI job can check a production config (decided 2026-11-16)
+- A user resolution failure stops the check before the probes, as config errors do
+- Program `user` values are resolved as `kahi daemon` resolves them at load and produce the same warnings
+- Warnings and notes that the daemon writes to its own log after opening it are printed to stderr as `warning: {message}` followed by the log record's attributes as ` key=value` pairs in the order the daemon logs them: NOFILE hard limit below the default minfds, NPROC below the default minprocs, running as root without a user, a stale PID file that would be replaced, `[server.web] static_dir` missing. The `-u overrides supervisor.user` info line is printed as `note: {text}`
+- `[server.http] listen` addresses are parsed and validated, but no bind is tried, so a port already in use is not detected
+- Program-level problems do not stop the daemon (the program goes BACKOFF/FATAL at runtime), so they are warnings, exit 0: `command` not found or not executable, `directory` missing or not searchable, a log file whose parent is missing or not writable, each as `warning: programs.{name}.{key}: {reason}`. `command` is resolved as the spawn resolves it: a bare name through the supervisor's PATH, or through the program's environment PATH when `umask` or rlimits route it through the trampoline; a path with a slash relative to the program's `directory`. Values are expanded per numprocs instance (`%(process_num)d`); each distinct message is printed once. No program is spawned (decided 2026-11-16)
+- An include file that changes between the check and the start is not covered; the check is a snapshot
+- `kahi config` with no subcommand prints its help and exits 0, like `kahi ctl`
+- e2e proof runs the binary for the OK, warning, config-error, probe-error, running-daemon and usage cases; steps that depend on directory modes or limits skip when run as root
+
+**Dependencies:** FUNC-015, FUNC-013, FUNC-045, FUNC-046, FUNC-017, FUNC-067, FUNC-047, FUNC-068, FUNC-024, FUNC-064, SEC-017
+
+---
+
 ## Style Features
 
 ### STYLE-001: Web UI Visual Design
