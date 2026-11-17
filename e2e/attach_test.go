@@ -106,14 +106,27 @@ func waitText(t *testing.T, w *syncWriter, want string) {
 // refused with "attached").
 func waitAttached(t *testing.T, socket, name string) {
 	t.Helper()
+	// The probe writes zero bytes through the API: kahi ctl send adds a
+	// newline, which reaches the process when the probe wins the race with
+	// the session and satisfies a script's read before the test's input.
+	client := unixHTTPClient(socket)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		_, stderr, code := runKahi(t, t.TempDir(), "ctl", "-s", socket, "send", name, "")
-		if code == 1 && strings.Contains(stderr, "process "+name+": attached") {
-			return
+		var code int
+		var body string
+		resp, err := client.Post("http://unix/api/v1/processes/"+name+"/stdin", "application/json", strings.NewReader(`{"data":""}`))
+		if err == nil {
+			b, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			code, body = resp.StatusCode, string(b)
+			if code == http.StatusConflict && strings.Contains(body, "process "+name+": attached") {
+				return
+			}
+		} else {
+			body = err.Error()
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("session not held: %d %q", code, stderr)
+			t.Fatalf("session not held: %d %q", code, body)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
