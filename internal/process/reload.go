@@ -131,6 +131,8 @@ type reloadUnit struct {
 // A group or program whose processes do not stop within stopwaitsecs plus
 // stopWaitMargin keeps its old processes and is reported as stuck.
 func (m *Manager) ApplyReload(oldCfg, newCfg *config.Config) ReloadOutcome {
+	before := m.processNames()
+	defer m.dropRemovedMetrics(before)
 	added, changed, removed := m.PlanReload(oldCfg, newCfg)
 	og, ng := effectiveGroups(oldCfg), effectiveGroups(newCfg)
 
@@ -392,5 +394,35 @@ func (m *Manager) startProgram(prog string, honourAutostart bool) {
 		if err := p.Start(); err != nil {
 			m.logger.Error("reload start failed", "program", prog, "process", p.Name(), "error", err)
 		}
+	}
+}
+
+func (m *Manager) processNames() map[string]bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]bool, len(m.processes))
+	for name := range m.processes {
+		out[name] = true
+	}
+	return out
+}
+
+// dropRemovedMetrics deletes the counters of processes a reload removed
+// (FUNC-061); a recreated process keeps its counters.
+func (m *Manager) dropRemovedMetrics(before map[string]bool) {
+	m.mu.RLock()
+	sink := m.metrics
+	var gone []string
+	for name := range before {
+		if _, ok := m.processes[name]; !ok {
+			gone = append(gone, name)
+		}
+	}
+	m.mu.RUnlock()
+	if sink == nil {
+		return
+	}
+	for _, name := range gone {
+		sink.RemoveProcess(name)
 	}
 }

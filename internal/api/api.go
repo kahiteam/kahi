@@ -132,6 +132,8 @@ type Server struct {
 	unixServer *http.Server
 	tcpServer  *http.Server
 	ui         http.Handler // Web UI under /ui/; nil when disabled
+	metricsOn  bool         // [server.metrics] enabled
+	metrics    http.Handler // /metrics; nil when metrics are off or unavailable
 
 	// bulkMu allows one bulk action at a time across both listeners.
 	bulkMu sync.Mutex
@@ -151,6 +153,12 @@ type Config struct {
 
 	// UI serves the Web UI under /ui/ behind requireAuth; nil disables it.
 	UI http.Handler
+
+	// MetricsEnabled mounts /metrics behind requireAuth (FUNC-060). Metrics
+	// serves it; nil with MetricsEnabled means the collector could not be
+	// built and /metrics answers 503.
+	MetricsEnabled bool
+	Metrics        http.Handler
 }
 
 // NewServer creates an API server with the given dependencies.
@@ -163,6 +171,8 @@ func NewServer(cfg Config, pm ProcessManager, gm GroupManager, cm ConfigManager,
 		bus:       bus,
 		logger:    logger,
 		ui:        cfg.UI,
+		metricsOn: cfg.MetricsEnabled,
+		metrics:   cfg.Metrics,
 		authUser:  cfg.Username,
 		authPass:  cfg.Password,
 	}
@@ -266,6 +276,10 @@ func (s *Server) buildMux() *http.ServeMux {
 	mux.HandleFunc("POST /api/v1/all/start", s.requireAuth(s.handleBulk(func() []ActionResult { return s.processes.StartAllOrdered() })))
 	mux.HandleFunc("POST /api/v1/all/stop", s.requireAuth(s.handleBulk(func() []ActionResult { return s.processes.StopAllOrdered() })))
 	mux.HandleFunc("POST /api/v1/all/restart", s.requireAuth(s.handleBulk(func() []ActionResult { return s.processes.RestartAllOrdered() })))
+
+	// Prometheus metrics (FUNC-060, ADR-049): outside /api/v1, behind the
+	// same auth (TCP only) and cross-origin protection.
+	mux.HandleFunc("GET /metrics", s.requireAuth(s.handleMetrics))
 
 	// Web UI (FUNC-084, ADR-029): one authenticated subtree, so a UI route
 	// cannot be registered without authentication.
@@ -1063,5 +1077,17 @@ func errorCode(status int) string {
 		return "METHOD_NOT_ALLOWED"
 	default:
 		return "SERVER_ERROR"
+	}
+}
+
+// handleMetrics serves /metrics, or says why it cannot (FUNC-060).
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	switch {
+	case !s.metricsOn:
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "metrics not enabled"})
+	case s.metrics == nil:
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "metrics unavailable"})
+	default:
+		s.metrics.ServeHTTP(w, r)
 	}
 }
