@@ -1127,7 +1127,7 @@
       "description": "Dynamic completion of process, group and signal names from the running daemon with a 1-second budget (FUNC-037, #156, ADR-052).",
       "testing_steps": [
         "e2e: 'kahi completion bash | bash -n' exits 0; 'kahi completion zsh | zsh -n' exits 0 (skipped when zsh is missing; CI installs it)",
-        "e2e: 'kahi __complete \"\"' returns exactly completion, ctl, daemon, hash-password, help, init, migrate, version and a last line ':4'",
+        "e2e: 'kahi __complete \"\"' returns exactly completion, config, ctl, daemon, hash-password, help, init, migrate, version and a last line ':4'",
         "e2e: against a daemon with web and worker (numprocs 2), 'kahi __complete ctl start \"\"' returns exactly web, worker_0, worker_1, web:*, worker:*, all and directive NoFileComp",
         "e2e: 'kahi __complete ctl attach \"\"', 'tail', 'pid' and 'send' return process names only",
         "e2e: 'kahi __complete ctl signal \"\"' returns SIGTERM SIGHUP SIGINT SIGQUIT SIGKILL SIGUSR1 SIGUSR2 SIGSTOP SIGCONT; 'kahi __complete ctl signal SIGTERM \"\"' returns process names, name:* and all",

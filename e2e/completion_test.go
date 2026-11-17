@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -83,10 +84,8 @@ func TestCompletion_ScriptsAndStatic(t *testing.T) {
 		}
 	}
 	names, directive := completeNames(t, noSocketEnv(t), "")
-	for _, want := range []string{"completion", "ctl", "daemon", "hash-password", "help", "init", "migrate", "version"} {
-		if !strings.Contains(" "+strings.Join(names, " ")+" ", " "+want+" ") {
-			t.Errorf("subcommands %q lack %s", names, want)
-		}
+	if want := []string{"completion", "config", "ctl", "daemon", "hash-password", "help", "init", "migrate", "version"}; !slices.Equal(names, want) {
+		t.Errorf("subcommands %q, want exactly %q", names, want)
 	}
 	if directive != ":4" {
 		t.Errorf("directive %q", directive)
