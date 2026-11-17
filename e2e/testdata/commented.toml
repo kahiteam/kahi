@@ -1,0 +1,26 @@
+# Kahi configuration file
+# Migrated from supervisord.conf
+
+# daemon settings
+[supervisor]
+# log file
+logfile = "/var/log/kahi.log"
+log_level = "info" # quieter (renamed from "loglevel")
+
+# web serves the site
+[programs.web] # note
+# the binary
+command = "/usr/bin/web"
+# (from supervisord) not for kahi
+# UNSUPPORTED: serverurl = AUTO
+startsecs = 10 # ten seconds
+# end of web
+[programs.web.environment]
+A = "1"
+B = "2"
+
+[groups.svc]
+# members
+programs = ["web"]
+# trailing comment at end of file
+
