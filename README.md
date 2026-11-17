@@ -35,7 +35,7 @@ Key differences from supervisord:
 - CLI control client (`kahi ctl`) with all standard operations
 - Liveness and readiness probes (`/healthz`, `/readyz`)
 - Event system with pub/sub, an SSE event stream and webhook notifications (Slack, PagerDuty and generic JSON templates, retries, circuit breaker); event listener pools are planned for 0.3.0: [#106](https://github.com/kahiteam/kahi/issues/106)
-- Structured logging with file rotation, an in-memory output buffer (64 KB per stream, up to 16 MB with `*_capture_maxbytes`), ANSI stripping (syslog forwarding is planned for 0.3.0: [#152](https://github.com/kahiteam/kahi/issues/152))
+- Structured logging with file rotation, an in-memory output buffer (64 KB per stream, up to 16 MB with `*_capture_maxbytes`), ANSI stripping, syslog forwarding (one message per line, local socket, unix, UDP or TCP)
 - Process groups with priority-ordered startup and shutdown: shutdown stops one priority level at a time, in reverse order, within one `shutdown_timeout`
 - Per-process uid/gid, umask, resource limits (see [Resource limits](#resource-limits)), environment control
 - supervisord.conf migration tool
@@ -158,6 +158,7 @@ Tagged releases are published automatically via GitHub Actions.
 | -------------------- | ---------------------------------------------------------- |
 | `kahi daemon`        | Run the supervisor daemon                                  |
 | `kahi ctl`           | Control a running daemon                                   |
+| `kahi config check`  | Check that `kahi daemon` would start, without starting it  |
 | `kahi init`          | Generate a sample `kahi.toml`                              |
 | `kahi migrate`       | Convert `supervisord.conf` to `kahi.toml`                  |
 | `kahi version`       | Print version, commit, build date, Go version, FIPS status |
@@ -176,6 +177,31 @@ kahi daemon [flags]
 | `-p, --pidfile`   | PID file path; a start is refused while the PID in the file is alive, a stale file is replaced                                  |
 | `-d, --daemonize` | Run in the background; returns once the daemon runs, or with its startup error. Set `[supervisor] logfile`: stdout is /dev/null |
 | `-u, --user`      | Drop privileges to user (name or `uid`, optionally `:group`)                                                                    |
+
+### config check
+
+```sh
+kahi config check [-c FILE] [-u USER] [-p PIDFILE]
+```
+
+Reports whether `kahi daemon` with the same flags would start, without
+starting it: run it in CI, in an image build, in an init container, or before
+restarting a running daemon. It loads and validates the config as the daemon
+does (search order, includes, warnings, user lookup) and then checks the
+startup steps without changing anything: `[supervisor] directory`, the daemon
+log, `minfds`/`minprocs` against the hard limits, the socket directory and the
+PID file. Program commands, directories and log files that would make a
+program go FATAL are printed as warnings. Nothing is created, bound or spawned.
+
+- stdout: `config OK: <path>`; warnings, notes and `error: ...` lines go to
+  stderr.
+- Exit 0 when the daemon would start (with or without warnings), 1 on errors,
+  2 on a usage error.
+- A running daemon (live PID file or socket) is noted, not an error.
+- Run it as the user that starts the daemon: the checks use that user's
+  rights. As non-root, `-u` and `[supervisor] user` are only looked up
+  (`note: not root; the privilege drop was not checked`), so a CI job can
+  check a production config. A port already in use is not detected.
 
 ### ctl
 
@@ -279,6 +305,8 @@ kahi init --stdout            # print to stdout
 # user = ""                    # drop to this user after binding (name or uid, optionally :group);
 #                               # needs root; kahi daemon -u takes precedence
 # nocleanup = false             # no effect: kahi does not auto-name child logs
+# syslog_address = ""           # where *_syslog output goes: "" (local socket), unix:///path,
+#                               # udp://host:port or tcp://host:port; takes effect after restart
 # shutdown_timeout = 30         # total seconds for an ordered shutdown, then SIGKILL; levels stop one after
 #                               # another, so keep it >= the sum of the largest stopwaitsecs in each level,
 #                               # and below your service manager's stop timeout (TimeoutStopSec, docker stop -t)
@@ -336,6 +364,10 @@ kahi init --stdout            # print to stdout
 # stderr_logfile_backups = 10
 # stdout_capture_maxbytes = "64KB" # in-memory buffer for tail and the log viewer, 1KB..16MB
 # stderr_capture_maxbytes = "64KB"
+# stdout_syslog = false        # forward stdout to syslog, one message per line (tag: process name)
+# stderr_syslog = false        # forward stderr to syslog
+# syslog_facility = "LOCAL0"   # KERN, USER, DAEMON, ..., LOCAL0..LOCAL7
+# syslog_priority = "INFO"     # EMERG, ALERT, CRIT, ERR, WARNING, NOTICE, INFO, DEBUG
 # description = ""             # process description
 # [programs.example.environment]
 # KEY = "value"

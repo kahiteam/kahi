@@ -31,6 +31,10 @@ type SupervisorConfig struct {
 	ShutdownTimeout int    `toml:"shutdown_timeout"`
 	Umask           string `toml:"umask"`
 	User            string `toml:"user"` // drop to this user after binding (FUNC-045)
+	// SyslogAddress is where process output is forwarded with
+	// stdout_syslog/stderr_syslog: "" (local socket), unix:///path,
+	// udp://host:port or tcp://host:port (FUNC-020).
+	SyslogAddress string `toml:"syslog_address"`
 
 	// MinfdsSet and MinprocsSet report whether the key is in the file: an
 	// explicit value that cannot be met is an error, a default only warns
@@ -71,6 +75,8 @@ type ProgramConfig struct {
 	StderrLogfileBackups  int               `toml:"stderr_logfile_backups"`
 	StderrCaptureMaxbytes string            `toml:"stderr_capture_maxbytes"`
 	StderrSyslog          bool              `toml:"stderr_syslog"`
+	SyslogFacility        string            `toml:"syslog_facility"` // "" = LOCAL0
+	SyslogPriority        string            `toml:"syslog_priority"` // "" = INFO
 	StdoutEventsEnabled   bool              `toml:"stdout_events_enabled"`
 	StderrEventsEnabled   bool              `toml:"stderr_events_enabled"`
 	RedirectStderr        bool              `toml:"redirect_stderr"`

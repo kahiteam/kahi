@@ -13,6 +13,8 @@
 # user = ""                    # drop to this user after binding (name or uid, optionally :group);
 #                               # needs root; kahi daemon -u takes precedence
 # nocleanup = false             # no effect: kahi does not auto-name child logs
+# syslog_address = ""           # where *_syslog output goes: "" (local socket), unix:///path,
+#                               # udp://host:port or tcp://host:port; takes effect after restart
 # shutdown_timeout = 30         # total seconds for an ordered shutdown, then SIGKILL; levels stop one after
 #                               # another, so keep it >= the sum of the largest stopwaitsecs in each level,
 #                               # and below your service manager's stop timeout (TimeoutStopSec, docker stop -t)
@@ -70,6 +72,10 @@
 # stderr_logfile_backups = 10
 # stdout_capture_maxbytes = "64KB" # in-memory buffer for tail and the log viewer, 1KB..16MB
 # stderr_capture_maxbytes = "64KB"
+# stdout_syslog = false        # forward stdout to syslog, one message per line (tag: process name)
+# stderr_syslog = false        # forward stderr to syslog
+# syslog_facility = "LOCAL0"   # KERN, USER, DAEMON, ..., LOCAL0..LOCAL7
+# syslog_priority = "INFO"     # EMERG, ALERT, CRIT, ERR, WARNING, NOTICE, INFO, DEBUG
 # description = ""             # process description
 # [programs.example.environment]
 # KEY = "value"
