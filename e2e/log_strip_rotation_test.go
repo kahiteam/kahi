@@ -83,6 +83,12 @@ stdout_logfile_backups = 3
 		time.Sleep(10 * time.Millisecond)
 	}
 	first := inode(t, log)
+	// A hard link keeps the first file's inode allocated after rotation
+	// deletes the oldest backup; otherwise the filesystem may hand the same
+	// inode number to the new log file and "never replaced" fires falsely.
+	if err := os.Link(log, filepath.Join(dir, "first-log-pin")); err != nil {
+		t.Fatal(err)
+	}
 
 	// 40 KB through a 4 KB file: many rotations, three backups kept.
 	time.Sleep(3 * time.Second)
