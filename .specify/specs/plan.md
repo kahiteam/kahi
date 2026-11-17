@@ -1411,6 +1411,21 @@ Spec changes on `docs/v030-spec` (2026-11-14/15), decisions recorded in the spec
 
 ---
 
+### ADR-054: Offline Config Check Shares the Daemon's Startup Steps
+
+**Date:** 2026-11-16
+**Status:** Accepted
+
+**Context:** FUNC-087 (#272). A config error stops `kahi daemon` at start; with kahi as PID 1 the pod crash-loops and the error is seen only after the old daemon is gone. `kahi ctl reread` checks a file only against a running daemon. The startup path (`cmd/kahi/daemon.go` `daemonRun`) mixes pure steps (`config.ResolveDaemon`, `config.LoadWithIncludes`, `supervisor.PlanDrop`) with steps that change the system (`ChangeDirectory`, `SetUmask`, `OpenDaemonLog`, `RaiseLimits`, `PrepareSocketDir`, `CheckPIDFile`/`WritePIDFile`, binds, `DropPrivileges`).
+
+**Decision:** A `kahi config` command group with one subcommand, `check`, taking the daemon's `-c`, `-u` and `-p`. The pure head of `daemonRun` moves into one function both commands call (config resolution, load with warnings, user resolution); `CheckPrivilegeDrop` (today resolution plus the root check) is split into a resolve function both commands call and a root check only `kahi daemon` calls, and the root check and the drop stay in `kahi daemon`. Non-root with a drop user, the check resolves the user and notes the unchecked drop; for `[supervisor] user` this is stricter than a non-root start, which only warns (deliberate, decided 2026-11-16), so the check follows the start, with one deliberate drift for privilege-drop users (a non-root CI job catches a typo in a production user). Each system-changing step gets a probe beside it in the same file (`ProbeDirectory` next to `ChangeDirectory`, `ProbeDaemonLog` next to `OpenDaemonLog`, `ProbeLimits` next to `RaiseLimits`, `ProbeSocketDir` next to `PrepareSocketDir`, `ProbePIDFile` next to `WritePIDFile`), built from the same validation helpers and returning the same message prefix and errno; probes only read: stat, lstat, access(2), opening directories for the `os.Root` walk, reading the PID file, kill(pid, 0), getrlimit, sysctl, and a 1 s Unix-socket dial; they create, write, bind and spawn nothing. Program probes (`command` lookup with the spawner's PATH and directory rules, `directory`, log parent directories) live in `internal/process` next to the spawn code and return warnings. A running daemon is detected with `CheckPIDFile` semantics (EPERM counts as alive) and a 1 s dial of the Unix socket; it produces a note naming the pid, or the socket when no PID file is known, and skips the running-daemon refusal. The command collects every probe result before exiting (config errors stop before probes). Warnings the daemon logs after its log opens are printed by the check to stderr.
+
+**Alternatives considered:** `kahi daemon --check` (rejected by the user: the name should say it validates config); a dry-run flag threaded through every startup function (side effects one `if` away from running in check mode); a brief bind to detect a used port (breaks "binds nothing"; rejected 2026-11-16).
+
+**Consequences:** Every step and its probe share a parity unit test over the same fixtures (missing, not a directory, not writable, symlink, ok): the probe fails exactly where the step fails, with the same message prefix and errno (the socket-directory probe cannot repeat the daemon's random temp-file name). `kahi daemon` output and exit codes do not change. A new startup step must add its probe or say in the PR why none is needed.
+
+---
+
 ### Implementation Sequencing (v0.3.0)
 
 Each step is one PR, tested red first, with e2e proof through the binary and the feature_list entries it completes (`verified_by`). Root-only steps run in the ADR-037 container. Each step updates `kahi migrate`, `ignored.go`, the sample configs and the README for the keys it implements.
@@ -1422,6 +1437,7 @@ Each step is one PR, tested red first, with e2e proof through the binary and the
 5. **#159 users, groups and the file hand-over** (ADR-046, ADR-045), as two PRs like step 4/4b: **5a** the resolver for `kahi daemon -u` and per-process `user` (names, supplementary groups, spawn errors, the load/reload user warning): process-user-names; **5b** `[supervisor] user`, the socket directory, PID file and log hand-over, the v0.3.0 root warning: supervisor-user-config; container e2e for both.
 6. **#106a webhooks** (ADR-043): webhook-notifications, webhook-templates, webhook-env-expansion, webhook-tls-requirement.
 7. **#106b listener pools** (ADR-042) in two PRs: 7a config, validation, migrate and the envelope header (unit tests, no entry completed); 7b the manager-run pool (event-listener-pools) and its framing proof (event-listener-payload-framing).
+   Inserted before the 7a PR: **#272 config check** (ADR-054) at the user's request (2026-11-16), so the new `[eventlisteners.x]` startup errors can be checked before a restart: config-offline-check (FUNC-087).
 8. **#153 metrics** (ADR-049): prometheus-metrics-endpoint, process-metrics, supervisor-metrics (needs 6 and 7 for the pool and breaker series).
 9. **#152 syslog** (ADR-050): syslog-forwarding.
 10. **#157 attach** (ADR-044; needs 2, 3 and 7b): cli-foreground-attach.
