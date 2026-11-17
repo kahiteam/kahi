@@ -29,13 +29,19 @@ stderr_syslog = true
 	warnings := strings.Join(result.Warnings, "\n")
 	for _, key := range []string{
 		"nocleanup", "identifier",
-		"stdout_capture_maxbytes", "stderr_capture_maxbytes", "stdout_syslog", "stderr_syslog",
+		"stdout_capture_maxbytes", "stderr_capture_maxbytes",
 	} {
 		if !strings.Contains(warnings, `"`+key+`"`) {
 			t.Errorf("no unsupported-option warning for %s; warnings:\n%s", key, warnings)
 		}
 		if !strings.Contains(result.TOML, "# UNSUPPORTED: "+key+" = ") {
 			t.Errorf("TOML does not comment out %s:\n%s", key, result.TOML)
+		}
+	}
+	// Syslog forwarding is implemented (#152): carried over as is.
+	for _, line := range []string{"stdout_syslog = true", "stderr_syslog = true"} {
+		if !strings.Contains(result.TOML, "\n"+line+"\n") || strings.Contains(result.TOML, "# UNSUPPORTED: "+strings.Fields(line)[0]) {
+			t.Errorf("%s not carried over:\n%s", line, result.TOML)
 		}
 	}
 	if len(result.ValidErrs) != 0 {

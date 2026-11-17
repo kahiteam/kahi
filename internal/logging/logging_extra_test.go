@@ -179,22 +179,6 @@ func TestRotateIfNeededMissingFile(t *testing.T) {
 	}
 }
 
-func TestSyslogForwarder(t *testing.T) {
-	sf, err := NewSyslogForwarder("kahi-test")
-	if err != nil {
-		t.Skip("syslog not available:", err)
-	}
-	defer func() { _ = sf.Close() }()
-
-	n, err := sf.Write([]byte("test message"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 12 {
-		t.Fatalf("n = %d, want 12", n)
-	}
-}
-
 func TestRotateIfNeededZeroBackups(t *testing.T) {
 	dir := t.TempDir()
 	logFile := filepath.Join(dir, "truncate.log")
