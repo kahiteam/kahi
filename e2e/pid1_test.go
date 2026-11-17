@@ -77,8 +77,9 @@ ENTRYPOINT ["/kahi", "daemon", "-c", "/kahi.toml"]
 		}
 	}
 
-	tag := fmt.Sprintf("localhost/kahi-pid1-e2e:%d", time.Now().UnixNano())
-	name := fmt.Sprintf("kahi-pid1-e2e-%d", time.Now().UnixNano())
+	n := containerSeq.Add(1)
+	tag := fmt.Sprintf("localhost/kahi-pid1-e2e:%d-%d", os.Getpid(), n)
+	name := fmt.Sprintf("kahi-pid1-e2e-%d-%d", os.Getpid(), n)
 	run := func(args ...string) string {
 		t.Helper()
 		out, err := exec.Command(rt, args...).CombinedOutput()

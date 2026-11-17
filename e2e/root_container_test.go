@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -119,7 +120,9 @@ func startRootContainer(t *testing.T, files map[string]string, runArgs, daemonAr
 			t.Fatal(err)
 		}
 	}
-	c := &rootContainer{t: t, rt: rt, name: fmt.Sprintf("kahi-root-e2e-%d", time.Now().UnixNano())}
+	// Parallel tests can read the same UnixNano, so the name (also the image
+	// tag) comes from the pid and a counter.
+	c := &rootContainer{t: t, rt: rt, name: fmt.Sprintf("kahi-root-e2e-%d-%d", os.Getpid(), containerSeq.Add(1))}
 	tag := "localhost/" + c.name
 	// Concurrent podman builds race on removing their build containers
 	// ("deleting build container ...: identifier is not a container"), so
@@ -141,6 +144,9 @@ func startRootContainer(t *testing.T, files map[string]string, runArgs, daemonAr
 	t.Cleanup(func() { _ = exec.Command(rt, "rm", "-f", c.name).Run() })
 	return c
 }
+
+// containerSeq numbers the root containers of this test binary.
+var containerSeq atomic.Int64
 
 func copyFile(t *testing.T, src, dst string, mode os.FileMode) {
 	t.Helper()
