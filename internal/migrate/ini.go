@@ -13,7 +13,20 @@ type INISection struct {
 	Type    string            // e.g. "supervisord", "program", "group", etc.
 	Name    string            // e.g. program name for [program:web]
 	Options map[string]string // key-value pairs
-	Comment string            // any comment associated with the section header
+	Comment string            // the inline comment on the section header line
+
+	// Comments kept for the output (FUNC-069, ADR-053): the full-line
+	// comments above the header, those after the last key (end of section
+	// or file), and per key its comments above and its inline comment.
+	Above    []string
+	Trailing []string
+	Notes    map[string]OptionComments
+}
+
+// OptionComments are the comments attached to one key.
+type OptionComments struct {
+	Above  []string // full-line comments above the key
+	Inline string   // the comment at the end of the key's line
 }
 
 // INIFile represents a fully parsed supervisord.conf.
@@ -37,7 +50,12 @@ var knownSectionTypes = map[string]bool{
 // sectionHeaderRe matches [section_type] or [section_type:name]
 var sectionHeaderRe = regexp.MustCompile(`^\[([a-zA-Z_-]+)(?::([^\]]+))?\]\s*(?:;.*)?$`)
 
-// ParseINI parses a supervisord.conf INI file from a reader.
+// ParseINI parses a supervisord.conf INI file from a reader. Comments are
+// kept with the item they belong to (FUNC-069, ADR-053): a block of
+// full-line comments attaches to the next key or section header; a block
+// that a blank line separates from the next section header, or that ends
+// the file, is the previous section's end-of-section comment. A comment on a
+// continuation line is dropped with a warning.
 func ParseINI(r io.Reader) (*INIFile, error) {
 	result := &INIFile{}
 	scanner := bufio.NewScanner(r)
@@ -45,23 +63,48 @@ func ParseINI(r io.Reader) (*INIFile, error) {
 
 	var currentSection *INISection
 	var lastKey string
+	var pending []string // full-line comments not attached yet
+	gap := false         // a blank line follows the pending comments
+	split := 0           // pending[split:] is the last block (after a blank line)
+	addComment := func(text string) {
+		if gap {
+			split = len(pending)
+		}
+		pending = append(pending, text)
+		gap = false
+	}
 
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Text()
 
-		// Strip inline comments (semicolons not inside quotes).
-		stripped := stripInlineComment(line)
-		trimmed := strings.TrimSpace(stripped)
+		code, comment := splitInlineComment(line)
+		trimmed := strings.TrimSpace(code)
 
-		// Skip empty lines and pure comment lines.
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, ";") {
+		if trimmed == "" {
+			if text := commentText(line); text != "" || comment != "" {
+				// A full-line comment (; or #, indented or not).
+				if text == "" {
+					text = comment
+				}
+				addComment(text)
+			} else if len(pending) > 0 {
+				gap = true
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "#") {
+			addComment(commentText(line))
 			continue
 		}
 
 		// Check for continuation line (starts with whitespace).
 		if (line[0] == ' ' || line[0] == '\t') && currentSection != nil && lastKey != "" {
 			currentSection.Options[lastKey] += " " + trimmed
+			if comment != "" {
+				result.Warnings = append(result.Warnings,
+					fmt.Sprintf("comment on continuation line %d dropped", lineNum))
+			}
 			continue
 		}
 
@@ -75,11 +118,25 @@ func ParseINI(r io.Reader) (*INIFile, error) {
 					fmt.Sprintf("unknown section type: %s", sectionType))
 			}
 
+			// Blocks a blank line separates from this header end the
+			// previous section; the block right above it is its own.
+			if currentSection != nil && len(pending) > 0 {
+				end := split
+				if gap {
+					end = len(pending)
+				}
+				currentSection.Trailing = append(currentSection.Trailing, pending[:end]...)
+				pending = pending[end:]
+			}
 			section := INISection{
 				Type:    sectionType,
 				Name:    sectionName,
 				Options: make(map[string]string),
+				Notes:   make(map[string]OptionComments),
+				Comment: comment,
+				Above:   pending,
 			}
+			pending, gap, split = nil, false, 0
 			result.Sections = append(result.Sections, section)
 			currentSection = &result.Sections[len(result.Sections)-1]
 			lastKey = ""
@@ -106,14 +163,39 @@ func ParseINI(r io.Reader) (*INIFile, error) {
 		}
 
 		currentSection.Options[key] = value
+		currentSection.Notes[key] = OptionComments{Above: pending, Inline: comment}
+		pending, gap, split = nil, false, 0
 		lastKey = key
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("read error: %w", err)
 	}
+	if len(pending) > 0 && currentSection != nil {
+		currentSection.Trailing = append(currentSection.Trailing, pending...)
+	}
 
 	return result, nil
+}
+
+// commentText returns the text of a full-line comment (";" or "#" first
+// after any indentation), or "".
+func commentText(line string) string {
+	t := strings.TrimSpace(line)
+	if !strings.HasPrefix(t, ";") && !strings.HasPrefix(t, "#") {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimLeft(t, ";#"))
+}
+
+// splitInlineComment splits a line at its inline comment, by the rule
+// stripInlineComment uses, and returns the code and the comment text.
+func splitInlineComment(line string) (code, comment string) {
+	code = stripInlineComment(line)
+	if len(code) == len(line) {
+		return line, ""
+	}
+	return code, strings.TrimSpace(strings.TrimLeft(line[len(code):], ";"))
 }
 
 // stripInlineComment removes an inline comment from a line. As in
