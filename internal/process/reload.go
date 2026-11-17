@@ -16,6 +16,7 @@ type groupSpec struct {
 	Programs []string // sorted
 	Priority int
 	Table    bool
+	Listener bool // an event listener pool (FUNC-055)
 }
 
 // effectiveGroups returns the groups cfg defines, by name.
@@ -34,6 +35,10 @@ func effectiveGroups(cfg *config.Config) map[string]groupSpec {
 		if !inTable[name] {
 			out[name] = groupSpec{Programs: []string{name}, Priority: p.Priority}
 		}
+	}
+	// A pool is its own group; validation keeps it out of [groups] tables.
+	for name, l := range cfg.EventListeners {
+		out[name] = groupSpec{Programs: []string{name}, Priority: l.Priority, Listener: true}
 	}
 	return out
 }
@@ -143,11 +148,12 @@ func (m *Manager) ApplyReload(oldCfg, newCfg *config.Config) ReloadOutcome {
 			continue
 		}
 		for _, prog := range n.Programs {
-			oldProg, newProg := oldCfg.Programs[prog], newCfg.Programs[prog]
-			if !programChanged(oldProg, newProg) {
+			oldProg, newProg := unitConfig(oldCfg, prog), unitConfig(newCfg, prog)
+			poolKeys := n.Listener && poolKeysChanged(oldCfg, newCfg, prog)
+			if !programChanged(oldProg, newProg) && !poolKeys {
 				continue
 			}
-			if !needsRestart(oldProg, newProg) {
+			if !poolKeys && !needsRestart(oldProg, newProg) {
 				m.updateInPlace(prog, newProg)
 				continue
 			}
@@ -164,6 +170,13 @@ func (m *Manager) ApplyReload(oldCfg, newCfg *config.Config) ReloadOutcome {
 		}
 	}
 
+	// A changed pool's members give their in-flight events back before they
+	// stop; the pool keeps them, in order, for the new members (FUNC-055).
+	for _, u := range units {
+		if u.program != "" {
+			m.releasePoolMembers(u.procs)
+		}
+	}
 	// Retire before stopping: an autorestart or backoff retry firing between
 	// the stop and the removal would otherwise spawn an untracked child.
 	for _, u := range units {
@@ -278,7 +291,7 @@ func (m *Manager) recreateProgram(group, prog string, cfg *config.Config) {
 	for _, p := range m.programProcessesLocked(prog) {
 		m.deleteProcessLocked(p.Name())
 	}
-	m.createProgramLocked(prog, cfg.Programs[prog], group)
+	m.createUnitLocked(prog, cfg, group)
 	if g := m.groups[group]; g != nil {
 		var procs []string
 		for name, p := range m.processes {

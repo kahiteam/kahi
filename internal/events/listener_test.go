@@ -2,152 +2,390 @@ package events
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
 
-func TestNewListenerPoolSubscribesAndDispatches(t *testing.T) {
-	bus := NewBus(testLogger())
-	lp := NewListenerPool("test-pool", bus, testLogger(), []EventType{ProcessStateRunning, ProcessStateStopped})
-
-	// Should have subscribed to both event types.
-	if bus.SubscriberCount(ProcessStateRunning) != 1 {
-		t.Fatalf("expected 1 subscriber for ProcessStateRunning, got %d", bus.SubscriberCount(ProcessStateRunning))
+func (s *syncBuf) wait(t *testing.T, want string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(s.String(), want) {
+		if time.Now().After(deadline) {
+			t.Fatalf("log never contained %q:\n%s", want, s.String())
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	if bus.SubscriberCount(ProcessStateStopped) != 1 {
-		t.Fatalf("expected 1 subscriber for ProcessStateStopped, got %d", bus.SubscriberCount(ProcessStateStopped))
-	}
-
-	lp.Stop()
 }
 
-func TestAddListenerRegistersAcknowledged(t *testing.T) {
-	bus := NewBus(testLogger())
-	lp := NewListenerPool("test-pool", bus, testLogger(), []EventType{ProcessStateRunning})
-	defer lp.Stop()
-
-	// Create pipes. AddListener takes (stdin io.Writer, stdout io.Reader).
-	// stdin: we write to stdinW, listener reads from stdinR -- pass stdinW as stdin arg.
-	// stdout: listener writes to stdoutW, we read from stdoutR -- pass stdoutR as stdout arg.
-	stdoutR, stdoutW := io.Pipe()
-	_, stdinW := io.Pipe()
-
-	lp.AddListener("listener-0", stdinW, stdoutR)
-
-	lp.mu.Lock()
-	if len(lp.listeners) != 1 {
-		t.Fatalf("expected 1 listener, got %d", len(lp.listeners))
-	}
-	l := lp.listeners[0]
-	lp.mu.Unlock()
-
-	l.mu.Lock()
-	state := l.state
-	l.mu.Unlock()
-
-	if state != ListenerAcknowledged {
-		t.Fatalf("expected state Acknowledged (0), got %d", state)
-	}
-
-	// Close pipes to let readReady goroutine exit.
-	_ = stdoutW.Close()
-	_ = stdinW.Close()
+// fakeMember is a listener process: the pool writes to its stdin and reads
+// its stdout.
+type fakeMember struct {
+	name    string
+	in      *bufio.Reader // what the pool wrote
+	out     io.WriteCloser
+	stdinW  *io.PipeWriter
+	stdoutR *io.PipeReader
+	frames  chan [2]string
 }
 
-func TestReadReadyTransitionsToReady(t *testing.T) {
-	bus := NewBus(testLogger())
-	lp := NewListenerPool("test-pool", bus, testLogger(), []EventType{ProcessStateRunning})
-	defer lp.Stop()
-
-	stdoutR, stdoutW := io.Pipe()
-	_, stdinW := io.Pipe()
-
-	lp.AddListener("listener-0", stdinW, stdoutR)
-
-	// Send READY token through the stdout pipe.
-	_, _ = fmt.Fprintln(stdoutW, "READY")
-
-	// Wait for the readReady goroutine to process it.
-	waitForState(t, lp, 0, ListenerReady, 2*time.Second)
-
-	_ = stdoutW.Close()
-	_ = stdinW.Close()
-}
-
-func TestDispatchRoutesEventsToSendToReady(t *testing.T) {
-	bus := NewBus(testLogger())
-	lp := NewListenerPool("test-pool", bus, testLogger(), []EventType{ProcessStateRunning})
-	defer lp.Stop()
-
-	stdoutR, stdoutW := io.Pipe()
+func newMember(t *testing.T, p *Pool, name string) *fakeMember {
+	t.Helper()
 	stdinR, stdinW := io.Pipe()
-
-	lp.AddListener("listener-0", stdinW, stdoutR)
-
-	// Signal READY.
-	_, _ = fmt.Fprintln(stdoutW, "READY")
-
-	// Wait for Ready state.
-	waitForState(t, lp, 0, ListenerReady, 2*time.Second)
-
-	// Publish an event through the bus.
-	ts := time.Date(2026, 2, 16, 12, 0, 0, 0, time.UTC)
-	bus.Publish(Event{
-		Type:      ProcessStateRunning,
-		Timestamp: ts,
-		Data:      map[string]string{"name": "web"},
-	})
-
-	// Read the framed payload from the listener's stdin.
-	type framed struct {
-		header string
-		body   string
-	}
-	done := make(chan framed, 1)
-	errCh := make(chan error, 1)
+	stdoutR, stdoutW := io.Pipe()
+	m := &fakeMember{name: name, in: bufio.NewReader(stdinR), out: stdoutW, stdinW: stdinW, stdoutR: stdoutR, frames: make(chan [2]string, 16)}
 	go func() {
-		reader := bufio.NewReader(stdinR)
-		header, body, err := readFramedPayload(reader)
-		if err != nil {
-			errCh <- err
-			return
+		for {
+			h, b, err := readFramedPayload(m.in)
+			if err != nil {
+				close(m.frames)
+				return
+			}
+			m.frames <- [2]string{h, b}
 		}
-		done <- framed{header: header, body: body}
 	}()
+	p.Attach(name, stdinW, stdoutR)
+	t.Cleanup(func() { _ = stdinW.Close(); _ = stdoutW.Close() })
+	return m
+}
 
-	select {
-	case f := <-done:
-		if !strings.HasPrefix(f.header, "ver:3.0 server:kahi serial:") || !strings.Contains(f.header, " pool:test-pool poolserial:1 eventname:PROCESS_STATE_RUNNING len:") {
-			t.Fatalf("unexpected header %q", f.header)
-		}
-		if f.body != "processname:web" {
-			t.Fatalf("expected framed body processname:web, got %q", f.body)
-		}
-	case err := <-errCh:
-		t.Fatalf("failed to read framed payload: %v", err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for event payload on listener stdin")
+func (m *fakeMember) say(t *testing.T, s string) {
+	t.Helper()
+	if _, err := io.WriteString(m.out, s); err != nil {
+		t.Fatalf("%s: write %q: %v", m.name, s, err)
 	}
+}
 
-	_ = stdoutW.Close()
-	_ = stdinR.Close()
+func (m *fakeMember) ready(t *testing.T) { t.Helper(); m.say(t, "READY\n") }
+
+// next returns the next event header the member received.
+func (m *fakeMember) next(t *testing.T) (header, body string) {
+	t.Helper()
+	select {
+	case f, ok := <-m.frames:
+		if !ok {
+			t.Fatalf("%s: stdin closed", m.name)
+		}
+		return f[0], f[1]
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%s: no event within 5s", m.name)
+	}
+	return "", ""
+}
+
+// quiet asserts the member gets no event for a short while.
+func (m *fakeMember) quiet(t *testing.T) {
+	t.Helper()
+	select {
+	case f := <-m.frames:
+		t.Fatalf("%s: unexpected event %q", m.name, f[0])
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func field(header, key string) string {
+	for _, f := range strings.Fields(header) {
+		if v, ok := strings.CutPrefix(f, key+":"); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+func newTestPool(t *testing.T, cfg PoolConfig) (*Pool, *Bus, *syncBuf) {
+	t.Helper()
+	logs := &syncBuf{}
+	cfg.Logger = slog.New(slog.NewTextHandler(logs, nil))
+	if cfg.Name == "" {
+		cfg.Name = "l"
+	}
+	if cfg.Types == nil {
+		cfg.Types = []EventType{ProcessStateExited}
+	}
+	if cfg.BufferSize == 0 {
+		cfg.BufferSize = 10
+	}
+	bus := NewBus(testLogger())
+	p := NewPool(bus, cfg)
+	t.Cleanup(p.Stop)
+	return p, bus, logs
+}
+
+func exited(name string) Event {
+	return Event{Type: ProcessStateExited, Data: map[string]string{"name": name, "group": name}}
+}
+
+func TestPoolDeliversAndAcknowledges(t *testing.T) {
+	p, bus, _ := newTestPool(t, PoolConfig{})
+	m := newMember(t, p, "l")
+	m.ready(t)
+	bus.Publish(exited("a"))
+	h, body := m.next(t)
+	if !strings.HasPrefix(h, "ver:3.0 server:kahi serial:") || field(h, "pool") != "l" || field(h, "poolserial") != "1" || field(h, "eventname") != "PROCESS_STATE_EXITED" {
+		t.Fatalf("header %q", h)
+	}
+	if body != "processname:a groupname:a" {
+		t.Fatalf("body %q", body)
+	}
+	first, _ := strconv.Atoi(field(h, "serial"))
+	m.say(t, "RESULT 2\nOK")
+	m.ready(t)
+	bus.Publish(exited("b"))
+	h, _ = m.next(t)
+	if n, _ := strconv.Atoi(field(h, "serial")); n != first+1 || field(h, "poolserial") != "2" {
+		t.Fatalf("second header %q, first serial %d", h, first)
+	}
+}
+
+// Only the pool's event types are delivered.
+func TestPoolFiltersTypes(t *testing.T) {
+	p, bus, _ := newTestPool(t, PoolConfig{})
+	m := newMember(t, p, "l")
+	m.ready(t)
+	bus.Publish(Event{Type: ProcessStateRunning, Data: map[string]string{"name": "x"}})
+	m.quiet(t)
+}
+
+func TestPoolFailRedeliversThenDrops(t *testing.T) {
+	p, bus, logs := newTestPool(t, PoolConfig{})
+	m := newMember(t, p, "l")
+	m.ready(t)
+	bus.Publish(exited("a"))
+	bus.Publish(exited("b"))
+	var serial string
+	for i := 0; i < 3; i++ {
+		h, _ := m.next(t)
+		if i == 0 {
+			serial = field(h, "serial")
+		} else if field(h, "serial") != serial {
+			t.Fatalf("delivery %d: serial %s, want %s (kept on redelivery)", i+1, field(h, "serial"), serial)
+		}
+		m.say(t, "RESULT 4\nFAIL")
+		m.ready(t)
+	}
+	logs.wait(t, fmt.Sprintf("event %s for l dropped after 3 failures", serial))
+	h, body := m.next(t)
+	if field(h, "serial") == serial || !strings.Contains(body, "processname:b") {
+		t.Fatalf("after the drop: %q %q", h, body)
+	}
+}
+
+func TestPoolInvalidResultRedelivers(t *testing.T) {
+	p, bus, logs := newTestPool(t, PoolConfig{})
+	m := newMember(t, p, "l")
+	m.ready(t)
+	bus.Publish(exited("a"))
+	h, _ := m.next(t)
+	m.say(t, "garbage\n")
+	logs.wait(t, "invalid result from listener l: garbage")
+	m.ready(t)
+	h2, _ := m.next(t)
+	if field(h2, "serial") != field(h, "serial") {
+		t.Fatalf("redelivered %q, first %q", h2, h)
+	}
+	m.say(t, "RESULT 3\nBAD")
+	logs.wait(t, "invalid result from listener l: BAD")
+}
+
+func TestPoolTimeoutStopsMemberAndRedelivers(t *testing.T) {
+	timedOut := make(chan string, 1)
+	p, bus, logs := newTestPool(t, PoolConfig{ResultTimeout: 50 * time.Millisecond, OnTimeout: func(m string) { timedOut <- m }})
+	m := newMember(t, p, "l")
+	m.ready(t)
+	bus.Publish(exited("a"))
+	h, _ := m.next(t)
+	select {
+	case got := <-timedOut:
+		if got != "l" {
+			t.Fatalf("OnTimeout(%q)", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnTimeout not called")
+	}
+	logs.wait(t, "listener l timed out on event "+field(h, "serial"))
+	// A late READY from the timed-out member is ignored.
+	m.ready(t)
+	m.quiet(t)
+	// Its restart gets the event again.
+	m2 := newMember(t, p, "l")
+	m2.ready(t)
+	h2, _ := m2.next(t)
+	if field(h2, "serial") != field(h, "serial") {
+		t.Fatalf("restart got %q, want serial %s", h2, field(h, "serial"))
+	}
+}
+
+func TestPoolMemberExitRequeues(t *testing.T) {
+	p, bus, logs := newTestPool(t, PoolConfig{})
+	m := newMember(t, p, "l")
+	m.ready(t)
+	bus.Publish(exited("a"))
+	h, _ := m.next(t)
+	_ = m.out.Close() // the process exits: EOF on its stdout
+	logs.wait(t, "event listener l exited unexpectedly")
+	m2 := newMember(t, p, "l")
+	m2.ready(t)
+	h2, _ := m2.next(t)
+	if field(h2, "serial") != field(h, "serial") {
+		t.Fatalf("new member got %q, want serial %s", h2, field(h, "serial"))
+	}
+}
+
+func TestPoolRoundRobin(t *testing.T) {
+	p, bus, _ := newTestPool(t, PoolConfig{})
+	ms := []*fakeMember{newMember(t, p, "l_0"), newMember(t, p, "l_1"), newMember(t, p, "l_2")}
+	for _, m := range ms {
+		m.ready(t)
+	}
+	time.Sleep(50 * time.Millisecond) // all three READY before the events
+	for _, n := range []string{"a", "b", "c"} {
+		bus.Publish(exited(n))
+	}
+	for _, m := range ms {
+		m.next(t)
+		m.say(t, "RESULT 2\nOK")
+		m.ready(t)
+	}
+	time.Sleep(50 * time.Millisecond)
+	bus.Publish(exited("d"))
+	_, body := ms[0].next(t)
+	if !strings.Contains(body, "processname:d") {
+		t.Fatalf("4th event body %q", body)
+	}
+	ms[1].quiet(t)
+	ms[2].quiet(t)
+}
+
+func TestPoolBufferOverflowDropsOldest(t *testing.T) {
+	p, bus, logs := newTestPool(t, PoolConfig{BufferSize: 2})
+	for _, n := range []string{"a", "b", "c"} {
+		bus.Publish(exited(n))
+	}
+	bus.Flush()
+	logs.wait(t, "event buffer overflow for l, dropped 1 oldest events")
+	if n := p.Buffered(); n != 2 {
+		t.Fatalf("buffered %d, want 2", n)
+	}
+	m := newMember(t, p, "l")
+	m.ready(t)
+	_, b1 := m.next(t)
+	m.say(t, "RESULT 2\nOK")
+	m.ready(t)
+	_, b2 := m.next(t)
+	if !strings.Contains(b1, "processname:b") || !strings.Contains(b2, "processname:c") {
+		t.Fatalf("delivered %q then %q, want b then c", b1, b2)
+	}
+}
+
+// A re-queued event is never the one dropped on overflow.
+func TestPoolRequeuedEventSurvivesOverflow(t *testing.T) {
+	p, bus, _ := newTestPool(t, PoolConfig{BufferSize: 2})
+	m := newMember(t, p, "l")
+	m.ready(t)
+	bus.Publish(exited("a"))
+	m.next(t)
+	m.say(t, "RESULT 4\nFAIL") // a goes back to the head; m is not READY
+	time.Sleep(50 * time.Millisecond)
+	for _, n := range []string{"b", "c", "d"} {
+		bus.Publish(exited(n))
+	}
+	bus.Flush()
+	m.ready(t)
+	_, body := m.next(t)
+	if !strings.Contains(body, "processname:a") {
+		t.Fatalf("first after overflow %q, want the re-queued a", body)
+	}
+	m.say(t, "RESULT 2\nOK")
+	m.ready(t)
+	_, body = m.next(t)
+	if !strings.Contains(body, "processname:d") {
+		t.Fatalf("second %q, want d (b and c dropped)", body)
+	}
+}
+
+// A member released by the supervisor (reload) gives its event back without
+// a failure.
+func TestPoolReleaseRequeuesWithoutFailure(t *testing.T) {
+	p, bus, logs := newTestPool(t, PoolConfig{})
+	m := newMember(t, p, "l")
+	m.ready(t)
+	bus.Publish(exited("a"))
+	h, _ := m.next(t)
+	m.say(t, "RESULT 4\nFAIL")
+	m.ready(t)
+	m.next(t) // second delivery
+	p.Release("l")
+	m2 := newMember(t, p, "l")
+	m2.ready(t)
+	h2, _ := m2.next(t) // third delivery, still not dropped
+	if field(h2, "serial") != field(h, "serial") {
+		t.Fatalf("after release %q", h2)
+	}
+	if strings.Contains(logs.String(), "dropped") || strings.Contains(logs.String(), "exited unexpectedly") {
+		t.Fatalf("release counted as a failure:\n%s", logs.String())
+	}
+}
+
+type failWriter struct{}
+
+func (failWriter) Write([]byte) (int, error) { return 0, errors.New("broken pipe") }
+
+// A failed stdin write marks the member failed, logs and re-queues (SEC-020).
+func TestPoolWriteErrorRequeues(t *testing.T) {
+	p, bus, logs := newTestPool(t, PoolConfig{})
+	stdoutR, stdoutW := io.Pipe()
+	t.Cleanup(func() { _ = stdoutW.Close() })
+	p.Attach("bad", failWriter{}, stdoutR)
+	if _, err := io.WriteString(stdoutW, "READY\n"); err != nil {
+		t.Fatal(err)
+	}
+	bus.Publish(exited("a"))
+	logs.wait(t, "cannot write event to listener bad: broken pipe")
+	m := newMember(t, p, "good")
+	m.ready(t)
+	_, body := m.next(t)
+	if !strings.Contains(body, "processname:a") {
+		t.Fatalf("body %q", body)
+	}
+}
+
+func TestPoolStopDiscardsAndUnsubscribes(t *testing.T) {
+	logs := &syncBuf{}
+	bus := NewBus(testLogger())
+	p := NewPool(bus, PoolConfig{Name: "l", Types: []EventType{ProcessStateExited}, BufferSize: 5, Logger: slog.New(slog.NewTextHandler(logs, nil))})
+	bus.Publish(exited("a"))
+	bus.Flush()
+	if p.Buffered() != 1 {
+		t.Fatalf("buffered %d", p.Buffered())
+	}
+	p.Stop()
+	p.Stop() // idempotent
+	if n := bus.SubscriberCount(ProcessStateExited); n != 0 {
+		t.Fatalf("%d subscribers after Stop", n)
+	}
+	if p.Buffered() != 0 {
+		t.Fatal("buffer kept after Stop")
+	}
+	// Attach and Release after Stop return.
+	r, w := io.Pipe()
+	defer func() { _ = w.Close() }()
+	p.Attach("x", io.Discard, r)
+	p.Release("x")
 }
 
 // readFramedPayload parses one length-framed listener payload: a header line
-// ending in "len:N" followed by exactly N body bytes. It returns the
-// header (without its trailing newline) and the N-byte body.
+// ending in "len:N" followed by exactly N body bytes.
 func readFramedPayload(r *bufio.Reader) (header string, body string, err error) {
 	line, err := r.ReadString('\n')
 	if err != nil {
 		return "", "", err
 	}
 	header = strings.TrimSuffix(line, "\n")
-
 	idx := strings.LastIndex(header, " len:")
 	if idx < 0 {
 		return "", "", fmt.Errorf("header missing len prefix: %q", header)
@@ -156,54 +394,11 @@ func readFramedPayload(r *bufio.Reader) (header string, body string, err error) 
 	if err != nil {
 		return "", "", fmt.Errorf("invalid length in header %q: %w", header, err)
 	}
-
 	buf := make([]byte, n)
 	if _, err := io.ReadFull(r, buf); err != nil {
 		return "", "", err
 	}
 	return header, string(buf), nil
-}
-
-func TestSendToReadyTransitionsToBusy(t *testing.T) {
-	bus := NewBus(testLogger())
-	lp := NewListenerPool("test-pool", bus, testLogger(), []EventType{ProcessStateRunning})
-	defer lp.Stop()
-
-	stdoutR, stdoutW := io.Pipe()
-	stdinR, stdinW := io.Pipe()
-
-	lp.AddListener("listener-0", stdinW, stdoutR)
-
-	// Signal READY.
-	_, _ = fmt.Fprintln(stdoutW, "READY")
-	waitForState(t, lp, 0, ListenerReady, 2*time.Second)
-
-	// Drain stdin in background so sendToReady doesn't block.
-	go func() { _, _ = io.Copy(io.Discard, stdinR) }()
-
-	// Send event directly.
-	ts := time.Date(2026, 2, 16, 12, 0, 0, 0, time.UTC)
-	lp.sendToReady(Event{
-		Type:      ProcessStateRunning,
-		Timestamp: ts,
-		Data:      map[string]string{"pid": "123"},
-	})
-
-	// Listener should now be Busy.
-	lp.mu.Lock()
-	l := lp.listeners[0]
-	lp.mu.Unlock()
-
-	l.mu.Lock()
-	state := l.state
-	l.mu.Unlock()
-
-	if state != ListenerBusy {
-		t.Fatalf("expected state Busy (2), got %d", state)
-	}
-
-	_ = stdoutW.Close()
-	_ = stdinR.Close()
 }
 
 var testEnv = Envelope{Serial: 7, Pool: "l", PoolSerial: 3}
@@ -288,244 +483,6 @@ func TestFormatEventPayloadFrameConcatenation(t *testing.T) {
 	}
 }
 
-func TestMultipleListenersOnlyFirstReadyGetsEvent(t *testing.T) {
-	bus := NewBus(testLogger())
-	lp := NewListenerPool("test-pool", bus, testLogger(), []EventType{ProcessStateRunning})
-	defer lp.Stop()
-
-	// Set up two listeners.
-	stdoutR0, stdoutW0 := io.Pipe()
-	stdinR0, stdinW0 := io.Pipe()
-	stdoutR1, stdoutW1 := io.Pipe()
-	stdinR1, stdinW1 := io.Pipe()
-
-	lp.AddListener("listener-0", stdinW0, stdoutR0)
-	lp.AddListener("listener-1", stdinW1, stdoutR1)
-
-	// Make both ready.
-	_, _ = fmt.Fprintln(stdoutW0, "READY")
-	_, _ = fmt.Fprintln(stdoutW1, "READY")
-	waitForState(t, lp, 0, ListenerReady, 2*time.Second)
-	waitForState(t, lp, 1, ListenerReady, 2*time.Second)
-
-	// Read from both stdin pipes concurrently.
-	var received0, received1 bool
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(stdinR0)
-		if scanner.Scan() {
-			mu.Lock()
-			received0 = true
-			mu.Unlock()
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(stdinR1)
-		if scanner.Scan() {
-			mu.Lock()
-			received1 = true
-			mu.Unlock()
-		}
-	}()
-
-	// Send one event.
-	ts := time.Date(2026, 2, 16, 12, 0, 0, 0, time.UTC)
-	lp.sendToReady(Event{
-		Type:      ProcessStateRunning,
-		Timestamp: ts,
-		Data:      map[string]string{"name": "web"},
-	})
-
-	// Give time for delivery.
-	time.Sleep(100 * time.Millisecond)
-
-	// Close pipes to unblock scanners.
-	_ = stdinW0.Close()
-	_ = stdinW1.Close()
-	wg.Wait()
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	// Only the first ready listener (listener-0) should have received the event.
-	if !received0 {
-		t.Fatal("expected listener-0 to receive the event")
-	}
-	if received1 {
-		t.Fatal("listener-1 should not have received the event")
-	}
-
-	// listener-0 should be Busy, listener-1 should still be Ready.
-	lp.mu.Lock()
-	l0 := lp.listeners[0]
-	l1 := lp.listeners[1]
-	lp.mu.Unlock()
-
-	l0.mu.Lock()
-	state0 := l0.state
-	l0.mu.Unlock()
-
-	l1.mu.Lock()
-	state1 := l1.state
-	l1.mu.Unlock()
-
-	if state0 != ListenerBusy {
-		t.Fatalf("expected listener-0 to be Busy, got %d", state0)
-	}
-	if state1 != ListenerReady {
-		t.Fatalf("expected listener-1 to still be Ready, got %d", state1)
-	}
-
-	_ = stdoutW0.Close()
-	_ = stdoutW1.Close()
-	_ = stdinR0.Close()
-	_ = stdinR1.Close()
-}
-
-func TestNoReadyListenersDoesNotCrash(t *testing.T) {
-	bus := NewBus(testLogger())
-	lp := NewListenerPool("test-pool", bus, testLogger(), []EventType{ProcessStateRunning})
-	defer lp.Stop()
-
-	// Add a listener but never send READY.
-	stdoutR, stdoutW := io.Pipe()
-	_, stdinW := io.Pipe()
-	lp.AddListener("listener-0", stdinW, stdoutR)
-
-	// Send event with no ready listeners -- should not panic or block.
-	ts := time.Date(2026, 2, 16, 12, 0, 0, 0, time.UTC)
-	lp.sendToReady(Event{
-		Type:      ProcessStateRunning,
-		Timestamp: ts,
-	})
-
-	// Also test with zero listeners at all.
-	bus2 := NewBus(testLogger())
-	lp2 := NewListenerPool("empty-pool", bus2, testLogger(), []EventType{ProcessStateRunning})
-	defer lp2.Stop()
-
-	lp2.sendToReady(Event{
-		Type:      ProcessStateRunning,
-		Timestamp: ts,
-	})
-
-	_ = stdoutW.Close()
-	_ = stdinW.Close()
-}
-
-func TestStopShutsDownCleanly(t *testing.T) {
-	bus := NewBus(testLogger())
-	lp := NewListenerPool("test-pool", bus, testLogger(), []EventType{ProcessStateRunning, ProcessStateStopped})
-
-	// Verify subscriptions exist before stop.
-	if bus.SubscriberCount(ProcessStateRunning) != 1 {
-		t.Fatalf("expected 1 subscriber before stop, got %d", bus.SubscriberCount(ProcessStateRunning))
-	}
-
-	lp.Stop()
-
-	// After stop, subscriptions should be removed.
-	if bus.SubscriberCount(ProcessStateRunning) != 0 {
-		t.Fatalf("expected 0 subscribers after stop, got %d", bus.SubscriberCount(ProcessStateRunning))
-	}
-	if bus.SubscriberCount(ProcessStateStopped) != 0 {
-		t.Fatalf("expected 0 subscribers after stop, got %d", bus.SubscriberCount(ProcessStateStopped))
-	}
-
-	// done channel should be closed (non-blocking read).
-	select {
-	case <-lp.done:
-		// Expected.
-	default:
-		t.Fatal("done channel not closed after Stop")
-	}
-}
-
-func TestEventQueueFullDoesNotBlockPublisher(t *testing.T) {
-	bus := NewBus(testLogger())
-
-	// Create pool but do not start any listeners or drain eventCh.
-	lp := &ListenerPool{
-		name:    "full-pool",
-		bus:     bus,
-		logger:  testLogger(),
-		eventCh: make(chan Event, 2), // Small buffer for testing.
-		stopCh:  make(chan struct{}),
-		done:    make(chan struct{}),
-	}
-
-	// Subscribe manually to route events into the small channel.
-	id := bus.Subscribe(ProcessStateRunning, func(e Event) {
-		select {
-		case lp.eventCh <- e:
-		default:
-			// Queue full; drop event. This matches NewListenerPool behavior.
-		}
-	})
-	lp.subIDs = append(lp.subIDs, id)
-
-	// Fill the queue.
-	ts := time.Date(2026, 2, 16, 12, 0, 0, 0, time.UTC)
-	bus.Publish(Event{Type: ProcessStateRunning, Timestamp: ts})
-	bus.Publish(Event{Type: ProcessStateRunning, Timestamp: ts})
-
-	// This publish should not block even though the queue is full.
-	done := make(chan struct{})
-	go func() {
-		bus.Publish(Event{Type: ProcessStateRunning, Timestamp: ts})
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// Publisher returned without blocking.
-	case <-time.After(1 * time.Second):
-		t.Fatal("publisher blocked on full event queue")
-	}
-
-	// Cleanup.
-	bus.Unsubscribe(id)
-	close(lp.stopCh)
-	close(lp.done)
-}
-
-// waitForState polls until the listener at the given index reaches the expected state,
-// or fails the test after the timeout.
-func waitForState(t *testing.T, lp *ListenerPool, index int, expected ListenerState, timeout time.Duration) {
-	t.Helper()
-
-	deadline := time.After(timeout)
-	for {
-		lp.mu.Lock()
-		if index >= len(lp.listeners) {
-			lp.mu.Unlock()
-			t.Fatalf("listener index %d out of range", index)
-		}
-		l := lp.listeners[index]
-		lp.mu.Unlock()
-
-		l.mu.Lock()
-		state := l.state
-		l.mu.Unlock()
-
-		if state == expected {
-			return
-		}
-
-		select {
-		case <-deadline:
-			t.Fatalf("timed out waiting for listener %d to reach state %d (current: %d)", index, expected, state)
-		default:
-			time.Sleep(10 * time.Millisecond)
-		}
-	}
-}
-
 // supervisord sends expected as 0 or 1, and listeners int() it.
 func TestFormatEventBodyExpected(t *testing.T) {
 	for v, want := range map[string]string{"true": "expected:1", "false": "expected:0"} {
@@ -533,5 +490,26 @@ func TestFormatEventBodyExpected(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("expected=%s: body %q, want %s", v, body, want)
 		}
+	}
+}
+
+// A reload's new settings keep the buffered events (FUNC-055).
+func TestPoolReconfigureKeepsBuffer(t *testing.T) {
+	p, bus, _ := newTestPool(t, PoolConfig{})
+	bus.Publish(exited("a"))
+	bus.Publish(exited("b"))
+	bus.Flush()
+	p.Reconfigure(PoolConfig{Name: "l", Types: []EventType{ProcessStateExited, ProcessStateFatal}, BufferSize: 5, ResultTimeout: time.Minute})
+	bus.Publish(Event{Type: ProcessStateFatal, Data: map[string]string{"name": "c"}})
+	bus.Flush()
+	if n := p.Buffered(); n != 3 {
+		t.Fatalf("buffered %d, want 3", n)
+	}
+	p.Reconfigure(PoolConfig{Name: "l", Types: []EventType{ProcessStateExited, ProcessStateFatal}, BufferSize: 2})
+	m := newMember(t, p, "l")
+	m.ready(t)
+	_, body := m.next(t)
+	if !strings.Contains(body, "processname:b") {
+		t.Fatalf("after shrinking to 2: %q, want b (a dropped)", body)
 	}
 }
