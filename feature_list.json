@@ -1042,13 +1042,22 @@
         "e2e: the same program with redirect_stderr = true; both OUT and ERR arrive on the client's stdout",
         "e2e: after 'printf \"\" | kahi ctl attach cat' exits, within 5 s (retrying on 409) 'kahi ctl send cat hello' exits 0 and kahi ctl tail cat shows 'hello'",
         "e2e: SIGKILL the daemon during a non-TTY session; within 5 s the client exits 1 with 'attach to cat lost:'",
-        "e2e via the terminal helper (runKahiTTY, one-shot): 'kahi ctl attach cat' on a terminal with no input prints 'attached to cat (Ctrl+] to detach)' to stderr; keystroke handling (0x03 forwarded, 0x1d detaches with 'detached from cat', termios restored) is covered by the fake-terminal unit check",
+        "e2e via the terminal helper (runKahiTTY, one-shot): 'kahi ctl attach short' (a program that exits after 2 s, since script(1) sends its end of input as a ^D byte, which raw mode forwards) prints 'attached to short (Ctrl+] to detach)' and 'process short exited'; keystroke handling (0x03 forwarded, 0x1d detaches with 'detached from cat', termios restored) is covered by the fake-terminal unit check",
         "e2e: non-TTY input containing 0x1d is forwarded to the process (no detach) and no 'attached' banner is printed",
         "e2e: POST /api/v1/processes/cat/attach with Upgrade: kahi-attach over TCP without credentials returns 401; over the Unix socket it returns 101; without the Upgrade header it returns 400 'attach requires Upgrade: kahi-attach'",
         "e2e: attach to an event listener process returns 400 'process l: stdin carries the event listener protocol'",
         "Unit (fake terminal, extra check): input side ICANON, ECHO, ISIG cleared, OPOST unchanged, termios restored on detach, process exit, lost connection and SIGTERM"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestAttach_PipeSession",
+        "TestAttach_OneSessionAndRelease",
+        "TestAttach_Refusals",
+        "TestAttach_StreamsAndExit",
+        "TestAttach_DaemonLost",
+        "TestAttach_TerminalBanner",
+        "TestAttach_Endpoint"
+      ],
       "dependencies": [
         "cli-process-control",
         "process-stdin-writing",
