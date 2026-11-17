@@ -9,6 +9,11 @@
 #   missing  a passing functional entry has no verified_by
 #   unknown  an entry names a test that does not exist in e2e/
 #
+# Before that, the list must be well formed (#273): it is validated against
+# .specify/templates/feature-list-schema.json with jv (pinned in
+# tools/go.mod), and scripts/verifiedby refuses duplicate ids, dependencies on
+# unknown ids and dependency cycles. A malformed list fails the script (exit 1).
+#
 # Findings are warnings: this script exits 0 when it finds them, and 1 only
 # when the check itself cannot run, so a broken gate is never silent. In
 # GitHub Actions it emits ::warning annotations and a job summary.
@@ -20,8 +25,14 @@ cd "$ROOT" || { printf 'check-verified-by: cannot cd to %s\n' "$ROOT" >&2; exit 
 in_ci=false
 [[ "${GITHUB_ACTIONS:-}" == "true" ]] && in_ci=true
 
+if ! go tool -modfile=tools/go.mod jv -q .specify/templates/feature-list-schema.json feature_list.json >/dev/null; then
+  printf 'check-verified-by: feature_list.json does not match .specify/templates/feature-list-schema.json:\n' >&2
+  go tool -modfile=tools/go.mod jv .specify/templates/feature-list-schema.json feature_list.json 2>&1 | grep -E '^\s*- at ' >&2
+  exit 1
+fi
+
 if ! out="$(go run ./scripts/verifiedby -root .)"; then
-  printf 'check-verified-by: the check could not run\n' >&2
+  printf 'check-verified-by: feature_list.json is malformed or the check could not run\n' >&2
   exit 1
 fi
 
