@@ -3273,6 +3273,59 @@
         "web-ui-log-viewer",
         "config-hot-reload"
       ]
+    },
+    {
+      "id": "config-offline-check",
+      "category": "functional",
+      "title": "Offline Config Check",
+      "description": "kahi config check [-c] [-u] [-p] reports whether kahi daemon with the same flags would start, without creating, binding, signalling or spawning anything (FUNC-087, #272, ADR-054).",
+      "testing_steps": [
+        "e2e: valid config without warnings, non-root: stdout is 'config OK: <abs path>', stderr empty, exit 0 (skipped when the NOFILE/NPROC hard limits are below the defaults or as root)",
+        "e2e: stopwaitsecs = 0: exit 1, stdout empty, stderr contains 'config validation failed in <abs path>:' and 'programs.web: stopwaitsecs must be >= 1', the same text 'kahi daemon -c FILE' prints for the file",
+        "e2e: unknown key: stderr contains 'warning: unknown config key', stdout 'config OK:', exit 0",
+        "e2e: [supervisor] directory missing, absolute [supervisor] logfile with a missing parent, absolute -p in a missing directory: exit 1, stderr has three 'error: ' lines ('directory does not exist: ', 'cannot open log file: ', 'cannot write PID file: '); afterwards none of the paths exist",
+        "e2e: minfds = 1024 under 'ulimit -n 256' (shell wrapper exec'ing kahi; sets soft and hard): exit 1, stderr contains 'error: cannot set NOFILE to 1024' (skipped as root)",
+        "e2e: no config found (KAHI_CONFIG unset, -c absent, cwd has kahi.toml): exit 1, stderr contains 'no config file found' (skipped when /etc/kahi/kahi.toml or /etc/kahi.toml exists, SEC-017)",
+        "e2e: program command '/nonexistent/web': stderr contains 'warning: programs.web.command: /nonexistent/web', exit 0; program directory missing: 'warning: programs.web.directory', exit 0",
+        "e2e: daemon started with -p P on the same config, check run with the same -p P: stderr contains 'note: a daemon is running (pid <pid>)', exit 0; without -p: 'note: a daemon is running (socket <path>)'; the daemon is still RUNNING with the same pid and socket afterwards",
+        "e2e: non-root with -u <current user name>: stderr contains 'note: not root; the privilege drop was not checked', exit 0; -u nosuchuser: exit 1, stderr contains 'user not found: nosuchuser' (skipped as root)",
+        "e2e: config check -d, an unknown flag, or a positional argument: exit 2; 'kahi config' alone prints help, exit 0",
+        "e2e: a regular file at the [server.unix] socket path with no daemon running: exit 1, stderr contains 'exists and is not a socket'; the file is unchanged",
+        "e2e: logfile parent is a symlink to an absolute directory: exit 1 with the daemon's 'cannot open log file: ' text",
+        "unit: each probe and its startup step agree on missing / not a directory / not writable / symlink / ok fixtures with the same error text (ADR-054 parity tests)"
+      ],
+      "passes": true,
+      "verified_by": [
+        "TestConfigCheck_OK",
+        "TestConfigCheck_ConfigErrorMatchesDaemon",
+        "TestConfigCheck_Warnings",
+        "TestConfigCheck_ProbeErrors",
+        "TestConfigCheck_MinfdsAboveHardLimit",
+        "TestConfigCheck_NoConfigFound",
+        "TestConfigCheck_ProgramWarnings",
+        "TestConfigCheck_RunningDaemon",
+        "TestConfigCheck_DropUser",
+        "TestConfigCheck_Usage",
+        "TestConfigCheck_SocketPathNotSocket",
+        "TestConfigCheck_LogParentSymlink"
+      ],
+      "dependencies": [
+        "config-search-paths",
+        "config-include-system",
+        "privilege-dropping",
+        "daemon-log",
+        "resource-limits",
+        "working-directory",
+        "unix-socket-server",
+        "process-user-names",
+        "supervisor-user-config",
+        "daemon-config-search-excludes-cwd",
+        "socket-dir-probe-no-follow",
+        "cli-framework",
+        "process-start",
+        "spawn-rlimit-umask-application",
+        "optional-daemonization"
+      ]
     }
   ]
 }

@@ -445,6 +445,28 @@ func removeStaleSocket(path string) error {
 	return os.Remove(path)
 }
 
+// ProbeSocket reports what StartUnix would find at path, without removing
+// or binding anything (FUNC-087): running is true when a daemon accepts
+// connections there, err is the error StartUnix would fail with for a path
+// that is not a socket.
+func ProbeSocket(path string) (running bool, err error) {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("cannot create socket: %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return false, fmt.Errorf("cannot create socket: %s: %w", path, fmt.Errorf("%s exists and is not a socket", path))
+	}
+	if conn, err := net.DialTimeout("unix", path, time.Second); err == nil {
+		_ = conn.Close()
+		return true, nil
+	}
+	return false, nil
+}
+
 // --- HTTP Handlers ---
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {

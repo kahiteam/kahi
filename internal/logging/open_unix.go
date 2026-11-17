@@ -72,3 +72,58 @@ func openLogFile(path string, perm os.FileMode) (*os.File, error) {
 	}
 	return os.NewFile(uintptr(fd), path), nil
 }
+
+// probeLogFile reports whether openLogFile(path) would fail, without
+// creating or opening the file (FUNC-087): the parent is resolved through
+// the same os.Root walk (directories are opened read-only), an existing file
+// must not be a symlink or directory and must be writable, a missing one
+// needs a writable parent.
+func probeLogFile(path string) error {
+	clean := filepath.Clean(path)
+	dir := filepath.Dir(clean)
+	base := filepath.Base(clean)
+	if base == "." || base == ".." || base == string(filepath.Separator) {
+		return &os.PathError{Op: "open", Path: path, Err: unix.EISDIR}
+	}
+	var root *os.Root
+	var relDir string
+	var err error
+	if filepath.IsAbs(clean) {
+		root, err = os.OpenRoot("/")
+		relDir = strings.TrimPrefix(dir, "/")
+	} else {
+		root, err = os.OpenRoot(".")
+		relDir = dir
+	}
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	if relDir == "" {
+		relDir = "."
+	}
+	dirFile, err := root.Open(relDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dirFile.Close() }()
+	dfd := int(dirFile.Fd())
+
+	var st unix.Stat_t
+	err = unix.Fstatat(dfd, base, &st, unix.AT_SYMLINK_NOFOLLOW)
+	switch {
+	case err == unix.ENOENT:
+		err = unix.Faccessat(dfd, ".", unix.W_OK|unix.X_OK, 0)
+	case err != nil:
+	case st.Mode&unix.S_IFMT == unix.S_IFLNK:
+		err = unix.ELOOP
+	case st.Mode&unix.S_IFMT == unix.S_IFDIR:
+		err = unix.EISDIR
+	default:
+		err = unix.Faccessat(dfd, base, unix.W_OK, 0)
+	}
+	if err != nil {
+		return &os.PathError{Op: "openat", Path: path, Err: err}
+	}
+	return nil
+}
