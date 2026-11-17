@@ -158,6 +158,7 @@ Tagged releases are published automatically via GitHub Actions.
 | -------------------- | ---------------------------------------------------------- |
 | `kahi daemon`        | Run the supervisor daemon                                  |
 | `kahi ctl`           | Control a running daemon                                   |
+| `kahi config check`  | Check that `kahi daemon` would start, without starting it  |
 | `kahi init`          | Generate a sample `kahi.toml`                              |
 | `kahi migrate`       | Convert `supervisord.conf` to `kahi.toml`                  |
 | `kahi version`       | Print version, commit, build date, Go version, FIPS status |
@@ -176,6 +177,31 @@ kahi daemon [flags]
 | `-p, --pidfile`   | PID file path; a start is refused while the PID in the file is alive, a stale file is replaced                                  |
 | `-d, --daemonize` | Run in the background; returns once the daemon runs, or with its startup error. Set `[supervisor] logfile`: stdout is /dev/null |
 | `-u, --user`      | Drop privileges to user (name or `uid`, optionally `:group`)                                                                    |
+
+### config check
+
+```sh
+kahi config check [-c FILE] [-u USER] [-p PIDFILE]
+```
+
+Reports whether `kahi daemon` with the same flags would start, without
+starting it: run it in CI, in an image build, in an init container, or before
+restarting a running daemon. It loads and validates the config as the daemon
+does (search order, includes, warnings, user lookup) and then checks the
+startup steps without changing anything: `[supervisor] directory`, the daemon
+log, `minfds`/`minprocs` against the hard limits, the socket directory and the
+PID file. Program commands, directories and log files that would make a
+program go FATAL are printed as warnings. Nothing is created, bound or spawned.
+
+- stdout: `config OK: <path>`; warnings, notes and `error: ...` lines go to
+  stderr.
+- Exit 0 when the daemon would start (with or without warnings), 1 on errors,
+  2 on a usage error.
+- A running daemon (live PID file or socket) is noted, not an error.
+- Run it as the user that starts the daemon: the checks use that user's
+  rights. As non-root, `-u` and `[supervisor] user` are only looked up
+  (`note: not root; the privilege drop was not checked`), so a CI job can
+  check a production config. A port already in use is not detected.
 
 ### ctl
 

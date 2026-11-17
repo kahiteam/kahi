@@ -2,7 +2,10 @@
 
 package logging
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+)
 
 // openLogFile opens path with logFileOpenFlags.
 //
@@ -14,4 +17,18 @@ import "os"
 // controlled, because a swapped parent-directory symlink is not detected here.
 func openLogFile(path string, perm os.FileMode) (*os.File, error) {
 	return os.OpenFile(path, logFileOpenFlags, perm)
+}
+
+// probeLogFile reports whether openLogFile(path) would fail, without
+// creating the file: an existing file must be writable, a missing one needs
+// an existing parent directory.
+func probeLogFile(path string) error {
+	if info, err := os.Stat(path); err == nil {
+		if info.IsDir() {
+			return &os.PathError{Op: "open", Path: path, Err: os.ErrInvalid}
+		}
+		return nil
+	}
+	_, err := os.Stat(filepath.Dir(path))
+	return err
 }

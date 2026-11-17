@@ -3265,7 +3265,21 @@
         "e2e: logfile parent is a symlink to an absolute directory: exit 1 with the daemon's 'cannot open log file: ' text",
         "unit: each probe and its startup step agree on missing / not a directory / not writable / symlink / ok fixtures with the same error text (ADR-054 parity tests)"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestConfigCheck_OK",
+        "TestConfigCheck_ConfigErrorMatchesDaemon",
+        "TestConfigCheck_Warnings",
+        "TestConfigCheck_ProbeErrors",
+        "TestConfigCheck_MinfdsAboveHardLimit",
+        "TestConfigCheck_NoConfigFound",
+        "TestConfigCheck_ProgramWarnings",
+        "TestConfigCheck_RunningDaemon",
+        "TestConfigCheck_DropUser",
+        "TestConfigCheck_Usage",
+        "TestConfigCheck_SocketPathNotSocket",
+        "TestConfigCheck_LogParentSymlink"
+      ],
       "dependencies": [
         "config-search-paths",
         "config-include-system",
