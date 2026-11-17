@@ -87,3 +87,16 @@ func TestProbeProgramDir(t *testing.T) {
 		}
 	}
 }
+
+// Pool members are probed like programs, under eventlisteners.x.
+func TestProbeProgramsPools(t *testing.T) {
+	cfg := &config.Config{
+		Programs:       map[string]config.ProgramConfig{"p": {Command: "/nonexistent/p"}},
+		EventListeners: map[string]config.EventListenerConfig{"l": {ProgramConfig: config.ProgramConfig{Command: "/nonexistent/l", StdoutLogfile: "/nonexistent/dir/out.log"}}},
+	}
+	got := strings.Join(ProbePrograms(cfg), "\n")
+	want := "programs.p.command: /nonexistent/p: no such file or directory\neventlisteners.l.command: /nonexistent/l: no such file or directory"
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
