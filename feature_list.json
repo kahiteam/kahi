@@ -1736,7 +1736,12 @@
         "e2e: change [server.metrics] and kahi ctl reload; stderr contains 'server.metrics change takes effect after restart'",
         "Unit (extra check): with metrics.New injected to fail, GET /metrics returns 503 {\"error\": \"metrics unavailable\"} and the supervisor keeps running"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestMetrics_EndpointAndAuth",
+        "TestMetrics_DisabledAndConfigError",
+        "TestMetrics_PoolBreakerAndReloadWarning"
+      ],
       "dependencies": [
         "tcp-http-server",
         "http-basic-auth",
@@ -1753,7 +1758,7 @@
       "description": "Per-process Prometheus metrics for state gauge, start counter, exit counter with expected label, and uptime gauge (FUNC-061, #153, ADR-049).",
       "testing_steps": [
         "e2e: RUNNING web: 'kahi_process_state{group=\"web\",name=\"web\"} 20'",
-        "e2e: program sh -c 'exit 1', startsecs = 0, autorestart = true, startretries = 4, until FATAL: kahi_process_start_total{name=\"p\"} 5",
+        "e2e: a program that exits 1 at once, startsecs = 1 (so each exit is from STARTING; with startsecs = 0 it would restart forever), startretries = 4, until FATAL: kahi_process_start_total{name=\"p\"} 5",
         "e2e: an unexpected exit increments kahi_process_exit_total{expected=\"false\",name=\"p\"} by 1; kahi ctl stop increments expected=\"true\" by 1",
         "e2e: after a reload that changes p, start_total and exit_total are >= their values before the reload (start_total = before + 1, not reset)",
         "e2e: remove p from the file and reload: no kahi_process_* series with name=\"p\" in the next scrape",
@@ -1762,7 +1767,12 @@
         "e2e: numprocs 2 to 1 and reload: no series with name=\"web_1\" and web_0 still present",
         "e2e: exitcodes = [0, 3]; p exits 3 from RUNNING; kahi_process_exit_total{expected=\"true\",name=\"p\"} increments by 1"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": [
+        "TestMetrics_ProcessStateExitsUptime",
+        "TestMetrics_StartCounts",
+        "TestMetrics_ReloadKeepsAndRemoves"
+      ],
       "dependencies": [
         "prometheus-metrics-endpoint",
         "autorestart",
@@ -1783,7 +1793,8 @@
         "e2e: kahi ctl update web increments reload_total by exactly 1",
         "e2e: kahi_info{fips=\"<x>\",go_version=\"<go>\",version=\"<v>\"} 1 with values matching kahi version"
       ],
-      "passes": false,
+      "passes": true,
+      "verified_by": ["TestMetrics_Supervisor"],
       "dependencies": ["prometheus-metrics-endpoint", "config-hot-reload"]
     },
     {

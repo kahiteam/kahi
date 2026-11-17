@@ -55,7 +55,30 @@ type Supervisor struct {
 	// startupWeb is the [server.web] the daemon started with. The UI is
 	// built once at startup, so reloads compare against this value.
 	startupWeb config.WebServerConfig
+	// startupMetrics is the [server.metrics] the daemon started with; the
+	// route is mounted once at startup (FUNC-060).
+	startupMetrics config.MetricsServerConfig
+	// started is when the supervisor was created, for its uptime metric.
+	started time.Time
+	// reloads counts reload attempts for the metrics; nil when off.
+	reloads ReloadRecorder
 }
+
+// ReloadRecorder counts config reload attempts (FUNC-062, ADR-049).
+type ReloadRecorder interface {
+	ReloadAttempt(failed bool)
+}
+
+// SetReloadRecorder counts every reload attempt from now on, applied or
+// rejected; dry runs are not counted. Call it before Run.
+func (s *Supervisor) SetReloadRecorder(r ReloadRecorder) { s.reloads = r }
+
+// Uptime is the time since the supervisor was created.
+func (s *Supervisor) Uptime() time.Duration { return time.Since(s.started) }
+
+// WebhookBreakers returns, per webhook name, whether its circuit breaker is
+// open (FUNC-060).
+func (s *Supervisor) WebhookBreakers() map[string]bool { return s.webhooks.Breakers() }
 
 // SupervisorConfig configures the supervisor.
 type SupervisorConfig struct {
@@ -85,20 +108,24 @@ func New(cfg SupervisorConfig) *Supervisor {
 	mgr.SetOutput(cfg.Stdout, cfg.Stderr)
 
 	var startupWeb config.WebServerConfig
+	var startupMetrics config.MetricsServerConfig
 	if cfg.Config != nil {
 		startupWeb = cfg.Config.Server.Web
+		startupMetrics = cfg.Config.Server.Metrics
 	}
 
 	return &Supervisor{
-		startupWeb: startupWeb,
-		config:     cfg.Config,
-		configPath: cfg.ConfigPath,
-		manager:    mgr,
-		bus:        bus,
-		webhooks:   events.NewWebhookManager(bus, cfg.Logger),
-		logger:     cfg.Logger,
-		shutdownCh: make(chan struct{}),
-		doneCh:     make(chan struct{}),
+		startupWeb:     startupWeb,
+		startupMetrics: startupMetrics,
+		started:        time.Now(),
+		config:         cfg.Config,
+		configPath:     cfg.ConfigPath,
+		manager:        mgr,
+		bus:            bus,
+		webhooks:       events.NewWebhookManager(bus, cfg.Logger),
+		logger:         cfg.Logger,
+		shutdownCh:     make(chan struct{}),
+		doneCh:         make(chan struct{}),
 
 		reopenDaemonLog: cfg.ReopenDaemonLog,
 		setLogLevel:     cfg.SetLogLevel,
@@ -253,7 +280,10 @@ func (s *Supervisor) handleReload() <-chan struct{} {
 // Manager.ApplyReload, which keeps running programs running and stopped ones
 // stopped.
 // The caller holds reloadMu.
-func (s *Supervisor) applyReload() (config.ReloadResult, error) {
+func (s *Supervisor) applyReload() (res config.ReloadResult, err error) {
+	if s.reloads != nil {
+		defer func() { s.reloads.ReloadAttempt(err != nil) }()
+	}
 	s.mu.Lock()
 	if s.shutting {
 		s.mu.Unlock()
@@ -674,6 +704,9 @@ func (s *Supervisor) warnRestartOnly(oldCfg, newCfg *config.Config) {
 func (s *Supervisor) warnWebChange(newCfg *config.Config) {
 	if newCfg.Server.Web != s.startupWeb {
 		s.logger.Warn("server.web changes take effect after restart")
+	}
+	if newCfg.Server.Metrics != s.startupMetrics {
+		s.logger.Warn("server.metrics change takes effect after restart")
 	}
 }
 
