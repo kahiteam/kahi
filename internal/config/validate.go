@@ -36,6 +36,9 @@ func Validate(cfg *Config) []error {
 	for name, p := range cfg.Programs {
 		errs = append(errs, checkProgram("programs."+name, p)...)
 	}
+	if _, _, err := logging.ParseSyslogAddress(cfg.Supervisor.SyslogAddress); err != nil {
+		errs = append(errs, fmt.Errorf("supervisor.syslog_address: %v", err))
+	}
 	errs = append(errs, validateEventListeners(cfg)...)
 
 	// shutdown_timeout 0 or less would SIGKILL every process the moment
@@ -291,5 +294,11 @@ func checkProgram(prefix string, p ProgramConfig) []error {
 	}
 
 	errs = append(errs, validateRLimits(prefix, p.Environment)...)
+	if !logging.ValidSyslogFacility(p.SyslogFacility) {
+		errs = append(errs, fmt.Errorf("%s.syslog_facility: unknown facility %s", prefix, p.SyslogFacility))
+	}
+	if !logging.ValidSyslogPriority(p.SyslogPriority) {
+		errs = append(errs, fmt.Errorf("%s.syslog_priority: unknown priority %s", prefix, p.SyslogPriority))
+	}
 	return errs
 }
