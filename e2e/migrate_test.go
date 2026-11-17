@@ -79,17 +79,21 @@ supervisor.rpcinterface_factory=x
 		"[server.http]\n", `listen = "127.0.0.1:9001"`,
 		"[programs.web]\n", `command = "/bin/sleep 300"`,
 		"[groups.site]\n", `programs = ["web"]`,
-		"# UNSUPPORTED SECTION: [eventlistener:watch]",
+		"[eventlisteners.watch]\n", `command = "/bin/cat"`,
+		`events = ["PROCESS_STATE_STARTING", "PROCESS_STATE_RUNNING", "PROCESS_STATE_BACKOFF", "PROCESS_STATE_STOPPING", "PROCESS_STATE_EXITED", "PROCESS_STATE_STOPPED", "PROCESS_STATE_FATAL"]`,
 		"# UNSUPPORTED SECTION: [fcgi-program:php]",
 		`# include = ["conf.d/*.conf"]`,
 	)
 	wantLines(t, "stderr", stderr,
-		"warning: unsupported section type: eventlistener",
 		"warning: unsupported section type: fcgi-program",
 		"warning: unknown section type: rpcinterface",
 		"included INI files are not converted",
 		"http listener on 127.0.0.1:9001 requires username/password",
 	)
+	// [eventlistener:x] is mapped since v0.3.0 (ADR-042), not unsupported.
+	if strings.Contains(stderr, "unsupported section type: eventlistener") || strings.Contains(out, "UNSUPPORTED SECTION: [eventlistener") {
+		t.Errorf("eventlistener still reported as unsupported:\n%s\n%s", out, stderr)
+	}
 	for _, typ := range []string{"supervisord", "program", "group", "include", "unix_http_server", "inet_http_server", "eventlistener", "fcgi-program"} {
 		if strings.Contains(stderr, "unknown section type: "+typ+"\n") {
 			t.Errorf("%s reported as unknown", typ)

@@ -82,6 +82,16 @@
 # programs = ["web", "api"]    # group member programs
 # priority = 999               # group priority
 
+# Event listener pools: supervisord's event listener protocol on stdin/stdout
+# (not run yet: parsed and validated; the daemon runs pools from a later v0.3.0 step)
+# [eventlisteners.notify]
+# command = "/usr/local/bin/notify-listener"
+# events = ["PROCESS_STATE_EXITED", "PROCESS_STATE_FATAL"]
+# buffer_size = 10              # queued events per pool
+# result_timeout = 60           # seconds a listener may take to answer RESULT
+#                               # every [programs.x] key applies, except redirect_stderr
+#                               # and the stdout_* output keys (stdout carries the protocol)
+
 # Webhook notifications: an HTTP POST per listed event (not PROCESS_LOG_*)
 # [webhooks.slack]
 # url = "${SLACK_WEBHOOK_URL}"  # https; plain http only for localhost or with allow_insecure

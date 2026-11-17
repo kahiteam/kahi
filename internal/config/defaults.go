@@ -65,52 +65,26 @@ func ApplyDefaults(cfg *Config, md toml.MetaData) {
 
 	cfg.Supervisor.Umask = canonicalUmask(cfg.Supervisor.Umask)
 
-	// Program defaults.
+	// Program defaults; event listener pools are programs too (ADR-042).
 	for name, p := range cfg.Programs {
-		// "022" and "0022" are the same umask; one spelling keeps a reload
-		// from seeing a change (FUNC-047).
-		p.Umask = canonicalUmask(p.Umask)
-		if unset(p.Numprocs, "programs", name, "numprocs") {
-			p.Numprocs = 1
-		}
-		if unset(p.Priority, "programs", name, "priority") {
-			p.Priority = 999
-		}
-		if p.Autostart == nil {
-			t := true
-			p.Autostart = &t
-		}
-		if p.Autorestart == "" {
-			p.Autorestart = "unexpected"
-		}
-		if unset(p.Startsecs, "programs", name, "startsecs") {
-			p.Startsecs = 1
-		}
-		if unset(p.Startretries, "programs", name, "startretries") {
-			p.Startretries = 3
-		}
-		if len(p.Exitcodes) == 0 && !md.IsDefined("programs", name, "exitcodes") {
-			p.Exitcodes = []int{0}
-		}
-		if p.Stopsignal == "" {
-			p.Stopsignal = "SIGTERM"
-		}
-		if unset(p.Stopwaitsecs, "programs", name, "stopwaitsecs") {
-			p.Stopwaitsecs = 10
-		}
-		if p.StdoutLogfileMaxbytes == "" {
-			p.StdoutLogfileMaxbytes = "50MB"
-		}
-		if unset(p.StdoutLogfileBackups, "programs", name, "stdout_logfile_backups") {
-			p.StdoutLogfileBackups = 10
-		}
-		if p.StderrLogfileMaxbytes == "" {
-			p.StderrLogfileMaxbytes = "50MB"
-		}
-		if unset(p.StderrLogfileBackups, "programs", name, "stderr_logfile_backups") {
-			p.StderrLogfileBackups = 10
-		}
+		applyProgramDefaults(&p, md, "programs", name)
 		cfg.Programs[name] = p
+	}
+	for name, l := range cfg.EventListeners {
+		applyProgramDefaults(&l.ProgramConfig, md, "eventlisteners", name)
+		if unset(l.BufferSize, "eventlisteners", name, "buffer_size") {
+			l.BufferSize = 10
+		}
+		if unset(l.ResultTimeout, "eventlisteners", name, "result_timeout") {
+			l.ResultTimeout = 60
+		}
+		l.StdoutKeysSet = nil
+		for _, key := range listenerStdoutKeys {
+			if md.IsDefined("eventlisteners", name, key) {
+				l.StdoutKeysSet = append(l.StdoutKeysSet, key)
+			}
+		}
+		cfg.EventListeners[name] = l
 	}
 
 	// Group defaults: an unset priority is 999 like a program's, so a group
@@ -131,4 +105,53 @@ func canonicalUmask(s string) string {
 	}
 	v, _ := strconv.ParseUint(s, 8, 32)
 	return fmt.Sprintf("%04o", v)
+}
+
+// applyProgramDefaults fills in a program's unset fields; table and name
+// locate it in the TOML ("programs" or "eventlisteners").
+func applyProgramDefaults(p *ProgramConfig, md toml.MetaData, table, name string) {
+	unset := func(v int, key ...string) bool { return v == 0 && !md.IsDefined(key...) }
+	// "022" and "0022" are the same umask; one spelling keeps a reload
+	// from seeing a change (FUNC-047).
+	p.Umask = canonicalUmask(p.Umask)
+	if unset(p.Numprocs, table, name, "numprocs") {
+		p.Numprocs = 1
+	}
+	if unset(p.Priority, table, name, "priority") {
+		p.Priority = 999
+	}
+	if p.Autostart == nil {
+		t := true
+		p.Autostart = &t
+	}
+	if p.Autorestart == "" {
+		p.Autorestart = "unexpected"
+	}
+	if unset(p.Startsecs, table, name, "startsecs") {
+		p.Startsecs = 1
+	}
+	if unset(p.Startretries, table, name, "startretries") {
+		p.Startretries = 3
+	}
+	if len(p.Exitcodes) == 0 && !md.IsDefined(table, name, "exitcodes") {
+		p.Exitcodes = []int{0}
+	}
+	if p.Stopsignal == "" {
+		p.Stopsignal = "SIGTERM"
+	}
+	if unset(p.Stopwaitsecs, table, name, "stopwaitsecs") {
+		p.Stopwaitsecs = 10
+	}
+	if p.StdoutLogfileMaxbytes == "" {
+		p.StdoutLogfileMaxbytes = "50MB"
+	}
+	if unset(p.StdoutLogfileBackups, table, name, "stdout_logfile_backups") {
+		p.StdoutLogfileBackups = 10
+	}
+	if p.StderrLogfileMaxbytes == "" {
+		p.StderrLogfileMaxbytes = "50MB"
+	}
+	if unset(p.StderrLogfileBackups, table, name, "stderr_logfile_backups") {
+		p.StderrLogfileBackups = 10
+	}
 }

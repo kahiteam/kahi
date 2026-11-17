@@ -44,50 +44,18 @@ func ExpandVariables(cfg *Config, configPath string) error {
 		return fmt.Errorf("server.unix.file: %w", err)
 	}
 
-	// Expand program fields.
+	// Expand program fields; event listener pools are programs too.
 	for name, p := range cfg.Programs {
-		pCtx := ctx
-		pCtx.ProgramName = name
-		pCtx.GroupName = name
-		pCtx.NumProcs = p.Numprocs
-		pCtx.ProcessNum = p.NumprocsStart
-		pCtx.KeepProcessNum = p.Numprocs > 1
-
-		p.Command, err = expandString(p.Command, pCtx)
-		if err != nil {
-			return fmt.Errorf("programs.%s.command: %w", name, err)
+		if err := expandProgram(&p, "programs", name, ctx); err != nil {
+			return err
 		}
-		p.Directory, err = expandString(p.Directory, pCtx)
-		if err != nil {
-			return fmt.Errorf("programs.%s.directory: %w", name, err)
-		}
-		p.StdoutLogfile, err = expandString(p.StdoutLogfile, pCtx)
-		if err != nil {
-			return fmt.Errorf("programs.%s.stdout_logfile: %w", name, err)
-		}
-		p.StderrLogfile, err = expandString(p.StderrLogfile, pCtx)
-		if err != nil {
-			return fmt.Errorf("programs.%s.stderr_logfile: %w", name, err)
-		}
-		p.ProcessName, err = expandString(p.ProcessName, pCtx)
-		if err != nil {
-			return fmt.Errorf("programs.%s.process_name: %w", name, err)
-		}
-		p.User, err = expandString(p.User, pCtx)
-		if err != nil {
-			return fmt.Errorf("programs.%s.user: %w", name, err)
-		}
-
-		// Expand environment values.
-		for k, v := range p.Environment {
-			expanded, err := expandString(v, pCtx)
-			if err != nil {
-				return fmt.Errorf("programs.%s.environment.%s: %w", name, k, err)
-			}
-			p.Environment[k] = expanded
-		}
-
 		cfg.Programs[name] = p
+	}
+	for name, l := range cfg.EventListeners {
+		if err := expandProgram(&l.ProgramConfig, "eventlisteners", name, ctx); err != nil {
+			return err
+		}
+		cfg.EventListeners[name] = l
 	}
 
 	return expandWebhooks(cfg, ctx)
@@ -220,4 +188,51 @@ func expandEnvVars(s string) (string, error) {
 // ExpandString is exported for use by other packages needing single-value expansion.
 func ExpandString(s string, ctx ExpandContext) (string, error) {
 	return expandString(s, ctx)
+}
+
+// expandProgram expands a program's string fields; table and name locate it
+// in error messages.
+func expandProgram(p *ProgramConfig, table, name string, ctx ExpandContext) error {
+	var err error
+	pCtx := ctx
+	pCtx.ProgramName = name
+	pCtx.GroupName = name
+	pCtx.NumProcs = p.Numprocs
+	pCtx.ProcessNum = p.NumprocsStart
+	pCtx.KeepProcessNum = p.Numprocs > 1
+
+	p.Command, err = expandString(p.Command, pCtx)
+	if err != nil {
+		return fmt.Errorf("%s.%s.command: %w", table, name, err)
+	}
+	p.Directory, err = expandString(p.Directory, pCtx)
+	if err != nil {
+		return fmt.Errorf("%s.%s.directory: %w", table, name, err)
+	}
+	p.StdoutLogfile, err = expandString(p.StdoutLogfile, pCtx)
+	if err != nil {
+		return fmt.Errorf("%s.%s.stdout_logfile: %w", table, name, err)
+	}
+	p.StderrLogfile, err = expandString(p.StderrLogfile, pCtx)
+	if err != nil {
+		return fmt.Errorf("%s.%s.stderr_logfile: %w", table, name, err)
+	}
+	p.ProcessName, err = expandString(p.ProcessName, pCtx)
+	if err != nil {
+		return fmt.Errorf("%s.%s.process_name: %w", table, name, err)
+	}
+	p.User, err = expandString(p.User, pCtx)
+	if err != nil {
+		return fmt.Errorf("%s.%s.user: %w", table, name, err)
+	}
+
+	// Expand environment values.
+	for k, v := range p.Environment {
+		expanded, err := expandString(v, pCtx)
+		if err != nil {
+			return fmt.Errorf("%s.%s.environment.%s: %w", table, name, k, err)
+		}
+		p.Environment[k] = expanded
+	}
+	return nil
 }

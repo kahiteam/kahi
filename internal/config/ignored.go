@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // ignoredSettingWarnings flags settings that parse and validate but that
@@ -12,6 +13,12 @@ func ignoredSettingWarnings(cfg *Config) []string {
 	var warnings []string
 	ignored := func(setting string) {
 		warnings = append(warnings, fmt.Sprintf("%s is not implemented yet and is ignored", setting))
+	}
+
+	// Pools are configured and validated, but the daemon runs them only
+	// from plan step 7b (#106).
+	if names := listenerNames(cfg); len(names) > 0 {
+		ignored(fmt.Sprintf("[eventlisteners] (%s): no event listener runs", strings.Join(names, ", ")))
 	}
 
 	s := cfg.Supervisor
