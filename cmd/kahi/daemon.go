@@ -234,6 +234,10 @@ func daemonRun(cmd *cobra.Command, args []string) (err error) {
 		if err := supervisor.DropPrivileges(drop.Cred, paths, logger); err != nil {
 			return err
 		}
+		// Later reads of the config run as this user (FUNC-045).
+		if w := supervisor.CheckConfigAfterDrop(cfgPath, cfg); w != "" {
+			logger.Warn(w)
+		}
 	}
 
 	// Run main loop (blocks until shutdown signal).

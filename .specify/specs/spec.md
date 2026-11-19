@@ -2237,6 +2237,14 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
   **When** startup completes as root
   **Then** the daemon drops to app, and "kahi daemon -u app overrides supervisor.user" is logged at INFO
 
+- **Given** Kahi runs as root with `-u kahi` and a config file (or an included file) that kahi cannot read, such as `0600 root`
+  **When** the privilege drop completes
+  **Then** the daemon starts normally (the config was read as root) and logs at WARN "config not readable as {user} after the privilege drop: {error}; reload, update, reread and avail will fail until the daemon is restarted or the file is readable by {user} (for example chgrp {group} {file}; chmod 0640 {file})"
+
+- **Given** the same daemon, still with an unreadable config
+  **When** `kahi ctl reload`, `update`, `reread` or `avail` runs (or SIGHUP arrives)
+  **Then** it fails as before ("config error: cannot read config: ...: permission denied"), with "; the daemon runs as {user}: restart it to apply config changes, or make the file readable by {user}" appended; the running config is unchanged
+
 **Error Handling:**
 
 | Error Condition                | Expected Behavior     | User-Facing Message                                                            |
@@ -2261,6 +2269,8 @@ user = "kahi"        # name or uid, optionally ":group" (name or gid); kahi daem
 - On macOS, Go's `os/user` resolves names through the system library (Directory Services) even without CGO, so every local user resolves. The root-only criteria are proven on Linux in the ADR-037 container
 - Privilege drop happens after socket creation but before processing any requests
 - Changing `[supervisor] user` on reload logs "supervisor.user change takes effect after restart"
+- The daemon reads the config as root only at startup; every later read (reload, SIGHUP, update, reread, avail) runs as the drop user, which needs read access only (decided 2026-11-19: no privileged helper and no file descriptor kept open, so `-u` keeps nothing of root). Right after the drop the daemon loads the config once more as the drop user: a permission error gives the WARN above; a config that loads but lists different programs, pools or groups than at start (an include directory the user cannot list: glob skips it without an error, so a reload would remove its programs) gives "config reads differently as {user} after the privilege drop (missing: {names}); an include directory is probably not readable by {user}"
+- {user} is "{name} (uid {uid})", or "uid {uid}" without a passwd entry; {group} is the drop user's primary group name, or its gid
 - `kahi migrate` maps supervisord `[supervisord] user` to `[supervisor] user`
 
 **Dependencies:** FUNC-044, FUNC-047, FUNC-067, FUNC-068, FUNC-046 (name resolver, for the `[supervisor] user` part)
