@@ -144,7 +144,8 @@ func (sm *StateMachine) applyTransition(target State) {
 	switch target {
 	case Starting:
 		sm.startedAt = sm.clock.Now()
-		// Retries reset on reaching Running, not on fresh start.
+		// Retries reset on reaching Running and on a start requested by the
+		// operator (RequestStart), not on a backoff retry.
 	case Running:
 		sm.retries = 0 // reset on successful start
 	case Backoff:
@@ -161,11 +162,17 @@ func (sm *StateMachine) applyTransition(target State) {
 }
 
 // RequestStart transitions from STOPPED/EXITED/FATAL to STARTING.
+// A start after FATAL or a stop gets the full startretries window again,
+// as in supervisord (decided 2026-11-19).
 func (sm *StateMachine) RequestStart() error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.manualStop = false
-	return sm.transitionLocked(Starting)
+	if err := sm.transitionLocked(Starting); err != nil {
+		return err
+	}
+	sm.retries = 0
+	return nil
 }
 
 // RequestStop transitions from RUNNING to STOPPING (user-initiated).
@@ -242,9 +249,24 @@ func (sm *StateMachine) BackoffDelay() time.Duration {
 	if r <= 0 {
 		return time.Second
 	}
+	if r > 6 { // 2^6 s is past the cap; larger shifts overflow
+		return 60 * time.Second
+	}
 	d := time.Second << uint(r-1) // 2^(r-1) seconds
 	if d > 60*time.Second {
 		d = 60 * time.Second
+	}
+	return d
+}
+
+// StartRemaining is how long the process still has to run in STARTING to
+// reach startsecs (at least 10ms).
+func (sm *StateMachine) StartRemaining() time.Duration {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	d := sm.startedAt.Add(sm.startsecs).Sub(sm.clock.Now())
+	if d < 10*time.Millisecond {
+		d = 10 * time.Millisecond
 	}
 	return d
 }
