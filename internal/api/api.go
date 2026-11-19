@@ -918,7 +918,10 @@ func (s *Server) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, err.Error(), "SHUTTING_DOWN")
 			return
 		case strings.Contains(err.Error(), "no such group"), strings.Contains(err.Error(), "; use "):
-			statusCode = http.StatusNotFound
+			// The name is an argument of an existing resource, not part
+			// of the URL, so 400; the code tells it from other 400s.
+			writeError(w, http.StatusBadRequest, err.Error(), "UNKNOWN_GROUP")
+			return
 		}
 		writeError(w, statusCode, err.Error(), errorCode(statusCode))
 		return
