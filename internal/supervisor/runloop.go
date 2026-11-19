@@ -297,7 +297,7 @@ func (s *Supervisor) applyReload() (res config.ReloadResult, err error) {
 	s.mu.Unlock()
 
 	s.logger.Info("reloading config", "path", s.configPath)
-	newCfg, warnings, err := config.LoadWithIncludes(s.configPath)
+	newCfg, warnings, err := s.loadConfig()
 	if err != nil {
 		return config.ReloadResult{}, fmt.Errorf("config error: %w", err)
 	}
@@ -341,7 +341,7 @@ func (s *Supervisor) applyReload() (res config.ReloadResult, err error) {
 // PreviewReload reports what a reload would change, and the warnings the
 // new config produces, without applying it.
 func (s *Supervisor) PreviewReload() (config.ReloadResult, error) {
-	newCfg, warnings, err := config.LoadWithIncludes(s.configPath)
+	newCfg, warnings, err := s.loadConfig()
 	if err != nil {
 		return config.ReloadResult{}, fmt.Errorf("config error: %w", err)
 	}

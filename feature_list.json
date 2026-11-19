@@ -1308,14 +1308,18 @@
         "Verify the supplementary groups are replaced by the target user's own list: started with --group-add 999 and -u kahi (kahi listed in adm), a program reports groups=[4 1000]; -u 65534 without a group entry gives groups=[65534]",
         "Verify privilege drop happens after socket creation but before processing requests: the log shows the socket bound, then 'dropped privileges', then 'supervisor running'",
         "Unit (supervisor): TestDropPrivilegesResetsSupplementaryGroups (SEC-010): the drop calls setgroups, then setgid, then setuid, through the injectable syscall seam",
-        "Unit (supervisor): TestDropPrivilegesAbortsOnSetgroupsFailure (SEC-010): a setgroups failure aborts startup rather than continuing with a partial privilege drop"
+        "Unit (supervisor): TestDropPrivilegesAbortsOnSetgroupsFailure (SEC-010): a setgroups failure aborts startup rather than continuing with a partial privilege drop",
+        "container: /kahi.toml 0600 root, daemon -u kahi: the daemon starts and logs WARN 'config not readable as kahi (uid 1000) after the privilege drop: cannot read config: /kahi.toml: open /kahi.toml: permission denied; reload, update, reread and avail will fail until the daemon is restarted or the file is readable by kahi (uid 1000) (for example chgrp kahi /kahi.toml; chmod 0640 /kahi.toml)'; 'kahi ctl reload' and 'kahi ctl avail' as uid 1000 exit non-zero with '... permission denied; the daemon runs as kahi (uid 1000): restart it to apply config changes, or make the file readable by kahi (uid 1000)' and web stays RUNNING",
+        "container: include = [\"conf.d/*.toml\"] with conf.d 0700 root holding program api, daemon -u kahi: api runs and the daemon logs WARN 'config reads differently as kahi (uid 1000) after the privilege drop (missing: api); an include directory is probably not readable by kahi (uid 1000)'"
       ],
       "passes": true,
       "verified_by": [
         "TestRootContainer_UserFlagNoWarning",
         "TestPrivilegeDrop_UserFlagRefusedBeforeBind",
         "TestRootContainer_DropToName",
-        "TestRootContainer_DropUnknownUser"
+        "TestRootContainer_DropUnknownUser",
+        "TestRootContainer_ConfigUnreadableAfterDrop",
+        "TestRootContainer_IncludeDirUnreadableAfterDrop"
       ],
       "dependencies": ["unprivileged-operation"]
     },
