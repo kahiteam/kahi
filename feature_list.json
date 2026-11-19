@@ -924,6 +924,9 @@
       "title": "CLI Process Control Commands",
       "description": "CLI subcommands for starting, stopping, restarting, and signaling processes via kahi ctl, supporting individual processes, groups, and the all keyword.",
       "testing_steps": [
+        "e2e: a program named 'a#b%c': kahi ctl start, pid, signal CONT, tail and stop it, each exit 0 (names are escaped in API paths)",
+        "e2e: kahi ctl reload web, shutdown now, health x, version x, kahi version x and kahi init x --stdout each exit 2 (a command that takes no arguments refuses them)",
+        "e2e: web (numprocs 2), api in [groups.svc]: kahi ctl signal CONT web:* prints 'web_0: signaled SIGCONT' and 'web_1: signaled SIGCONT'; signal CONT all signals 3; signal CONT nosuch:* exits 1 with 'no such group: nosuch'; with api stopped, signal CONT all exits 1 with '1 of 3 failed'",
         "Run 'kahi ctl start web' with web stopped and verify 'web: started' and the process RUNNING",
         "Run 'kahi ctl stop web' with web running and verify 'web: stopped' and the process STOPPED",
         "Run 'kahi ctl restart all' and verify every process is restarted through the bulk API (new pids) with one '{name}: ok' line each, in priority order",
@@ -945,6 +948,9 @@
       ],
       "passes": true,
       "verified_by": [
+        "TestCtl_SpecialCharacterNames",
+        "TestCtl_ExtraArgumentsAreUsageErrors",
+        "TestCtl_StatusAndSignalGroupTargets",
         "TestCtlExit_StartStop",
         "TestCtlExit_PartialFailure",
         "TestCtlExit_Groups",
@@ -1000,6 +1006,7 @@
       "title": "CLI Status Table Display",
       "description": "Show formatted process status table with name, state, PID, uptime, and description, supporting color-coded states and JSON output mode.",
       "testing_steps": [
+        "e2e: kahi ctl status web:* lists web_0 and web_1, status all lists all 3 processes, status svc:* and status api:* list api (a [groups] member resolves by group, then program)",
         "Run 'kahi ctl status' and verify a formatted table is printed with name, state, PID, uptime, description columns",
         "Run 'kahi ctl status web' and verify detailed status for only the web process is printed",
         "Run 'kahi ctl status --json' and verify JSON output is printed for machine parsing",
@@ -1010,6 +1017,7 @@
       ],
       "passes": true,
       "verified_by": [
+        "TestCtl_StatusAndSignalGroupTargets",
         "TestCLI_StatusTableContents",
         "TestCLI_StatusEmpty",
         "TestCLI_StatusJSON",

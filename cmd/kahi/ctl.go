@@ -159,17 +159,46 @@ func runAll(cmd *cobra.Command, c *ctl.Client, action string) error {
 }
 
 var ctlSignalCmd = &cobra.Command{
-	Use:   "signal <signal> <process>",
-	Short: "Send a signal to a process",
+	Use:   "signal <signal> <process|group:*|all>",
+	Short: "Send a signal to a process, a group or all processes",
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := newCtlClient()
 		sig, name := args[0], args[1]
-		signaled, err := c.Signal(name, sig)
+		if _, isGroup := strings.CutSuffix(name, ":*"); !isGroup && name != "all" {
+			signaled, err := c.Signal(name, sig)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: signaled %s\n", name, signaled)
+			return nil
+		}
+		// name:* and all signal every process they name, one line each;
+		// the command fails when any did (FUNC-031, the start/stop rule).
+		procs, err := c.Processes()
 		if err != nil {
 			return err
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: signaled %s\n", name, signaled)
+		targets := ctl.MatchTargets(procs, []string{name})
+		if len(targets) == 0 {
+			if g, ok := strings.CutSuffix(name, ":*"); ok {
+				return fmt.Errorf("no such group: %s", g)
+			}
+			return errors.New("no processes")
+		}
+		failed := 0
+		for _, p := range targets {
+			signaled, err := c.Signal(p.Name, sig)
+			if err != nil {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", p.Name, err)
+				failed++
+				continue
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: signaled %s\n", p.Name, signaled)
+		}
+		if failed > 0 {
+			return fmt.Errorf("%d of %d failed", failed, len(targets))
+		}
 		return nil
 	},
 }

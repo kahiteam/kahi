@@ -1501,7 +1501,7 @@ syslog_priority = "INFO"     # EMERG, ALERT, CRIT, ERR, WARNING, NOTICE, INFO, D
 
 - **Given** the API server is running
   **When** `GET /api/v1/processes` is requested
-  **Then** a JSON array of all process info objects is returned (name, group, state, statecode, pid, uptime, description, exitstatus, and exitsignal when a signal killed the process, for example `"SIGKILL"` with exitstatus -1)
+  **Then** a JSON array of all process info objects is returned (name, group, program (the program the process belongs to; for a member of a `[groups]` table, group is the table), state, statecode, pid, uptime, description, exitstatus, and exitsignal when a signal killed the process, for example `"SIGKILL"` with exitstatus -1)
 
 - **Given** a process named "web"
   **When** `POST /api/v1/processes/web/start` is requested
@@ -1757,7 +1757,10 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 - Signal names follow `<signal.h>`: `kahi ctl signal` accepts `HUP` and `SIGHUP`, and output always uses the `SIG` form (decided 2026-10-29)
 - `group:*` syntax targets all processes in a group
 - Multiple process names can be specified: `kahi ctl start web api worker`; every target is attempted, and the command exits 1 if any of them failed (#213)
-- `kahi ctl signal` takes one process; on a stopped process it reports "process not running: {name}"
+- `kahi ctl signal` takes one process, `{group}:*` or `all`; on a stopped process it reports "process not running: {name}". With `{group}:*` (the group, else the program of that name, as the daemon resolves it) or `all` it signals every process named, prints `{name}: signaled {SIG}` or `{name}: {error}` for each, and fails with "{n} of {m} failed" (exit 1) when any failed, as start and stop do; an unknown group is "no such group: {name}" (decided 2026-11-19)
+- `kahi ctl status` takes process names, `{group}:*` and `all` as targets, resolved the same way; a name that matches nothing is left out of the table (decided 2026-11-19)
+- A command whose usage names no arguments (`reload`, `shutdown`, `health`, `ready`, `version`, `kahi version`, `kahi init`, `kahi daemon`, `kahi hash-password`) refuses any with a usage error (exit 2); `kahi ctl reload web` used to reload everything and exit 0 (v0.3.0 review)
+- Process and group names are escaped in API paths, so a name with `#`, `?`, `/` or `%` works like any other (v0.3.0 review)
 - `kahi ctl` without a subcommand prints help and exits 0
 - Exit codes for every `kahi` command (decided 2026-10-29): 0 success, 1 runtime failure, 2 usage error. Release-note item
 - start, stop and restart (also `all` and `name:*`) have no overall client time limit: the daemon bounds each process by its stopwaitsecs, so a bulk stop can take the sum of them. `--timeout {duration}` limits the wait; at the limit ctl exits 1 with "daemon still working after {duration}" and the daemon finishes the action. Connecting is bounded by 5 s; queries (status, pid, health, ready, version, tail without -f) by 30 s (#222)
