@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -110,6 +111,10 @@ func TestRootContainer_LimitsAboveHard(t *testing.T) {
 			}
 		}
 		if strings.Contains(logs, "cannot set NOFILE") {
+			// The rootful CI job must run it (#268); rootless runs skip.
+			if os.Getenv("KAHI_E2E_ROOTFUL") == "1" {
+				t.Fatalf("KAHI_E2E_ROOTFUL=1 but root could not raise the hard limit:\n%s", logs)
+			}
 			t.Skipf("runtime does not let root raise the hard limit (rootless podman):\n%s", logs)
 		}
 		if got := ct.waitOutput("daemon", "NOFILE "); got != "NOFILE 4096 4096" {

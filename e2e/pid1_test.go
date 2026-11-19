@@ -18,6 +18,14 @@ import (
 // proof cannot silently drop out of CI.
 func containerRuntime(t *testing.T) string {
 	t.Helper()
+	// KAHI_E2E_RUNTIME picks the runtime; the rootful CI job sets docker,
+	// whose daemon runs as root on the runner (#268).
+	if rt := os.Getenv("KAHI_E2E_RUNTIME"); rt != "" {
+		if out, err := exec.Command(rt, "info").CombinedOutput(); err != nil {
+			t.Fatalf("KAHI_E2E_RUNTIME=%s does not work: %v\n%s", rt, err, out)
+		}
+		return rt
+	}
 	for _, rt := range []string{"podman", "docker"} {
 		if _, err := exec.LookPath(rt); err == nil && exec.Command(rt, "info").Run() == nil {
 			return rt

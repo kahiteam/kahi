@@ -194,3 +194,22 @@ jobs:
             parse_junit integration-results.xml "Integration"
             parse_junit e2e-results.xml "E2E"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # The root container tests under rootful Docker (the runner's daemon runs
+  # as root), so container root holds CAP_SYS_RESOURCE in the initial user
+  # namespace and the "root raises the hard limit" subtest runs instead of
+  # skipping (#268, FUNC-068). The integration job runs them under rootless
+  # podman.
+  rootful-e2e:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Root container e2e under rootful Docker
+        env:
+          KAHI_E2E_RUNTIME: docker
+          KAHI_E2E_ROOTFUL: '1'
+        run: go test -tags=e2e -race -count=1 -timeout=12m -run 'TestRootContainer_|TestPID1_' -v ./e2e/
