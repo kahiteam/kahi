@@ -38,7 +38,7 @@ func TestProbePrograms(t *testing.T) {
 		"many":      {Command: "/nonexistent/w%(process_num)d", Numprocs: 2, NumprocsStart: 0, ProcessName: "many_%(process_num)d"},
 		"same":      {Command: "/nonexistent/same", Numprocs: 3, ProcessName: "same_%(process_num)d"},
 	}}
-	got := ProbePrograms(cfg)
+	got := ProbePrograms(cfg, true)
 	want := []string{
 		"programs.abs.command: /nonexistent/web: no such file or directory",
 		"programs.bare.command: exec: \"kahi-no-such-command-xyz\": executable file not found in $PATH",
@@ -94,7 +94,7 @@ func TestProbeProgramsPools(t *testing.T) {
 		Programs:       map[string]config.ProgramConfig{"p": {Command: "/nonexistent/p"}},
 		EventListeners: map[string]config.EventListenerConfig{"l": {ProgramConfig: config.ProgramConfig{Command: "/nonexistent/l", StdoutLogfile: "/nonexistent/dir/out.log"}}},
 	}
-	got := strings.Join(ProbePrograms(cfg), "\n")
+	got := strings.Join(ProbePrograms(cfg, true), "\n")
 	want := "programs.p.command: /nonexistent/p: no such file or directory\neventlisteners.l.command: /nonexistent/l: no such file or directory"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)

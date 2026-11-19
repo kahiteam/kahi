@@ -12,6 +12,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/kahiteam/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/supervisor"
+	"github.com/kahiteam/kahi/internal/userspec"
 )
 
 // runCheck runs kahi config check in process with fresh flags.
@@ -185,5 +189,41 @@ func TestCheckHandler(t *testing.T) {
 	want := "warning: careful a=1 path=/x\nnote: fyi a=1\n"
 	if b.String() != want {
 		t.Errorf("got %q, want %q", b.String(), want)
+	}
+}
+
+// Values are quoted as slog's text handler quotes them.
+func TestCheckHandlerQuotes(t *testing.T) {
+	var b bytes.Buffer
+	slog.New(&checkHandler{w: &b}).Warn("replacing stale PID file", "path", "/run/my dir/k.pid", "content", "12 34")
+	if want := "warning: replacing stale PID file path=\"/run/my dir/k.pid\" content=\"12 34\"\n"; b.String() != want {
+		t.Errorf("got %q, want %q", b.String(), want)
+	}
+}
+
+func TestProgramAccessNote(t *testing.T) {
+	plain := &config.Config{Programs: map[string]config.ProgramConfig{"web": {}}}
+	withUser := &config.Config{Programs: map[string]config.ProgramConfig{"web": {User: "app"}}}
+	poolUser := &config.Config{EventListeners: map[string]config.EventListenerConfig{"l": {ProgramConfig: config.ProgramConfig{User: "app"}}}}
+	drop := supervisor.DropCheck{Drop: true, Cred: userspec.Credential{Uid: 1000, Name: "kahi"}}
+	numeric := supervisor.DropCheck{Drop: true, Cred: userspec.Credential{Uid: 4242}}
+	for _, tc := range []struct {
+		name string
+		euid int
+		drop supervisor.DropCheck
+		cfg  *config.Config
+		want string
+	}{
+		{"non-root", 1000, drop, withUser, ""},
+		{"root, nothing to switch", 0, supervisor.DropCheck{}, plain, ""},
+		{"root, drop", 0, drop, plain, "starts programs as kahi (uid 1000), whose access was not checked"},
+		{"root, numeric drop", 0, numeric, plain, "starts programs as uid 4242, whose"},
+		{"root, program user", 0, supervisor.DropCheck{}, withUser, "a program with a user setting starts as that user"},
+		{"root, pool user", 0, supervisor.DropCheck{}, poolUser, "a program with a user setting starts as that user"},
+	} {
+		got := programAccessNote(tc.euid, tc.drop, tc.cfg)
+		if (tc.want == "") != (got == "") || !strings.Contains(got, tc.want) {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

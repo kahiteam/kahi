@@ -22,7 +22,9 @@ import (
 // daemon (the program goes BACKOFF, then FATAL), so they are warnings. Each
 // numprocs instance is checked with its own expanded values; a message is
 // returned once however many instances produce it. Nothing is spawned.
-func ProbePrograms(cfg *config.Config) []string {
+// relOK is false when the [supervisor] directory chdir failed: relative
+// paths would resolve elsewhere than in the daemon, so they are skipped.
+func ProbePrograms(cfg *config.Config, relOK bool) []string {
 	type unit struct {
 		table, name string
 		cfg         config.ProgramConfig
@@ -55,22 +57,25 @@ func ProbePrograms(cfg *config.Config) []string {
 				out = append(out, msg)
 			}
 		}
+		skip := func(path string) bool { return !relOK && path != "" && !filepath.IsAbs(path) }
 		for _, inst := range ExpandNumprocs(u.name, u.cfg) {
 			c := inst.Config
 			dirOK := true
-			if err := probeProgramDir(c.Directory); err != nil {
+			if skip(c.Directory) {
+				dirOK = false
+			} else if err := probeProgramDir(c.Directory); err != nil {
 				add("directory", err)
 				dirOK = false
 			}
-			if err := probeCommand(inst, dirOK); err != nil {
+			if err := probeCommand(inst, dirOK, relOK); err != nil {
 				add("command", err)
 			}
-			if c.StdoutLogfile != "" {
+			if c.StdoutLogfile != "" && !skip(c.StdoutLogfile) {
 				if err := logging.ProbeLogFile(c.StdoutLogfile); err != nil {
 					add("stdout_logfile", err)
 				}
 			}
-			if c.StderrLogfile != "" && !c.RedirectStderr {
+			if c.StderrLogfile != "" && !c.RedirectStderr && !skip(c.StderrLogfile) {
 				if err := logging.ProbeLogFile(c.StderrLogfile); err != nil {
 					add("stderr_logfile", err)
 				}
@@ -109,7 +114,7 @@ func probeProgramDir(dir string) error {
 // environment PATH when umask or rlimits route the spawn through the
 // trampoline (RunChildInit). A relative path is not checked when the
 // directory itself is missing (that warning covers it).
-func probeCommand(inst ProcessInstance, dirOK bool) error {
+func probeCommand(inst ProcessInstance, dirOK, relOK bool) error {
 	c := inst.Config
 	parts := strings.Fields(c.Command)
 	if len(parts) == 0 {
@@ -124,6 +129,9 @@ func probeCommand(inst ProcessInstance, dirOK bool) error {
 			}
 			path = filepath.Join(c.Directory, path)
 		}
+		if !relOK && !filepath.IsAbs(path) {
+			return nil
+		}
 		return probeExecutable(name, path)
 	}
 	umask, err := ParseUmask(c.Umask)
@@ -136,10 +144,10 @@ func probeCommand(inst ProcessInstance, dirOK bool) error {
 	p := NewProcess(inst.Name, inst.Group, c, nil, nil, slog.New(slog.DiscardHandler))
 	if c.User != "" {
 		if cred, rerr := resolveUser(c.User); rerr == nil {
-			return lookPathIn(name, p.buildEnvFor(cred, true))
+			return lookPathIn(name, p.buildEnvFor(cred, true), c.Directory, dirOK, relOK)
 		}
 	}
-	return lookPathIn(name, p.buildEnvFor(userspec.Credential{}, false))
+	return lookPathIn(name, p.buildEnvFor(userspec.Credential{}, false), c.Directory, dirOK, relOK)
 }
 
 // probeExecutable reports why exec would fail for path (display is the
@@ -162,23 +170,46 @@ func probeExecutable(display, path string) error {
 	return nil
 }
 
-// lookPathIn resolves a bare name through the PATH in env, as exec.LookPath
-// does with the trampoline's environment.
-func lookPathIn(name string, env []string) error {
+// lookPathIn mirrors how the trampoline (RunChildInit) runs a bare name,
+// in the program's directory (dir, or the daemon's when empty), with the
+// PATH in env: exec.LookPath walks PATH in order and an absolute hit is
+// exec'd; a relative hit (ErrDot) or no hit leaves the bare name, which
+// syscall.Exec resolves against the working directory.
+func lookPathIn(name string, env []string, dir string, dirOK, relOK bool) error {
 	path := ""
 	for _, kv := range env {
 		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
 			path = v
 		}
 	}
-	for _, dir := range filepath.SplitList(path) {
-		if dir == "" {
-			dir = "."
+	base := dir
+	if base == "" {
+		base = "."
+	}
+	for _, d := range filepath.SplitList(path) {
+		if filepath.IsAbs(d) {
+			if executable(filepath.Join(d, name)) {
+				return nil
+			}
+			continue
 		}
-		full := filepath.Join(dir, name)
-		if fi, err := os.Stat(full); err == nil && !fi.IsDir() && unix.Access(full, unix.X_OK) == nil {
-			return nil
+		if d == "" {
+			d = "."
+		}
+		if dirOK && executable(filepath.Join(base, d, name)) {
+			break // ErrDot: the bare name runs, checked below
 		}
 	}
+	if !dirOK || (!relOK && !filepath.IsAbs(base)) {
+		return nil // the directory warning covers it, or it cannot be resolved here
+	}
+	if executable(filepath.Join(base, name)) {
+		return nil
+	}
 	return fmt.Errorf("exec: %q: executable file not found in $PATH", name)
+}
+
+func executable(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir() && unix.Access(path, unix.X_OK) == nil
 }

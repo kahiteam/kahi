@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/kahiteam/kahi/internal/config"
+	"github.com/kahiteam/kahi/internal/userspec"
 	"golang.org/x/sys/unix"
 )
 
@@ -129,6 +130,10 @@ func probePrivateDir(dir string) error {
 	if !info.IsDir() || !ok || int(st.Uid) != os.Geteuid() || info.Mode().Perm()&0o077 != 0 {
 		return fmt.Errorf("socket directory %s must be a directory owned by uid %d with mode 0700; remove it or set [server.unix] file", dir, os.Geteuid())
 	}
+	// PrepareSocketDir then creates a file in it (os.CreateTemp).
+	if err := access(dir, unix.W_OK|unix.X_OK); err != nil {
+		return fmt.Errorf("permission denied: cannot create socket in %s: %w", dir, &fs.PathError{Op: "open", Path: dir, Err: err})
+	}
 	return nil
 }
 
@@ -183,9 +188,10 @@ func ProbePIDFile(path string, logger *slog.Logger) (live int, err error) {
 
 // DropCheck is what kahi config check learns about the privilege drop.
 type DropCheck struct {
-	Drop     bool   // a user to drop to is configured and resolves
-	Override bool   // kahi daemon -u overrides [supervisor] user
-	Note     string // the part of the drop that was not checked
+	Cred     userspec.Credential // the resolved user, when Drop
+	Drop     bool                // a user to drop to is configured and resolves
+	Override bool                // kahi daemon -u overrides [supervisor] user
+	Note     string              // the part of the drop that was not checked
 }
 
 // CheckDrop resolves the user kahi daemon would drop to (-u, else
@@ -201,10 +207,11 @@ func CheckDrop(flagUser, cfgUser string) (DropCheck, error) {
 	if name == "" {
 		return DropCheck{}, nil
 	}
-	if _, err := resolveDropUser(name); err != nil {
+	cred, err := resolveDropUser(name)
+	if err != nil {
 		return DropCheck{}, err
 	}
-	dc := DropCheck{Drop: true, Override: flagUser != "" && cfgUser != ""}
+	dc := DropCheck{Drop: true, Cred: cred, Override: flagUser != "" && cfgUser != ""}
 	if getuid() != 0 {
 		dc.Note = "not root; the privilege drop was not checked"
 	}

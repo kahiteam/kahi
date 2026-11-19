@@ -20,8 +20,10 @@ func openLogFile(path string, perm os.FileMode) (*os.File, error) {
 }
 
 // probeLogFile reports whether openLogFile(path) would fail, without
-// creating the file: an existing file must be writable, a missing one needs
-// an existing parent directory.
+// creating the file, as far as it can without access(2): an existing path
+// must not be a directory, a missing one needs an existing parent
+// directory. Write permission is not checked on these platforms (no
+// release target uses this file).
 func probeLogFile(path string) error {
 	if info, err := os.Stat(path); err == nil {
 		if info.IsDir() {
