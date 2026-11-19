@@ -208,6 +208,7 @@ func responseError(resp *http.Response) error {
 type ProcessInfo struct {
 	Name        string `json:"name"`
 	Group       string `json:"group"`
+	Program     string `json:"program,omitempty"`
 	State       string `json:"state"`
 	StateCode   int    `json:"statecode"`
 	PID         int    `json:"pid"`
@@ -221,27 +222,30 @@ type ProcessInfo struct {
 
 // Start starts a process by name.
 func (c *Client) Start(name string) error {
-	_, err := c.doAction("POST", "/api/v1/processes/"+name+"/start", nil)
+	_, err := c.doAction("POST", "/api/v1/processes/"+url.PathEscape(name)+"/start", nil)
 	return err
 }
 
 // Stop stops a process by name.
 func (c *Client) Stop(name string) error {
-	_, err := c.doAction("POST", "/api/v1/processes/"+name+"/stop", nil)
+	_, err := c.doAction("POST", "/api/v1/processes/"+url.PathEscape(name)+"/stop", nil)
 	return err
 }
 
 // Restart restarts a process by name.
 func (c *Client) Restart(name string) error {
-	_, err := c.doAction("POST", "/api/v1/processes/"+name+"/restart", nil)
+	_, err := c.doAction("POST", "/api/v1/processes/"+url.PathEscape(name)+"/restart", nil)
 	return err
 }
 
 // Signal sends a signal to a process and returns the signal's name as the
 // daemon reports it ("SIGHUP").
 func (c *Client) Signal(name, sig string) (string, error) {
-	body := fmt.Sprintf(`{"signal":"%s"}`, sig)
-	result, err := c.doJSON("POST", "/api/v1/processes/"+name+"/signal", strings.NewReader(body))
+	body, err := json.Marshal(map[string]string{"signal": sig})
+	if err != nil {
+		return "", err
+	}
+	result, err := c.doJSON("POST", "/api/v1/processes/"+url.PathEscape(name)+"/signal", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
@@ -280,14 +284,14 @@ func (c *Client) All(action string) ([]ActionResult, error) {
 // AddGroup activates a group the daemon's config defines that was removed at
 // runtime (FUNC-011).
 func (c *Client) AddGroup(name string) error {
-	_, err := c.doAction("POST", "/api/v1/groups/"+name+"/add", nil)
+	_, err := c.doAction("POST", "/api/v1/groups/"+url.PathEscape(name)+"/add", nil)
 	return err
 }
 
 // RemoveGroup removes a group whose processes are all stopped (FUNC-011);
 // with stop, the daemon stops them first.
 func (c *Client) RemoveGroup(name string, stop bool) error {
-	path := "/api/v1/groups/" + name + "/remove"
+	path := "/api/v1/groups/" + url.PathEscape(name) + "/remove"
 	if stop {
 		path += "?stop=true"
 	}
@@ -297,19 +301,19 @@ func (c *Client) RemoveGroup(name string, stop bool) error {
 
 // StartGroup starts all processes in a group.
 func (c *Client) StartGroup(name string) error {
-	_, err := c.doAction("POST", "/api/v1/groups/"+name+"/start", nil)
+	_, err := c.doAction("POST", "/api/v1/groups/"+url.PathEscape(name)+"/start", nil)
 	return err
 }
 
 // StopGroup stops all processes in a group.
 func (c *Client) StopGroup(name string) error {
-	_, err := c.doAction("POST", "/api/v1/groups/"+name+"/stop", nil)
+	_, err := c.doAction("POST", "/api/v1/groups/"+url.PathEscape(name)+"/stop", nil)
 	return err
 }
 
 // RestartGroup restarts all processes in a group.
 func (c *Client) RestartGroup(name string) error {
-	_, err := c.doAction("POST", "/api/v1/groups/"+name+"/restart", nil)
+	_, err := c.doAction("POST", "/api/v1/groups/"+url.PathEscape(name)+"/restart", nil)
 	return err
 }
 
@@ -342,20 +346,9 @@ func (c *Client) StatusWithOptions(names []string, opts StatusOptions, w io.Writ
 		return fmt.Errorf("invalid response: %w", err)
 	}
 
-	// Filter by names if specified.
+	// Filter by targets if specified: names, name:* or all.
 	if len(names) > 0 {
-		filter := make(map[string]bool)
-		for _, n := range names {
-			filter[n] = true
-		}
-		// Empty, not nil: --json prints [] when nothing matches (#189).
-		filtered := []ProcessInfo{}
-		for _, p := range procs {
-			if filter[p.Name] {
-				filtered = append(filtered, p)
-			}
-		}
-		procs = filtered
+		procs = MatchTargets(procs, names)
 	}
 
 	if opts.JSON {
@@ -460,7 +453,7 @@ func (c *Client) Tail(name, stream string, bytes int, w io.Writer) error {
 	if stream == "" {
 		stream = "stdout"
 	}
-	path := fmt.Sprintf("/api/v1/processes/%s/log/%s?length=%d", name, stream, bytes)
+	path := fmt.Sprintf("/api/v1/processes/%s/log/%s?length=%d", url.PathEscape(name), stream, bytes)
 	resp, err := c.do("GET", path, nil)
 	if err != nil {
 		return fmt.Errorf("connection failed: %w", err)
@@ -484,7 +477,7 @@ func (c *Client) TailFollow(ctx context.Context, name, stream string, w io.Write
 	if stream == "" {
 		stream = "stdout"
 	}
-	path := fmt.Sprintf("/api/v1/processes/%s/log/%s/stream", name, stream)
+	path := fmt.Sprintf("/api/v1/processes/%s/log/%s/stream", url.PathEscape(name), stream)
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+path, nil)
 	if err != nil {
 		return err
@@ -602,7 +595,7 @@ func (c *Client) PID(name string) (string, error) {
 	}
 
 	// Process PID.
-	resp, err := c.do("GET", "/api/v1/processes/"+name, nil)
+	resp, err := c.do("GET", "/api/v1/processes/"+url.PathEscape(name), nil)
 	if err != nil {
 		return "", fmt.Errorf("connection failed: %w", err)
 	}
@@ -682,7 +675,11 @@ func (c *Client) ProcessPIDs() ([]ProcessInfo, error) {
 func (c *Client) Ready(processes []string) (string, error) {
 	path := "/readyz"
 	if len(processes) > 0 {
-		path += "?process=" + strings.Join(processes, ",")
+		escaped := make([]string, len(processes))
+		for i, p := range processes {
+			escaped[i] = url.QueryEscape(p)
+		}
+		path += "?process=" + strings.Join(escaped, ",")
 	}
 	resp, err := c.do("GET", path, nil)
 	if err != nil {
@@ -714,7 +711,39 @@ func (c *Client) WriteStdin(name, data string) error {
 	if err != nil {
 		return err
 	}
-	_, err = c.doJSON("POST", "/api/v1/processes/"+name+"/stdin",
+	_, err = c.doJSON("POST", "/api/v1/processes/"+url.PathEscape(name)+"/stdin",
 		bytes.NewReader(body))
 	return err
+}
+
+// MatchTargets returns the processes the targets name, in procs order: a
+// process name, name:* (the processes of that group, else of that program,
+// as the daemon resolves it, ADR-034) or all. The result is empty, not nil,
+// when nothing matches (--json prints [], #189).
+func MatchTargets(procs []ProcessInfo, targets []string) []ProcessInfo {
+	byName := map[string]bool{}
+	groups := map[string]bool{}
+	all := false
+	for _, t := range targets {
+		switch g, ok := strings.CutSuffix(t, ":*"); {
+		case t == "all":
+			all = true
+		case ok:
+			groups[g] = true
+		default:
+			byName[t] = true
+		}
+	}
+	hasGroup := map[string]bool{}
+	for _, p := range procs {
+		hasGroup[p.Group] = true
+	}
+	out := []ProcessInfo{}
+	for _, p := range procs {
+		inGroup := groups[p.Group] || (groups[p.Program] && !hasGroup[p.Program])
+		if all || byName[p.Name] || inGroup {
+			out = append(out, p)
+		}
+	}
+	return out
 }
