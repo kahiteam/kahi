@@ -440,8 +440,7 @@ func ExpandNumprocs(progName string, cfg config.ProgramConfig) []ProcessInstance
 // own number into the fields that may use it. Environment is copied so the
 // instances do not share one map.
 func instanceConfig(cfg config.ProgramConfig, num int) config.ProgramConfig {
-	n := fmt.Sprintf("%d", num)
-	sub := func(s string) string { return expandVar(s, "%(process_num)d", n) }
+	sub := func(s string) string { return config.ExpandProcessNum(s, num) }
 	cfg.Command = sub(cfg.Command)
 	cfg.Directory = sub(cfg.Directory)
 	cfg.StdoutLogfile = sub(cfg.StdoutLogfile)
@@ -455,25 +454,6 @@ func instanceConfig(cfg config.ProgramConfig, num int) config.ProgramConfig {
 		cfg.Environment = env
 	}
 	return cfg
-}
-
-func expandVar(s, pattern, value string) string {
-	for {
-		idx := indexOf(s, pattern)
-		if idx < 0 {
-			return s
-		}
-		s = s[:idx] + value + s[idx+len(pattern):]
-	}
-}
-
-func indexOf(s, substr string) int {
-	for i := 0; i+len(substr) <= len(s); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
 }
 
 // AutostartAll starts all processes with autostart=true in priority order.
