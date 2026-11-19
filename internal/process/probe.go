@@ -170,11 +170,13 @@ func probeExecutable(display, path string) error {
 	return nil
 }
 
-// lookPathIn mirrors how the trampoline (RunChildInit) runs a bare name,
-// in the program's directory (dir, or the daemon's when empty), with the
-// PATH in env: exec.LookPath walks PATH in order and an absolute hit is
-// exec'd; a relative hit (ErrDot) or no hit leaves the bare name, which
-// syscall.Exec resolves against the working directory.
+// lookPathIn mirrors how the trampoline (RunChildInit) resolves a bare name
+// with exec.LookPath and the PATH in env, in the program's directory (dir,
+// or the daemon's when empty): the first hit wins; a hit through an
+// absolute PATH entry runs, one through a relative entry is refused
+// (exec.ErrDot), as a direct spawn refuses it. Relative entries are not
+// judged when the directory is missing (its warning covers it) or cannot
+// be resolved here.
 func lookPathIn(name string, env []string, dir string, dirOK, relOK bool) error {
 	path := ""
 	for _, kv := range env {
@@ -186,6 +188,7 @@ func lookPathIn(name string, env []string, dir string, dirOK, relOK bool) error 
 	if base == "" {
 		base = "."
 	}
+	judgeRel := dirOK && (relOK || filepath.IsAbs(base))
 	for _, d := range filepath.SplitList(path) {
 		if filepath.IsAbs(d) {
 			if executable(filepath.Join(d, name)) {
@@ -193,18 +196,15 @@ func lookPathIn(name string, env []string, dir string, dirOK, relOK bool) error 
 			}
 			continue
 		}
+		if !judgeRel {
+			return nil
+		}
 		if d == "" {
 			d = "."
 		}
-		if dirOK && executable(filepath.Join(base, d, name)) {
-			break // ErrDot: the bare name runs, checked below
+		if executable(filepath.Join(base, d, name)) {
+			return fmt.Errorf("exec: %q: cannot run executable found relative to current directory", name)
 		}
-	}
-	if !dirOK || (!relOK && !filepath.IsAbs(base)) {
-		return nil // the directory warning covers it, or it cannot be resolved here
-	}
-	if executable(filepath.Join(base, name)) {
-		return nil
 	}
 	return fmt.Errorf("exec: %q: executable file not found in $PATH", name)
 }

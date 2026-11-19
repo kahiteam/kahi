@@ -28,7 +28,22 @@ func IsChildInit(argv []string) bool {
 // real target, replacing the current process image. It returns only on error;
 // on success syscall.Exec never returns. The pid is preserved across the exec,
 // so the supervisor's recorded pid is the real target's pid.
+//
+// A failure before or at the exec is written to the report pipe the spawner
+// passes in reportFDEnv, so the spawn fails with the error a direct spawn
+// gives instead of an exit 127 (FUNC-002); the pipe is close-on-exec, so a
+// successful exec closes it with nothing written.
 func RunChildInit(argv []string) error {
+	report := openReport()
+	err := runChildInit(argv)
+	if report != nil {
+		_, _ = report.WriteString(err.Error())
+		_ = report.Close()
+	}
+	return err
+}
+
+func runChildInit(argv []string) error {
 	umask, limits, real, err := parseChildInit(argv)
 	if err != nil {
 		return err
@@ -40,13 +55,38 @@ func RunChildInit(argv []string) error {
 
 	path := real[0]
 	if !strings.Contains(path, "/") {
-		// syscall.Exec does not search $PATH; resolve bare names the way
-		// exec.Command would in the direct-spawn path.
-		if resolved, lookErr := exec.LookPath(path); lookErr == nil {
-			path = resolved
+		// syscall.Exec does not search $PATH; resolve bare names as
+		// exec.Command does in the direct-spawn path, with its errors: a
+		// name found only through a relative PATH entry is refused
+		// (exec.ErrDot), as a direct spawn refuses it.
+		resolved, lookErr := exec.LookPath(path)
+		if lookErr != nil {
+			return lookErr
 		}
+		path = resolved
 	}
-	return syscall.Exec(path, real, os.Environ())
+	if err := syscall.Exec(path, real, os.Environ()); err != nil {
+		return &os.PathError{Op: "fork/exec", Path: path, Err: err}
+	}
+	return nil
+}
+
+// reportFDEnv names the report pipe's descriptor in the trampoline's
+// environment; it is removed before the target is exec'd.
+const reportFDEnv = "KAHI_SPAWN_REPORT_FD"
+
+func openReport() *os.File {
+	v, ok := os.LookupEnv(reportFDEnv)
+	if !ok {
+		return nil
+	}
+	_ = os.Unsetenv(reportFDEnv)
+	fd, err := strconv.Atoi(v)
+	if err != nil || fd < 3 {
+		return nil
+	}
+	syscall.CloseOnExec(fd)
+	return os.NewFile(uintptr(fd), "spawn-report")
 }
 
 // parseChildInit decodes the trampoline argv layout:
