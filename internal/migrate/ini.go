@@ -156,6 +156,11 @@ func ParseINI(r io.Reader) (*INIFile, error) {
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 
+		// supervisord takes $ literally; where Kahi expands variables a
+		// literal $ is written $$, before %(ENV_X)s becomes ${X}.
+		if expandedKeys[currentSection.Type][key] {
+			value = strings.ReplaceAll(value, "$", "$$")
+		}
 		// Expand %(ENV_X)s to ${X} syntax.
 		value, varWarnings := expandSupervisordVars(value)
 		for _, w := range varWarnings {
