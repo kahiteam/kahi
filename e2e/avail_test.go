@@ -108,11 +108,13 @@ func TestAvail_UpdateErrorsAndRemoval(t *testing.T) {
 	if code != 1 || !strings.Contains(stderr, "no such group: nosuch") {
 		t.Errorf("update nosuch: %d %q", code, stderr)
 	}
+	wantUnknownGroup(t, socket, "nosuch", "no such group: nosuch")
 	rewriteConfig(t, socket, availProg("web", "2", "")+"[groups.g]\nprograms = [\"web\"]\n")
 	_, stderr, code = ctlRun(t, socket, "update", "web")
 	if code != 1 || !strings.Contains(stderr, "web is in group g; use g") {
 		t.Errorf("update table member: %d %q", code, stderr)
 	}
+	wantUnknownGroup(t, socket, "web", "web is in group g; use g")
 	rewriteConfig(t, socket, availProg("web", "2", "")+"[programs.bad\n")
 	_, stderr, code = ctlRun(t, socket, "update", "web")
 	if code != 1 || !strings.Contains(stderr, "config error:") {
@@ -211,5 +213,21 @@ autorestart = false
 			t.Fatalf("avail as kahi: %v: %s", err, out)
 		}
 		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// wantUnknownGroup checks the API answer to a filtered update naming
+// something that is not a group: 400 UNKNOWN_GROUP (ADR-051).
+func wantUnknownGroup(t *testing.T, socket, name, msg string) {
+	t.Helper()
+	resp, err := unixHTTPClient(socket).Post("http://unix/api/v1/config/reload?groups="+name, "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var body struct{ Error, Code string }
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	if resp.StatusCode != http.StatusBadRequest || body.Code != "UNKNOWN_GROUP" || body.Error != msg {
+		t.Errorf("reload?groups=%s: %d %+v, want 400 UNKNOWN_GROUP %q", name, resp.StatusCode, body, msg)
 	}
 }

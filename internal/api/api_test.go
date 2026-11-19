@@ -1614,7 +1614,7 @@ func TestReloadGroupsAndAvail(t *testing.T) {
 	if w := do("POST", "/api/v1/config/reload?groups=web&dry_run=true"); w.Code != 200 || !strings.Contains(w.Body.String(), `"status":"preview"`) {
 		t.Errorf("preview groups: %d %s", w.Code, w.Body)
 	}
-	if w := do("POST", "/api/v1/config/reload?groups=nosuch"); w.Code != 404 || !strings.Contains(w.Body.String(), "no such group: nosuch") {
+	if w := do("POST", "/api/v1/config/reload?groups=nosuch"); w.Code != 400 || !strings.Contains(w.Body.String(), "no such group: nosuch") || !strings.Contains(w.Body.String(), `"code":"UNKNOWN_GROUP"`) {
 		t.Errorf("unknown group: %d %s", w.Code, w.Body)
 	}
 	if w := do("GET", "/api/v1/config/avail"); w.Code != 200 || !strings.Contains(w.Body.String(), `"group":"web"`) || !strings.Contains(w.Body.String(), `"in_use":true`) {
