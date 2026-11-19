@@ -226,8 +226,8 @@ kahi ctl [command] [flags]
 | `start`    | `process...`       | Start processes (`group:*`, or `all`)                   |
 | `stop`     | `process...`       | Stop processes (`group:*`, or `all`)                    |
 | `restart`  | `process...`       | Restart processes (`group:*`, or `all`)                 |
-| `status`   | `[process...]`     | Show process status (`--json`, `--no-color`)            |
-| `signal`   | `signal process`   | Send a signal to a process                              |
+| `status`   | `[process...]`     | Show status (`group:*`, `all`; `--json`, `--no-color`)  |
+| `signal`   | `signal process`   | Send a signal (process, `group:*`, or `all`)            |
 | `tail`     | `process [stream]` | Tail process log output (`-f` to follow)                |
 | `send`     | `process data`     | Write data to a process stdin                           |
 | `shutdown` |                    | Initiate daemon shutdown                                |
