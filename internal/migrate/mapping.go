@@ -115,7 +115,7 @@ func mapOption(key, value string, mappings map[string]OptionMapping) MappedOptio
 	if !ok {
 		return MappedOption{
 			Key:         key,
-			Value:       fmt.Sprintf("%q", value),
+			Value:       tomlString(value),
 			Comment:     fmt.Sprintf("UNSUPPORTED: %s = %s (unknown option)", key, value),
 			Unsupported: true,
 		}
@@ -160,24 +160,24 @@ func convertValue(value, typ string) string {
 		if v, err := strconv.Atoi(value); err == nil {
 			return strconv.Itoa(v)
 		}
-		return fmt.Sprintf("%q", value)
+		return tomlString(value)
 
 	case "bool":
 		b, err := ParseBool(value)
 		if err != nil {
-			return fmt.Sprintf("%q", value)
+			return tomlString(value)
 		}
 		return strconv.FormatBool(b)
 
 	case "string":
-		return fmt.Sprintf("%q", value)
+		return tomlString(value)
 
 	case "signal":
-		return fmt.Sprintf("%q", NormalizeSignal(value))
+		return tomlString(NormalizeSignal(value))
 
 	case "bytes":
 		// Preserve human-readable format.
-		return fmt.Sprintf("%q", value)
+		return tomlString(value)
 
 	case "intlist":
 		// e.g. "0,2" -> [0, 2]
@@ -196,7 +196,7 @@ func convertValue(value, typ string) string {
 		parts := strings.Split(value, ",")
 		var quoted []string
 		for _, p := range parts {
-			quoted = append(quoted, fmt.Sprintf("%q", strings.TrimSpace(p)))
+			quoted = append(quoted, tomlString(strings.TrimSpace(p)))
 		}
 		return "[" + strings.Join(quoted, ", ") + "]"
 
@@ -205,7 +205,7 @@ func convertValue(value, typ string) string {
 		return convertEnvironment(value)
 
 	default:
-		return fmt.Sprintf("%q", value)
+		return tomlString(value)
 	}
 }
 
@@ -222,5 +222,5 @@ func NormalizeSignal(sig string) string {
 // Input: KEY="val",KEY2="val2"
 // Output is handled specially by the caller.
 func convertEnvironment(value string) string {
-	return fmt.Sprintf("%q", value)
+	return tomlString(value)
 }

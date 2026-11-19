@@ -3303,6 +3303,10 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 **Edge Cases:**
 
 - supervisord.conf supports `%(ENV_X)s` syntax, which must be mapped to Kahi's `${X}` syntax
+- supervisord takes `$` literally. In the values Kahi expands (`[supervisor]` logfile and directory, `[server.unix]` file, and a program's or pool's command, directory, environment, process_name, stdout_logfile, stderr_logfile and user) a literal `$` is written as `$$` before `%(ENV_X)s` becomes `${X}`, so `echo $$ ${HOME}` reaches the shell unchanged (v0.3.0 review, 2026-11-19)
+- `environment=` is split as supervisord's parser splits it: a comma or `=` inside single or double quotes belongs to the value, and the quotes are removed (`OPTS="-Xms1g,-Xmx2g",B=z` is two variables)
+- Section names that are not bare TOML keys (a dot, a space, any character outside `A-Za-z0-9_-`) are written quoted (`[programs."api.worker"]`), so a dot never nests tables and no program is lost; strings are written as TOML basic strings (control characters as `\uXXXX`, invalid UTF-8 as U+FFFD), never in Go's `%q` form
+- `stdout_logfile`/`stderr_logfile` of `NONE` or `AUTO` (any case) are omitted with a warning ("{table}.{name}: stdout_logfile = NONE omitted (Kahi writes no log file unless a path is set)", "... = AUTO omitted (Kahi does not name log files; set a path to keep one)")
 - `%(here)s`, `%(program_name)s`, `%(group_name)s`, `%(process_num)d` and `%(numprocs)d` are kept: Kahi expands them with the same syntax. A width such as `%(process_num)02d` is written as `%(process_num)d` with a warning (Kahi has no padding); a variable Kahi does not know is kept with a warning
 - An unknown option is written as `# UNSUPPORTED: key = value (unknown option)`, keeping its key and value
 - Boolean values in supervisord (true/false, yes/no, on/off, 1/0) map to TOML booleans

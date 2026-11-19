@@ -2090,6 +2090,7 @@
       "title": "supervisord to Kahi Option Mapping",
       "description": "Map all supervisord config options to their Kahi TOML equivalents, with comments for unsupported and renamed options.",
       "testing_steps": [
+        "e2e: [program:api] and [program:api.worker] with command='show.sh cost$5', environment=OPTS=\"-Xms1g,-Xmx2g\",B=z and stdout_logfile=NONE migrate and run: both programs reach RUNNING, api.worker sees OPTS='-Xms1g,-Xmx2g' and its argument 'cost$5' (dotted names quoted, quoted commas kept, $ escaped as $$, NONE omitted)",
         "Migrate a config with startsecs=10 and verify TOML output contains startsecs = 10",
         "Migrate a config with autorestart=unexpected and verify TOML output contains autorestart = \"unexpected\"",
         "Migrate a config with an unsupported option and verify a TOML comment is generated: # UNSUPPORTED: ...",
@@ -2099,6 +2100,7 @@
       ],
       "passes": true,
       "verified_by": [
+        "TestMigrate_NamesEnvironmentAndDollar",
         "TestMigrate_Values",
         "TestMigrate_SectionTypes",
         "TestCLI_MigrateToStdout"
