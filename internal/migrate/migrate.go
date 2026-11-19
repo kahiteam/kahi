@@ -185,7 +185,7 @@ func writeProgramSection(b *strings.Builder, sec INISection, result *Result) {
 // writeProgramTable writes a program-like section as [table.name]; listener
 // handles the keys only an event listener has and reports whether it did.
 func writeProgramTable(b *strings.Builder, sec INISection, result *Result, table string, listener func(key, value string) bool) {
-	writeHeader(b, fmt.Sprintf("[%s.%s]", table, sec.Name), sec)
+	writeHeader(b, fmt.Sprintf("[%s.%s]", table, tomlKey(sec.Name)), sec)
 
 	var envPairs map[string]string
 	keys := sortedKeys(sec.Options)
@@ -198,6 +198,20 @@ func writeProgramTable(b *strings.Builder, sec INISection, result *Result, table
 		}
 		if listener != nil && listener(key, value) {
 			continue
+		}
+		// supervisord's NONE (no log file) and AUTO (a file it names) have
+		// no Kahi value: Kahi writes a log file only to a path it is given.
+		if key == "stdout_logfile" || key == "stderr_logfile" {
+			switch strings.ToUpper(strings.TrimSpace(value)) {
+			case "NONE":
+				result.Warnings = append(result.Warnings,
+					fmt.Sprintf("%s.%s: %s = NONE omitted (Kahi writes no log file unless a path is set)", table, sec.Name, key))
+				continue
+			case "AUTO":
+				result.Warnings = append(result.Warnings,
+					fmt.Sprintf("%s.%s: %s = AUTO omitted (Kahi does not name log files; set a path to keep one)", table, sec.Name, key))
+				continue
+			}
 		}
 		// supervisord's stopwaitsecs = 0 SIGKILLs right after the stop
 		// signal; Kahi rejects it (#138), so write the shortest valid value.
@@ -224,17 +238,17 @@ func writeProgramTable(b *strings.Builder, sec INISection, result *Result, table
 		if env.Inline != "" {
 			writeComments(b, []string{env.Inline})
 		}
-		fmt.Fprintf(b, "[%s.%s.environment]\n", table, sec.Name)
+		fmt.Fprintf(b, "[%s.%s.environment]\n", table, tomlKey(sec.Name))
 		envKeys := sortedKeys(envPairs)
 		for _, k := range envKeys {
-			fmt.Fprintf(b, "%s = %q\n", k, envPairs[k])
+			fmt.Fprintf(b, "%s = %s\n", tomlKey(k), tomlString(envPairs[k]))
 		}
 	}
 	b.WriteString("\n")
 }
 
 func writeGroupSection(b *strings.Builder, sec INISection, result *Result) {
-	writeHeader(b, fmt.Sprintf("[groups.%s]", sec.Name), sec)
+	writeHeader(b, fmt.Sprintf("[groups.%s]", tomlKey(sec.Name)), sec)
 	keys := sortedKeys(sec.Options)
 	for _, key := range keys {
 		mapped := MapGroupOption(key, sec.Options[key])
@@ -252,7 +266,7 @@ func writeUnixServerSection(b *strings.Builder, sec INISection, result *Result) 
 	writeHeader(b, "[server.unix]", sec)
 	for _, k := range []string{"chmod", "file"} {
 		if v, ok := sec.Options[k]; ok {
-			writeOption(b, MappedOption{Key: k, Value: fmt.Sprintf("%q", v)}, sec.Notes[k])
+			writeOption(b, MappedOption{Key: k, Value: tomlString(v)}, sec.Notes[k])
 		}
 	}
 	// chown is not emitted: the control socket is locked to the service
@@ -273,11 +287,11 @@ func writeHTTPServerSection(b *strings.Builder, sec INISection, result *Result) 
 	writeHeader(b, "[server.http]", sec)
 	b.WriteString("enabled = true\n")
 	if port, ok := sec.Options["port"]; ok {
-		writeOption(b, MappedOption{Key: "listen", Value: fmt.Sprintf("%q", listenAddress(port))}, sec.Notes["port"])
+		writeOption(b, MappedOption{Key: "listen", Value: tomlString(listenAddress(port))}, sec.Notes["port"])
 	}
 	for _, k := range []string{"password", "username"} {
 		if v, ok := sec.Options[k]; ok {
-			writeOption(b, MappedOption{Key: k, Value: fmt.Sprintf("%q", v)}, sec.Notes[k])
+			writeOption(b, MappedOption{Key: k, Value: tomlString(v)}, sec.Notes[k])
 		}
 	}
 	for _, k := range sortedKeys(sec.Options) {
@@ -315,7 +329,7 @@ func writeIncludeSection(b *strings.Builder, sec INISection, result *Result) {
 	globs := strings.Fields(files)
 	quoted := make([]string, len(globs))
 	for i, g := range globs {
-		quoted[i] = fmt.Sprintf("%q", g)
+		quoted[i] = tomlString(g)
 	}
 	writeComments(b, sec.Above)
 	writeComments(b, sec.Notes["files"].Above)
@@ -387,18 +401,7 @@ func oneLine(s string) string {
 }
 
 func parseEnvironment(value string) map[string]string {
-	result := make(map[string]string)
-	for pair := range strings.SplitSeq(value, ",") {
-		k, v, ok := strings.Cut(strings.TrimSpace(pair), "=")
-		if !ok {
-			continue
-		}
-		k = strings.TrimSpace(k)
-		v = strings.TrimSpace(v)
-		v = strings.Trim(v, "\"'")
-		result[k] = v
-	}
-	return result
+	return splitEnvironment(value)
 }
 
 func validateGenerated(result *Result) {
