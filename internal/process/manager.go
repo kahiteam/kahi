@@ -1150,6 +1150,7 @@ func (m *Manager) processInfo(p *Process) api.ProcessInfo {
 	return api.ProcessInfo{
 		Name:        p.Name(),
 		Group:       p.Group(),
+		Program:     p.Program(),
 		State:       state.String(),
 		StateCode:   int(state),
 		PID:         p.Pid(),

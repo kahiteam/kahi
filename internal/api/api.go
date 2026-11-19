@@ -28,8 +28,12 @@ var chmodSocket = os.Chmod
 
 // ProcessInfo describes the runtime state of a managed process.
 type ProcessInfo struct {
-	Name        string `json:"name"`
-	Group       string `json:"group"`
+	Name  string `json:"name"`
+	Group string `json:"group"`
+	// Program is the program the process belongs to: a member of a
+	// [groups] table has the table as Group, so name:* resolves a group
+	// first, then a program (ADR-034).
+	Program     string `json:"program"`
 	State       string `json:"state"`
 	StateCode   int    `json:"statecode"`
 	PID         int    `json:"pid"`

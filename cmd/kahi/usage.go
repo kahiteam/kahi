@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -38,6 +39,12 @@ func exitCode(err error) int {
 func markUsageErrors(cmd *cobra.Command) {
 	if cmd == cmd.Root() {
 		cmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return usageError{err} })
+	}
+	// A command whose Use names no arguments takes none: cobra's default
+	// accepts anything, so `kahi ctl reload web` used to reload everything
+	// and exit 0 (FUNC-031: a wrong argument count exits 2).
+	if cmd.Args == nil && cmd.Runnable() && !strings.Contains(cmd.Use, " ") {
+		cmd.Args = cobra.NoArgs
 	}
 	if validate := cmd.Args; validate != nil {
 		cmd.Args = func(c *cobra.Command, args []string) error {
