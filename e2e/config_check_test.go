@@ -129,8 +129,8 @@ func TestConfigCheck_ProbeErrors(t *testing.T) {
 	}
 }
 
-// A log parent that is a symlink to an absolute path is refused, as the
-// daemon refuses it (SEC-019).
+// A log parent that is a symlink the checking user owns (the daemon's user)
+// is followed, as the daemon follows it (SEC-019, decided 2026-11-19).
 func TestConfigCheck_LogParentSymlink(t *testing.T) {
 	t.Parallel()
 	base := realDir(t)
@@ -143,13 +143,9 @@ func TestConfigCheck_LogParentSymlink(t *testing.T) {
 	}
 	logPath := filepath.Join(base, "link", "kahi.log")
 	dir, path := checkConfig(t, fmt.Sprintf("[supervisor]\nlogfile = %q\n", logPath))
-	_, stderr, code := runKahi(t, dir, "config", "check", "-c", path)
-	_, dstderr, _ := runKahi(t, dir, "daemon", "-c", path)
-	if code != 1 || !strings.Contains(stderr, "error: cannot open log file: "+logPath+": ") {
-		t.Fatalf("code %d, stderr %q", code, stderr)
-	}
-	if !strings.Contains(stderr, "error: "+strings.TrimSpace(dstderr)) {
-		t.Errorf("check %q, daemon %q", stderr, dstderr)
+	_, stderr, _ := runKahi(t, dir, "config", "check", "-c", path)
+	if strings.Contains(stderr, "cannot open log file") {
+		t.Errorf("check refused a link owned by the daemon's user: %q", stderr)
 	}
 }
 

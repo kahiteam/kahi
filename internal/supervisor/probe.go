@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 
 	"github.com/kahiteam/kahi/internal/config"
@@ -162,20 +161,20 @@ func ProbePIDFile(path string, logger *slog.Logger) (live int, err error) {
 	if path == "" {
 		return 0, nil
 	}
-	b, err := os.ReadFile(path)
+	content, exists, err := readPIDFile(path)
 	switch {
-	case os.IsNotExist(err):
 	case err != nil:
-		return 0, fmt.Errorf("cannot read PID file: %s: %w", path, err)
+		return 0, err
+	case !exists:
 	default:
-		pid, perr := strconv.Atoi(strings.TrimSpace(string(b)))
+		pid, perr := strconv.Atoi(content)
 		if perr == nil && pid > 0 && pid != os.Getpid() {
 			if kerr := syscall.Kill(pid, 0); kerr == nil || kerr == syscall.EPERM {
 				live = pid
 			}
 		}
 		if live == 0 {
-			logger.Warn("replacing stale PID file", "path", path, "content", strings.TrimSpace(string(b)))
+			logger.Warn("replacing stale PID file", "path", path, "content", content)
 		}
 	}
 	// WritePIDFile unlinks the old file and creates a new one: both need a

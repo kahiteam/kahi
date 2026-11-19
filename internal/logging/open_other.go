@@ -3,6 +3,7 @@
 package logging
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -33,4 +34,14 @@ func probeLogFile(path string) error {
 	}
 	_, err := os.Stat(filepath.Dir(path))
 	return err
+}
+
+// shiftBackups rotates path by name: the oldest backup is removed, .N
+// becomes .N+1 and the file becomes .1.
+func shiftBackups(path string, backups int) error {
+	_ = os.Remove(fmt.Sprintf("%s.%d", path, backups))
+	for i := backups - 1; i >= 1; i-- {
+		_ = os.Rename(fmt.Sprintf("%s.%d", path, i), fmt.Sprintf("%s.%d", path, i+1))
+	}
+	return os.Rename(path, path+".1")
 }

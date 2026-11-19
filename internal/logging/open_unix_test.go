@@ -13,9 +13,19 @@ import (
 // tests exercise the parent-symlink case in addition to the SEC-012
 // final-component guard.
 
+// foreignLinks makes the links the test creates count as planted by another
+// user: only root's links are trusted (unit tests cannot chown a link).
+func foreignLinks(t *testing.T) {
+	t.Helper()
+	old := trustedLinkOwner
+	trustedLinkOwner = func(uid uint32) bool { return uid == 0 }
+	t.Cleanup(func() { trustedLinkOwner = old })
+}
+
 // TestLogOpenRejectsSymlinkedParent verifies that a symlinked parent component
 // causes the open to fail rather than being followed to an unintended dir.
 func TestLogOpenRejectsSymlinkedParent(t *testing.T) {
+	foreignLinks(t)
 	base := t.TempDir()
 	evil := filepath.Join(base, "evil")
 	if err := os.Mkdir(evil, 0755); err != nil {
@@ -37,6 +47,7 @@ func TestLogOpenRejectsSymlinkedParent(t *testing.T) {
 // component is a symlink the open fails and no file is created in the target of
 // the swapped parent.
 func TestLogOpenWriteNotRedirectedThroughSwappedParent(t *testing.T) {
+	foreignLinks(t)
 	base := t.TempDir()
 	evil := filepath.Join(base, "evil")
 	if err := os.Mkdir(evil, 0755); err != nil {
@@ -61,6 +72,7 @@ func TestLogOpenWriteNotRedirectedThroughSwappedParent(t *testing.T) {
 // TestLogOpenRejectsSymlinkedAncestor verifies the guard applies to any
 // ancestor component, not only the immediate parent.
 func TestLogOpenRejectsSymlinkedAncestor(t *testing.T) {
+	foreignLinks(t)
 	base := t.TempDir()
 	real := filepath.Join(base, "real")
 	if err := os.MkdirAll(filepath.Join(real, "sub"), 0755); err != nil {
@@ -169,5 +181,89 @@ func TestLogOpenAppends(t *testing.T) {
 	}
 	if string(got) != "one\ntwo\n" {
 		t.Fatalf("expected appended contents, got %q", string(got))
+	}
+}
+
+// A relative symlink planted in a log directory used to be followed out of
+// it (os.Root rooted at "/" treats every target as in-tree); a link another
+// user owns is refused, relative or not.
+func TestLogOpenRejectsForeignRelativeLink(t *testing.T) {
+	foreignLinks(t)
+	base := t.TempDir()
+	evil := filepath.Join(base, "etc", "cron.d")
+	if err := os.MkdirAll(evil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logs := filepath.Join(base, "var", "log")
+	if err := os.MkdirAll(logs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../etc/cron.d", filepath.Join(logs, "app")); err != nil {
+		t.Fatal(err)
+	}
+	logpath := filepath.Join(logs, "app", "app.log")
+	if f, err := openLogFile(logpath, 0o644); err == nil {
+		_ = f.Close()
+		t.Fatal("followed a foreign relative symlink")
+	}
+	if _, err := os.Stat(filepath.Join(evil, "app.log")); err == nil {
+		t.Fatal("the log was created through the planted link")
+	}
+	if err := probeLogFile(logpath); err == nil {
+		t.Error("probe accepts a foreign relative symlink")
+	}
+}
+
+// Links root or the daemon's user own are followed, relative and absolute
+// (the test user is the daemon's user here).
+func TestLogOpenFollowsTrustedLinks(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real", filepath.Join(base, "rel")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(base, "abs")); err != nil {
+		t.Fatal(err)
+	}
+	for _, link := range []string{"rel", "abs"} {
+		f, err := openLogFile(filepath.Join(base, link, link+".log"), 0o644)
+		if err != nil {
+			t.Fatalf("%s: %v", link, err)
+		}
+		_ = f.Close()
+		if _, err := os.Stat(filepath.Join(real, link+".log")); err != nil {
+			t.Errorf("%s: not created in the link target: %v", link, err)
+		}
+	}
+}
+
+// Rotation renames and removes relative to the verified directory: a log
+// directory swapped for a foreign link fails the rotation instead of
+// moving or deleting files in the link's target.
+func TestRotationRefusesForeignParentLink(t *testing.T) {
+	foreignLinks(t)
+	base := t.TempDir()
+	evil := filepath.Join(base, "evil")
+	if err := os.Mkdir(evil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"app.log", "app.log.1"} {
+		if err := os.WriteFile(filepath.Join(evil, n), []byte("keep"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("evil", filepath.Join(base, "logs")); err != nil {
+		t.Fatal(err)
+	}
+	if err := rotateFile(filepath.Join(base, "logs", "app.log"), 1); err == nil {
+		t.Fatal("rotated through a foreign link")
+	}
+	for _, n := range []string{"app.log", "app.log.1"} {
+		if b, err := os.ReadFile(filepath.Join(evil, n)); err != nil || string(b) != "keep" {
+			t.Errorf("%s changed: %q %v", n, b, err)
+		}
 	}
 }

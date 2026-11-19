@@ -299,10 +299,11 @@ func TestLog_SIGUSR2ReopensDaemonLog(t *testing.T) {
 	}
 }
 
-// A parent directory of a running program's log swapped for a symlink with an
-// absolute target does not redirect the log on SIGUSR2: the reopen fails, the
-// daemon logs it, and output keeps going to the old file (SEC-019, #230).
-func TestLog_SIGUSR2ReopenRefusesParentSymlink(t *testing.T) {
+// A parent directory of a running program's log swapped for a symlink the
+// daemon's own user owns is followed on SIGUSR2: output continues in the
+// link's target (SEC-019, decided 2026-11-19; a link another user owns is
+// refused, TestRootContainer_LogLinkFromOtherUserRefused).
+func TestLog_SIGUSR2ReopenFollowsDaemonUserLink(t *testing.T) {
 	t.Parallel()
 	dir, err := os.MkdirTemp("", "k-")
 	if err != nil {
@@ -349,36 +350,15 @@ func TestLog_SIGUSR2ReopenRefusesParentSymlink(t *testing.T) {
 	if err := syscall.Kill(cmd.Process.Pid, syscall.SIGUSR2); err != nil {
 		t.Fatalf("SIGUSR2: %v", err)
 	}
-	waitFor(t, "daemon log", readFile(daemonLog), "log reopen failed")
-
-	if entries, _ := os.ReadDir(target); len(entries) != 0 {
-		t.Fatalf("symlink target has %d entries after SIGUSR2, want none", len(entries))
-	}
-	oldLog := filepath.Join(old, "app.log")
-	before, err := os.Stat(oldLog)
-	if err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		after, err := os.Stat(oldLog)
-		if err == nil && after.Size() > before.Size() {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("old log file stopped growing after the failed reopen")
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if info, _ := getProcessInfo(client, "ticker"); info.State != "RUNNING" {
-		t.Fatalf("ticker = %s after the failed reopen, want RUNNING", info.State)
-	}
+	waitFor(t, "daemon log", readFile(daemonLog), "log files reopened")
+	waitFor(t, "log through the link", readFile(filepath.Join(target, "app.log")), "tick")
 }
 
-// A log file whose parent directory is a symlink with an absolute target is
-// not opened through it: the program goes FATAL and nothing is written in the
-// target (SEC-019). A relative in-tree target is the known deferred residual.
-func TestLog_ParentSymlinkRefusedAtStart(t *testing.T) {
+// A log file whose parent directory is a symlink the daemon's own user
+// owns is opened through it (SEC-019, decided 2026-11-19: links owned by
+// root or the daemon's user are followed; a link another user planted is
+// refused, proven as root in TestRootContainer_LogLinkFromOtherUserRefused).
+func TestLog_ParentSymlinkOwnedByDaemonUserFollowed(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target")
@@ -395,16 +375,9 @@ startsecs = 0
 startretries = 0
 stdout_logfile = "`+filepath.Join(dir, "logs", "app.log")+`"
 `)
-	waitForState(t, client, "web", "FATAL", 5*time.Second)
-	info, err := getProcessInfo(client, "web")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(info.Description, "cannot open log file") {
-		t.Errorf("description %q, want it to name 'cannot open log file'", info.Description)
-	}
-	if entries, _ := os.ReadDir(target); len(entries) != 0 {
-		t.Errorf("symlink target has %d entries, want none", len(entries))
+	waitForState(t, client, "web", "RUNNING", 5*time.Second)
+	if _, err := os.Stat(filepath.Join(target, "app.log")); err != nil {
+		t.Errorf("log not created through the daemon user's link: %v", err)
 	}
 }
 

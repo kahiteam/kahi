@@ -48,20 +48,7 @@ func rotateFile(path string, backups int) error {
 		return f.Close()
 	}
 
-	// Rotate: .N-1 -> .N, ... , .1 -> .2, file -> .1
-	// Remove the oldest backup.
-	oldest := fmt.Sprintf("%s.%d", path, backups)
-	_ = os.Remove(oldest)
-
-	// Shift existing backups (missing intermediates are expected).
-	for i := backups - 1; i >= 1; i-- {
-		src := fmt.Sprintf("%s.%d", path, i)
-		dst := fmt.Sprintf("%s.%d", path, i+1)
-		_ = os.Rename(src, dst)
-	}
-
-	// Rename current file to .1.
-	return os.Rename(path, path+".1")
+	return shiftBackups(path, backups)
 }
 
 // ParseSize parses a human-readable size string to bytes.

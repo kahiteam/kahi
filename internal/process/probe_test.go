@@ -44,7 +44,7 @@ func TestProbePrograms(t *testing.T) {
 		"programs.bare.command: exec: \"kahi-no-such-command-xyz\": executable file not found in $PATH",
 		"programs.dir.directory: directory does not exist: " + filepath.Join(base, "gone"),
 		"programs.dirrel.directory: directory does not exist: " + filepath.Join(base, "gone2"),
-		"programs.logs.stdout_logfile: openat " + strings.TrimPrefix(filepath.Join(base, "nope"), "/") + ": no such file or directory",
+		"programs.logs.stdout_logfile: open " + filepath.Join(base, "nope", "out.log") + ": no such file or directory",
 		"programs.many.command: /nonexistent/w0: no such file or directory",
 		"programs.many.command: /nonexistent/w1: no such file or directory",
 		"programs.noexec.command: " + filepath.Join(bin, "plain") + ": permission denied",
