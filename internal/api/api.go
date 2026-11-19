@@ -541,15 +541,35 @@ func (s *Server) handleGetProcess(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, info)
 }
 
-func (s *Server) handleStartProcess(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
+// refuseDuringShutdown answers 409 SHUTTING_DOWN once the daemon is
+// shutting down: start, restart and bulk actions start nothing then
+// (FUNC-038).
+func (s *Server) refuseDuringShutdown(w http.ResponseWriter) bool {
 	if s.daemon != nil && s.daemon.IsShuttingDown() {
 		writeError(w, http.StatusConflict, "daemon is shutting down", "SHUTTING_DOWN")
+		return true
+	}
+	return false
+}
+
+// writeStartError maps a start or restart error; the manager refuses with
+// "daemon is shutting down" once process shutdown has begun.
+func writeStartError(w http.ResponseWriter, err error) {
+	if err.Error() == "daemon is shutting down" {
+		writeError(w, http.StatusConflict, err.Error(), "SHUTTING_DOWN")
+		return
+	}
+	statusCode := classifyError(err)
+	writeError(w, statusCode, err.Error(), errorCode(statusCode))
+}
+
+func (s *Server) handleStartProcess(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if s.refuseDuringShutdown(w) {
 		return
 	}
 	if err := s.processes.Start(name); err != nil {
-		statusCode := classifyError(err)
-		writeError(w, statusCode, err.Error(), errorCode(statusCode))
+		writeStartError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "started", "name": name})
@@ -567,9 +587,11 @@ func (s *Server) handleStopProcess(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRestartProcess(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	if s.refuseDuringShutdown(w) {
+		return
+	}
 	if err := s.processes.Restart(name); err != nil {
-		statusCode := classifyError(err)
-		writeError(w, statusCode, err.Error(), errorCode(statusCode))
+		writeStartError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "restarted", "name": name})
@@ -858,9 +880,11 @@ func (s *Server) handleGroupChange(add bool) http.HandlerFunc {
 
 func (s *Server) handleStartGroup(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	if s.refuseDuringShutdown(w) {
+		return
+	}
 	if err := s.groups.StartGroup(name); err != nil {
-		statusCode := classifyError(err)
-		writeError(w, statusCode, err.Error(), errorCode(statusCode))
+		writeStartError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "started", "group": name})
@@ -878,9 +902,11 @@ func (s *Server) handleStopGroup(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRestartGroup(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	if s.refuseDuringShutdown(w) {
+		return
+	}
 	if err := s.groups.RestartGroup(name); err != nil {
-		statusCode := classifyError(err)
-		writeError(w, statusCode, err.Error(), errorCode(statusCode))
+		writeStartError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "restarted", "group": name})

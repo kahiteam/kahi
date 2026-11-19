@@ -42,6 +42,7 @@ func (s *Supervisor) ReloadGroups(groups []string) (res config.ReloadResult, err
 	if err := s.manager.CheckGroups(groups, newCfg); err != nil {
 		return config.ReloadResult{}, err
 	}
+	groups = s.withTakenOver(groups, newCfg)
 	merged := mergeGroups(oldCfg, newCfg, groups)
 	only := make(map[string]bool, len(groups))
 	for _, g := range groups {
@@ -79,6 +80,7 @@ func (s *Supervisor) PreviewReloadGroups(groups []string) (config.ReloadResult, 
 	if err := s.manager.CheckGroups(groups, newCfg); err != nil {
 		return config.ReloadResult{}, err
 	}
+	groups = s.withTakenOver(groups, newCfg)
 	s.mu.Lock()
 	oldCfg := s.config
 	s.mu.Unlock()
@@ -110,6 +112,35 @@ func (s *Supervisor) Avail() ([]config.AvailEntry, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+// withTakenOver adds to groups the standalone groups of programs that a
+// named [groups] table of newCfg now owns: the table replaces them, as in a
+// full reload, so they are removed with the update. Without them the table
+// could not be activated while their processes run.
+func (s *Supervisor) withTakenOver(groups []string, newCfg *config.Config) []string {
+	out := append([]string{}, groups...)
+	seen := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		seen[g] = true
+	}
+	active := make(map[string]bool)
+	for _, g := range s.manager.ListGroups() {
+		active[g] = true
+	}
+	for _, g := range groups {
+		t, ok := newCfg.Groups[g]
+		if !ok {
+			continue
+		}
+		for _, p := range t.Programs {
+			if active[p] && !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+	}
+	return out
 }
 
 func isAll(groups []string) bool {

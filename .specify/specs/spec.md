@@ -2033,7 +2033,7 @@ API: a successful upgrade is 101 Switching Protocols with `Upgrade: kahi-attach`
 
 - SIGQUIT behaves as SIGTERM; a second SIGTERM, SIGINT or SIGQUIT during shutdown kills (FUNC-066)
 - Autorestart is suppressed during shutdown
-- New process starts are rejected during shutdown: the start, restart and bulk APIs return 409 `{"error": "daemon is shutting down", "code": "SHUTTING_DOWN"}`
+- New process starts are rejected during shutdown: the start, restart, group start, group restart and bulk APIs return 409 `{"error": "daemon is shutting down", "code": "SHUTTING_DOWN"}`. The Manager refuses them too once ordered shutdown has begun, and stops a process whose start raced the beginning of shutdown, so nothing is started that shutdown would leave running (v0.3.0 review, 2026-11-19)
 - API continues to serve status requests during shutdown (`GET /api/v1/processes` is 200), while `/healthz` returns 503 `{"status": "shutting_down"}` (FUNC-029)
 
 **Dependencies:** FUNC-003, FUNC-008
@@ -3974,6 +3974,7 @@ static_dir = ""      # optional per-file overlay for /ui/static/ (FUNC-080)
 - `reload` and `update` without arguments are the same operation (decided 2026-11-14): they apply program, `[groups.x]`, event listener pool and webhook changes, and the `[supervisor]` settings not marked "takes effect after restart". Every `[supervisor]` and `[server.*]` key introduced in v0.3.0 is restart-only and logs its "... takes effect after restart" line. `reload` is the daemon-level name (as SIGHUP), `update` the supervisorctl-compatible one that also takes names
 - After `update web`, groups that were not named keep their old config, and a later `reread` still reports them; `[supervisor]` changes are applied only by a full update
 - Arguments are group names: a program outside any table, a `[groups.x]` table name, or an event listener pool name; a member program of a table fails with "{prog} is in group {table}; use {table}" (as FUNC-011) and an unknown name with "no such group: {name}"; both are 400 with code `UNKNOWN_GROUP` on `POST /api/v1/config/reload?groups=` (the name is a query argument, not part of the URL; the `/api/v1/groups/{name}/...` routes keep 404 for an unknown name in the path) and exit 1 in the CLI, and nothing is applied. Webhook changes are applied only by a full update. `reread` accepts the same arguments for a preview
+- A named `[groups]` table that takes over programs which run as their own groups (the table is new, or newly lists them) removes those standalone groups with the update, as a full reload does; the result lists them under removed (v0.3.0 review, 2026-11-19)
 - Each `avail` entry also carries its group (the table name, or the program's own name), which completion uses (FUNC-037)
 - `avail` prints fields separated by single spaces, without padding
 - e2e proof runs `avail`, `update <group>`, `add` and `remove` through the binary

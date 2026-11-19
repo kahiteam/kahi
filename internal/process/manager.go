@@ -1,6 +1,7 @@
 package process
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -826,13 +827,27 @@ func (m *Manager) Get(name string) (api.ProcessInfo, error) {
 	return m.processInfo(p), nil
 }
 
-// Start starts a process by name.
+// Start starts a process by name. Once process shutdown has begun nothing
+// starts (FUNC-038): a start is refused, and one that raced the beginning
+// of shutdown is stopped again, as a bulk start does.
 func (m *Manager) Start(name string) error {
 	p, err := m.GetProcess(name)
 	if err != nil {
 		return err
 	}
-	return p.Start()
+	return m.startUnlessShuttingDown(p)
+}
+
+func (m *Manager) startUnlessShuttingDown(p *Process) error {
+	if m.ShuttingDown() {
+		return errors.New(errShuttingDown)
+	}
+	err := p.Start()
+	if m.ShuttingDown() {
+		_ = p.Stop()
+		return errors.New(errShuttingDown)
+	}
+	return err
 }
 
 // Stop stops a process by name.
@@ -851,6 +866,9 @@ func (m *Manager) Restart(name string) error {
 		return err
 	}
 
+	if m.ShuttingDown() {
+		return errors.New(errShuttingDown)
+	}
 	state := p.State()
 	if state == Running || state == Starting {
 		if err := p.Stop(); err != nil {
@@ -860,7 +878,7 @@ func (m *Manager) Restart(name string) error {
 			return err
 		}
 	}
-	return p.Start()
+	return m.startUnlessShuttingDown(p)
 }
 
 // waitStopForRestart waits up to the process's stopwaitsecs plus
@@ -1031,9 +1049,15 @@ func (m *Manager) StartGroup(name string) error {
 	if err != nil {
 		return err
 	}
+	if m.ShuttingDown() {
+		return errors.New(errShuttingDown)
+	}
 
 	for _, p := range procs {
-		if err := p.Start(); err != nil {
+		if err := m.startUnlessShuttingDown(p); err != nil {
+			if err.Error() == errShuttingDown {
+				return err
+			}
 			m.logger.Error("group start failed", "group", name, "process", p.Name(), "error", err)
 		}
 	}
@@ -1065,6 +1089,9 @@ func stoppable(s State) bool {
 
 // RestartGroup restarts all processes in a group.
 func (m *Manager) RestartGroup(name string) error {
+	if m.ShuttingDown() {
+		return errors.New(errShuttingDown)
+	}
 	if err := m.StopGroup(name); err != nil {
 		return err
 	}
