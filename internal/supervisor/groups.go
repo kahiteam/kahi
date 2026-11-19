@@ -35,7 +35,7 @@ func (s *Supervisor) ReloadGroups(groups []string) (res config.ReloadResult, err
 	oldCfg := s.config
 	s.mu.Unlock()
 
-	newCfg, warnings, err := config.LoadWithIncludes(s.configPath)
+	newCfg, warnings, err := s.loadConfig()
 	if err != nil {
 		return config.ReloadResult{}, fmt.Errorf("config error: %w", err)
 	}
@@ -72,7 +72,7 @@ func (s *Supervisor) PreviewReloadGroups(groups []string) (config.ReloadResult, 
 	if isAll(groups) {
 		return s.PreviewReload()
 	}
-	newCfg, warnings, err := config.LoadWithIncludes(s.configPath)
+	newCfg, warnings, err := s.loadConfig()
 	if err != nil {
 		return config.ReloadResult{}, fmt.Errorf("config error: %w", err)
 	}
@@ -93,7 +93,7 @@ func (s *Supervisor) PreviewReloadGroups(groups []string) (config.ReloadResult, 
 // Avail lists the programs and pools of the config file the daemon would
 // load on reload, sorted by name (FUNC-085).
 func (s *Supervisor) Avail() ([]config.AvailEntry, error) {
-	cfg, _, err := config.LoadWithIncludes(s.configPath)
+	cfg, _, err := s.loadConfig()
 	if err != nil {
 		return nil, fmt.Errorf("config error: %w", err)
 	}

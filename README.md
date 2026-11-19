@@ -537,8 +537,13 @@ Kahi is secure by default:
   drop it hands the files it created as root (the control socket, a socket
   directory it created, the PID file and its log) to that user, so `kahi ctl`
   works as the user. As non-root, `[supervisor] user` is ignored with a warning
-  and `-u` is refused. Per-process `umask` and resource limits are applied at
-  spawn. Users are names or numeric
+  and `-u` is refused. The config is read as root only at startup; reload,
+  `update`, `reread` and `avail` read it as the drop user, which needs read
+  access to the file, its includes and their directories (for example
+  `chgrp kahi kahi.toml; chmod 0640 kahi.toml`). Otherwise config changes need a
+  daemon restart: the daemon warns at startup when the drop user cannot read
+  the config, and a failed reload says so. Per-process `umask` and resource
+  limits are applied at spawn. Users are names or numeric
   ids, optionally with `:group`, and get their supplementary groups from
   `/etc/group` (Linux release binaries read `/etc/passwd` and `/etc/group` only:
   no NSS or LDAP). The daemon's own inherited groups are never kept. Per-process
