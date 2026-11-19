@@ -1,6 +1,7 @@
 package process
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -68,7 +69,9 @@ func (s *ExecSpawner) Spawn(cfg SpawnConfig) (SpawnedProcess, error) {
 	// When either is configured, re-exec the supervisor as a spawn trampoline
 	// that applies them in the child (post-fork, pre-exec) and then execs the
 	// real target. Credential switching still travels via SysProcAttr below.
-	if len(cfg.RLimits) > 0 || cfg.Umask >= 0 {
+	var report *os.File
+	trampoline := len(cfg.RLimits) > 0 || cfg.Umask >= 0
+	if trampoline {
 		self, err := os.Executable()
 		if err != nil {
 			return nil, fmt.Errorf("cannot locate executable for spawn helper: %w", err)
@@ -100,6 +103,23 @@ func (s *ExecSpawner) Spawn(cfg SpawnConfig) (SpawnedProcess, error) {
 	cmd.SysProcAttr.Setpgid = true
 
 	cmd.ExtraFiles = cfg.ExtraFiles
+	if trampoline {
+		// The trampoline reports a failure before its exec here
+		// (RunChildInit); a successful exec closes the pipe empty.
+		r, w, err := os.Pipe()
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = r.Close() }()
+		defer func() { _ = w.Close() }()
+		report = r
+		cmd.ExtraFiles = append(append([]*os.File{}, cfg.ExtraFiles...), w)
+		env := cmd.Env
+		if env == nil {
+			env = os.Environ()
+		}
+		cmd.Env = append(append([]string{}, env...), fmt.Sprintf("%s=%d", reportFDEnv, 2+len(cmd.ExtraFiles)))
+	}
 
 	// Set up pipes.
 	stdinPipe, err := cmd.StdinPipe()
@@ -117,6 +137,16 @@ func (s *ExecSpawner) Spawn(cfg SpawnConfig) (SpawnedProcess, error) {
 
 	if err := cmd.Start(); err != nil {
 		return nil, err
+	}
+	if report != nil {
+		// Close the parent's write end, then read until the child's exec
+		// closes its copy (success) or it reports why it could not.
+		_ = cmd.ExtraFiles[len(cmd.ExtraFiles)-1].Close()
+		msg, _ := io.ReadAll(report)
+		if len(msg) > 0 {
+			_ = cmd.Wait() // reap the trampoline; the reaper may already have
+			return nil, errors.New(string(msg))
+		}
 	}
 
 	return &execProcess{

@@ -64,8 +64,14 @@ type Process struct {
 	// stdinRefused, when set, is why WriteStdin refuses every write.
 	stdinRefused string
 	// attached is set while a kahi ctl attach session holds the process
-	// (FUNC-034, ADR-044); WriteStdin is refused meanwhile.
-	attached bool
+	// (FUNC-034, ADR-044); WriteStdin is refused meanwhile. attachDone is
+	// closed when the session ends, cancelling a pending input write.
+	attached   bool
+	attachDone chan struct{}
+	// stdinMu serializes stdin writers. A write never holds mu: a child
+	// that does not read stdin would otherwise block the reaper, status
+	// and stop behind a full pipe (FUNC-077).
+	stdinMu sync.Mutex
 	// recorder counts spawns and exits for the metrics (ADR-049); nil when
 	// metrics are off.
 	recorder Recorder
@@ -435,7 +441,7 @@ func (p *Process) spawnLocked() error {
 		}
 		p.publishStateLocked(p.sm.State())
 	} else {
-		go p.watchStart(p.stopCh)
+		go p.watchStart(p.stopCh, time.Duration(p.config.Startsecs)*time.Second)
 	}
 
 	return nil
@@ -473,24 +479,36 @@ func (p *Process) failStartLocked(desc string, err error) error {
 // watchStart moves the process to RUNNING once it has stayed up for
 // startsecs (> 0; spawnLocked handles 0). The transition and its event happen
 // under mu, so they cannot interleave with an exit (ADR-032).
-func (p *Process) watchStart(stopCh chan struct{}) {
-	timer := time.NewTimer(time.Duration(p.config.Startsecs) * time.Second)
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
+// watchStart moves the process to RUNNING once it has run for startsecs.
+// wait is the startsecs read under mu at spawn; a reload that raises
+// startsecs meanwhile extends the wait instead of leaving the process
+// STARTING for good.
+func (p *Process) watchStart(stopCh chan struct{}, wait time.Duration) {
+	for {
+		timer := time.NewTimer(wait)
+		select {
+		case <-timer.C:
+		case <-stopCh:
+			timer.Stop()
+			return
+		}
 		p.mu.Lock()
-		defer p.mu.Unlock()
 		// The child this watcher started for may have exited (a new stopCh)
 		// and a later spawn be STARTING; that one has its own watcher.
 		if p.stopCh != stopCh || p.sm.State() != Starting {
+			p.mu.Unlock()
 			return
 		}
 		if _, err := p.sm.ProcessStarted(); err != nil {
 			p.logger.Error("state transition failed", "error", err)
 		}
+		if p.sm.State() == Starting {
+			wait = p.sm.StartRemaining()
+			p.mu.Unlock()
+			continue
+		}
 		p.publishStateLocked(p.sm.State())
-	case <-stopCh:
+		p.mu.Unlock()
 		return
 	}
 }
@@ -555,13 +573,12 @@ func (p *Process) stopLocked() error {
 	// (stopCh is already closed and can't be reused).
 	killDone := make(chan struct{})
 	p.killDoneCh = killDone
-	go p.watchStop(killDone)
+	go p.watchStop(killDone, time.Duration(p.config.Stopwaitsecs)*time.Second)
 
 	return nil
 }
 
-func (p *Process) watchStop(stopCh <-chan struct{}) {
-	timeout := time.Duration(p.config.Stopwaitsecs) * time.Second
+func (p *Process) watchStop(stopCh <-chan struct{}, timeout time.Duration) {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
@@ -644,55 +661,139 @@ func (p *Process) Attach() error {
 		return fmt.Errorf("process %s: already attached", p.name)
 	}
 	p.attached = true
+	p.attachDone = make(chan struct{})
 	return nil
 }
 
-// Detach releases an attach session's hold.
+// Detach releases an attach session's hold and cancels its pending input.
 func (p *Process) Detach() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.attached {
+		close(p.attachDone)
+	}
 	p.attached = false
 }
 
+// Stdin stall limits (FUNC-077, FUNC-034): how long a write may make no
+// progress before it fails. Variables so tests can shorten them.
+var (
+	sendStall   = 5 * time.Second
+	attachStall = 30 * time.Second
+)
+
 // WriteAttached writes an attach session's input to stdin, as it arrives
-// (no newline added).
+// (no newline added). It blocks while the child does not read, until the
+// session ends or attachStall passes without progress.
 func (p *Process) WriteAttached(data []byte) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.writeStdinLocked(data)
-}
-
-// WriteStdin writes data to the process stdin pipe.
-func (p *Process) WriteStdin(data []byte) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.attached {
-		return fmt.Errorf("process %s: attached", p.name)
-	}
-	return p.writeStdinLocked(data)
-}
-
-func (p *Process) writeStdinLocked(data []byte) error {
-	if p.stdinRefused != "" {
-		return fmt.Errorf("process %s: %s", p.name, p.stdinRefused)
-	}
-	if p.spawned == nil {
-		return fmt.Errorf("process not running: %s", p.name)
-	}
-
-	pipe := p.spawned.StdinPipe()
-	if pipe == nil {
-		return fmt.Errorf("process %s: does not accept stdin", p.name)
-	}
-
-	if _, err := pipe.Write(data); err != nil {
-		if errors.Is(err, syscall.EPIPE) || errors.Is(err, os.ErrClosed) || errors.Is(err, io.ErrClosedPipe) {
-			p.logger.Warn("stdin pipe broken for "+p.name, "error", err)
-			return &StdinBrokenError{Name: p.name, Err: err}
-		}
+	pipe, err := p.stdinTargetLocked()
+	done := p.attachDone
+	p.mu.Unlock()
+	if err != nil {
 		return err
 	}
+	return p.writeStdin(pipe, data, attachStall, done)
+}
+
+// WriteStdin writes data to the process stdin pipe. A child that reads none
+// of it for sendStall fails the write with StdinFullError.
+func (p *Process) WriteStdin(data []byte) error {
+	p.mu.Lock()
+	if p.attached {
+		p.mu.Unlock()
+		return fmt.Errorf("process %s: attached", p.name)
+	}
+	pipe, err := p.stdinTargetLocked()
+	p.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	return p.writeStdin(pipe, data, sendStall, nil)
+}
+
+func (p *Process) stdinTargetLocked() (io.Writer, error) {
+	if p.stdinRefused != "" {
+		return nil, fmt.Errorf("process %s: %s", p.name, p.stdinRefused)
+	}
+	if p.spawned == nil {
+		return nil, fmt.Errorf("process not running: %s", p.name)
+	}
+	pipe := p.spawned.StdinPipe()
+	if pipe == nil {
+		return nil, fmt.Errorf("process %s: does not accept stdin", p.name)
+	}
+	return pipe, nil
+}
+
+// errAttachEnded is returned by a write cancelled because its attach
+// session ended.
+var errAttachEnded = errors.New("attach session ended")
+
+// writeStdin writes data to pipe without holding mu. Pipes that support
+// write deadlines (the real ones) are written in short slices, so a write
+// the child never drains fails after stall without progress, or when done
+// closes; others are written directly.
+func (p *Process) writeStdin(pipe io.Writer, data []byte, stall time.Duration, done <-chan struct{}) error {
+	p.stdinMu.Lock()
+	defer p.stdinMu.Unlock()
+	var err error
+	if d, ok := pipe.(interface{ SetWriteDeadline(time.Time) error }); ok && d.SetWriteDeadline(time.Now().Add(time.Second)) == nil {
+		err = writeWithStall(pipe, d, data, stall, done)
+		_ = d.SetWriteDeadline(time.Time{})
+	} else {
+		_, err = pipe.Write(data)
+	}
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, errStdinStalled):
+		return &StdinFullError{Name: p.name}
+	case errors.Is(err, errAttachEnded):
+		return err
+	case errors.Is(err, syscall.EPIPE) || errors.Is(err, os.ErrClosed) || errors.Is(err, io.ErrClosedPipe):
+		p.logger.Warn("stdin pipe broken for "+p.name, "error", err)
+		return &StdinBrokenError{Name: p.name, Err: err}
+	}
+	return err
+}
+
+var errStdinStalled = errors.New("stdin stalled")
+
+func writeWithStall(w io.Writer, d interface{ SetWriteDeadline(time.Time) error }, data []byte, stall time.Duration, done <-chan struct{}) error {
+	last := time.Now()
+	for len(data) > 0 {
+		_ = d.SetWriteDeadline(time.Now().Add(250 * time.Millisecond))
+		n, err := w.Write(data)
+		data = data[n:]
+		if n > 0 {
+			last = time.Now()
+		}
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			return err
+		}
+		select {
+		case <-done:
+			return errAttachEnded
+		default:
+		}
+		if time.Since(last) >= stall {
+			return errStdinStalled
+		}
+	}
 	return nil
+}
+
+// StdinFullError reports a stdin write the child did not read in time
+// (FUNC-077): the pipe is full. Bytes written before the stall stay
+// written.
+type StdinFullError struct{ Name string }
+
+func (e *StdinFullError) Error() string {
+	return "process " + e.Name + ": stdin is full (the process is not reading it)"
 }
 
 // StdinBrokenError reports a write to a running process whose stdin is
