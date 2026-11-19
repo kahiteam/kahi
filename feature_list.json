@@ -428,6 +428,7 @@
       "title": "TOML Config Variable Expansion",
       "description": "Expand template variables and environment variable references in config values, supporting %(here)s, %(program_name)s, %(process_num)d, and ${ENV_VAR} syntax.",
       "testing_steps": [
+        "e2e: [server.unix] file = \"%(here)s/kahi.sock\": kahi ctl -c kahi.toml status w finds the daemon; environment PW = \"${ZZ_E2E_PW}\" with ZZ_E2E_PW='a$$b%%c' reaches the program as a$$b%%c (a substituted value is not expanded again)",
         "Parse a config with directory='%(here)s/data' loaded from /etc/kahi/kahi.toml and verify it resolves to /etc/kahi/data",
         "Parse a config with command='${APP_BIN}/server' where APP_BIN=/usr/local/bin and verify resolution to /usr/local/bin/server",
         "Parse a config with stdout_logfile containing %(program_name)s and %(process_num)d and verify correct expansion",
@@ -441,6 +442,7 @@
       ],
       "passes": true,
       "verified_by": [
+        "TestConfig_ExpansionCtlSocketAndNoRecursion",
         "TestEnv_HereExpansion",
         "TestEnv_HereExpansionInIncludedFile",
         "TestEnv_ProgramNameExpansion",

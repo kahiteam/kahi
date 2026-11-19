@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -61,7 +62,13 @@ func resolveSocketFromConfig() string {
 		return defaultSocket
 	}
 	if cfg.Server.Unix.File != "" {
-		return cfg.Server.Unix.File
+		// The daemon expands the path (%(here)s, ${VAR}); ctl must dial the
+		// same one.
+		file, err := config.ExpandString(cfg.Server.Unix.File, config.ExpandContext{Here: filepath.Dir(cfgPath)})
+		if err != nil {
+			return defaultSocket
+		}
+		return file
 	}
 	return defaultSocket
 }
