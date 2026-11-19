@@ -316,10 +316,18 @@ func (s *Supervisor) applyReload() (res config.ReloadResult, err error) {
 	// Groups and programs that did not stop keep their old processes; record
 	// their old config so the next reload sees them as changed or removed
 	// again.
+	// The new config has no [programs] or [eventlisteners] table when
+	// its last entry was removed; those maps are nil then.
 	for _, prog := range out.Stuck {
 		if old, ok := oldCfg.Programs[prog]; ok {
+			if newCfg.Programs == nil {
+				newCfg.Programs = make(map[string]config.ProgramConfig)
+			}
 			newCfg.Programs[prog] = old
 		} else if old, ok := oldCfg.EventListeners[prog]; ok {
+			if newCfg.EventListeners == nil {
+				newCfg.EventListeners = make(map[string]config.EventListenerConfig)
+			}
 			newCfg.EventListeners[prog] = old
 		}
 	}
