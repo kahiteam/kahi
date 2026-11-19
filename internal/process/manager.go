@@ -856,9 +856,22 @@ func (m *Manager) Restart(name string) error {
 		if err := p.Stop(); err != nil {
 			return err
 		}
-		m.waitForStopped(p, 30*time.Second)
+		if err := m.waitStopForRestart(p); err != nil {
+			return err
+		}
 	}
 	return p.Start()
+}
+
+// waitStopForRestart waits up to the process's stopwaitsecs plus
+// stopWaitMargin, as a bulk stop does, and fails a restart whose process is
+// still stopping then (it used to wait a fixed 30 s and start anyway).
+func (m *Manager) waitStopForRestart(p *Process) error {
+	waitSecs := p.Config().Stopwaitsecs + stopWaitMargin
+	if !m.waitForStopped(p, time.Duration(waitSecs)*time.Second) {
+		return fmt.Errorf("process %s did not stop within %ds", p.Name(), waitSecs)
+	}
+	return nil
 }
 
 // waitForStopped polls until the process reaches a terminal state. It reports
@@ -1062,7 +1075,9 @@ func (m *Manager) RestartGroup(name string) error {
 		return err
 	}
 	for _, p := range procs {
-		m.waitForStopped(p, 30*time.Second)
+		if err := m.waitStopForRestart(p); err != nil {
+			return fmt.Errorf("group %s: %w", name, err)
+		}
 	}
 
 	return m.StartGroup(name)

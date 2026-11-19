@@ -571,7 +571,8 @@ This feature adds two complementary mechanisms:
 **Edge Cases:**
 
 - A process that exits on its own during STOPPING ends STOPPED, not EXITED: a stop was requested, so the exit completes it (as in supervisord)
-- BACKOFF retry counter resets when process successfully reaches RUNNING state
+- BACKOFF retry counter resets when process successfully reaches RUNNING state, and on a start the operator requests (`kahi ctl start`, the API, a group or bulk start), so a start after FATAL or a stop gets the full startretries window again, as in supervisord; a backoff retry never resets it (decided 2026-11-19)
+- A reload that changes `startsecs` while a process is STARTING applies to that start: the process reaches RUNNING once it has run for the new value
 - Clock rollback during STARTING state must not cause premature transition to RUNNING
 
 **Dependencies:** INFRA-001
@@ -620,6 +621,8 @@ This feature adds two complementary mechanisms:
 **Edge Cases:**
 
 - Binary path is resolved via PATH lookup at exec time
+- A program with `umask` or rlimits is spawned through the trampoline (the daemon re-execs itself to apply them, then execs the target). A failure before or at that exec (command not found, not executable, a bare name found only through a relative PATH entry, rlimits that cannot be applied) is reported back to the daemon, so it is the same spawn error as a direct spawn: BACKOFF, then FATAL, with "spawn error: ..." in status, never an exit 127 (v0.3.0 review, 2026-11-19)
+- A bare name is looked up in the supervisor's PATH and working directory for a direct spawn, and in the program's environment PATH and `directory` through the trampoline. In both, a name found only through a relative PATH entry (empty entry or `.`) is refused with Go's `exec.ErrDot` text, `exec: "{name}": cannot run executable found relative to current directory` (decided 2026-11-19)
 - File descriptor inheritance is limited to stdin/stdout/stderr pipes only
 - If pipe creation fails, process goes to FATAL with spawn error
 
@@ -1754,6 +1757,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 - `kahi ctl` without a subcommand prints help and exits 0
 - Exit codes for every `kahi` command (decided 2026-10-29): 0 success, 1 runtime failure, 2 usage error. Release-note item
 - start, stop and restart (also `all` and `name:*`) have no overall client time limit: the daemon bounds each process by its stopwaitsecs, so a bulk stop can take the sum of them. `--timeout {duration}` limits the wait; at the limit ctl exits 1 with "daemon still working after {duration}" and the daemon finishes the action. Connecting is bounded by 5 s; queries (status, pid, health, ready, version, tail without -f) by 30 s (#222)
+- A restart (of a process or a group) waits for each process to stop for its stopwaitsecs plus 5 seconds, as a bulk stop does; a process still stopping then fails the restart with "process {name} did not stop within {n}s" (409) and is not started (v0.3.0 review, 2026-11-19)
 
 **Dependencies:** FUNC-026, INFRA-004, FUNC-083
 
@@ -1875,6 +1879,7 @@ API: a successful upgrade is 101 Switching Protocols with `Upgrade: kahi-attach`
 - The session lock is held by the daemon, not the client: it is taken when the session opens and released when the client disconnects, detaches or the process exits, so a killed client never leaves the process locked
 - Ctrl+] is the only detach key; Ctrl+C, Ctrl+Z and Ctrl+\ are forwarded to the process as bytes (decided 2026-11-14), so an interactive program receives ^C as it would in a terminal. SIGINT, SIGTERM or SIGHUP sent to the `kahi ctl` client itself still ends the session and restores the terminal
 - Input bytes are written without a trailing newline; the line-oriented `kahi ctl send` (FUNC-077) is unchanged
+- Input waits while the process does not read its stdin; the wait ends when the session ends, and input the process does not read for 30 seconds ends the session (the client reports it lost), so a stalled write never keeps the process locked (v0.3.0 review, 2026-11-19)
 - With `redirect_stderr = true` the process has no separate stderr stream; everything arrives on stdout
 - Output already in the ring buffer is not replayed; the session shows output produced after it opens
 
@@ -3519,12 +3524,14 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 
 **Error Handling:**
 
-| Error Condition              | Expected Behavior  | User-Facing Message                                         |
-| ---------------------------- | ------------------ | ----------------------------------------------------------- |
-| Process not running          | Return error       | "process not running: {name}"                               |
-| Stdin pipe broken            | Return error       | "stdin pipe broken for {name}"                              |
-| Attach session open          | Return error (409) | "process {name}: attached"                                  |
-| Process is an event listener | Return error (400) | "process {name}: stdin carries the event listener protocol" |
+| Error Condition              | Expected Behavior  | User-Facing Message                                             |
+| ---------------------------- | ------------------ | --------------------------------------------------------------- |
+| Process not running          | Return error       | "process not running: {name}"                                   |
+| Stdin pipe broken            | Return error       | "stdin pipe broken for {name}"                                  |
+| Process does not read stdin  | Return error (409) | "process {name}: stdin is full (the process is not reading it)" |
+| Data larger than 1 MiB       | Return error (413) | "stdin data exceeds 1048576 bytes"                              |
+| Attach session open          | Return error (409) | "process {name}: attached"                                      |
+| Process is an event listener | Return error (400) | "process {name}: stdin carries the event listener protocol"     |
 
 API status codes: "process not running" is 400, "stdin pipe broken" is 409, and "process {name}: attached" (an attach session is open, FUNC-034) is 409; all are JSON errors (the listener case is 400, FUNC-055) like every other API error, and `kahi ctl send` prints the message and exits 1.
 
@@ -3534,6 +3541,8 @@ API status codes: "process not running" is 400, "stdin pipe broken" is 409, and 
 - The e2e proof for the broken pipe uses a program that closes its stdin and keeps running: `sh -c 'exec 0<&-; sleep 30'`
 - Every process gets a stdin pipe; there is no per-process option to turn it off (decided 2026-10-26: the spawner always creates one, so "does not accept stdin" cannot occur)
 - Data must include explicit newlines if needed
+- The write never holds the process lock: a child that does not read stdin fills the pipe (about 64 KB), and a write that makes no progress for 5 seconds fails with "process {name}: stdin is full (the process is not reading it)"; bytes written before it stay written. Status, stop, signals, reaping and shutdown are never blocked by a pending write (v0.3.0 review, 2026-11-19)
+- One write carries at most 1 MiB of data (the same bound as an attach input frame); a larger body is 413
 
 **Dependencies:** FUNC-026, FUNC-002, FUNC-031
 
@@ -4087,7 +4096,7 @@ static_dir = ""      # optional per-file overlay for /ui/static/ (FUNC-080)
 - Program `user` values are resolved as `kahi daemon` resolves them at load and produce the same warnings
 - Warnings and notes that the daemon writes to its own log after opening it are printed to stderr as `warning: {message}` followed by the log record's attributes as ` key=value` pairs in the order the daemon logs them, quoted as a slog text log quotes them (`path="/run/my dir/k.pid"`): NOFILE hard limit below the default minfds, NPROC below the default minprocs, running as root without a user, a stale PID file that would be replaced, `[server.web] static_dir` missing. The `-u overrides supervisor.user` info line is printed as `note: {text}`
 - `[server.http] listen` addresses are parsed and validated, but no bind is tried, so a port already in use is not detected
-- Program-level problems do not stop the daemon (the program goes BACKOFF/FATAL at runtime), so they are warnings, exit 0: `command` not found or not executable, `directory` missing or not searchable, a log file whose parent is missing or not writable, each as `warning: programs.{name}.{key}: {reason}`. `command` is resolved as the spawn resolves it: a bare name through the supervisor's PATH, or through the program's environment PATH when `umask` or rlimits route it through the trampoline (an absolute PATH hit runs; a relative hit or no hit leaves the bare name, which runs from the program's `directory`, as `RunChildInit` execs it); a path with a slash relative to the program's `directory`. Values are expanded per numprocs instance (`%(process_num)d`); each distinct message is printed once. Event listener pool members are checked the same way, as `warning: eventlisteners.{name}.{key}: {reason}` (their stdout carries the protocol, so it has no log file to check) No program is spawned (decided 2026-11-16)
+- Program-level problems do not stop the daemon (the program goes BACKOFF/FATAL at runtime), so they are warnings, exit 0: `command` not found or not executable, `directory` missing or not searchable, a log file whose parent is missing or not writable, each as `warning: programs.{name}.{key}: {reason}`. `command` is resolved as the spawn resolves it: a bare name through the supervisor's PATH, or through the program's environment PATH when `umask` or rlimits route it through the trampoline (an absolute PATH hit runs; a hit through a relative entry, resolved against the program's `directory`, is refused with the `exec.ErrDot` text as the spawn refuses it, FUNC-002); a path with a slash relative to the program's `directory`. Values are expanded per numprocs instance (`%(process_num)d`); each distinct message is printed once. Event listener pool members are checked the same way, as `warning: eventlisteners.{name}.{key}: {reason}` (their stdout carries the protocol, so it has no log file to check) No program is spawned (decided 2026-11-16)
 - An include file that changes between the check and the start is not covered; the check is a snapshot
 - `kahi config` with no subcommand prints its help and exits 0, like `kahi ctl`
 - e2e proof runs the binary for the OK, warning, config-error, probe-error, running-daemon and usage cases; steps that depend on directory modes or limits skip when run as root
