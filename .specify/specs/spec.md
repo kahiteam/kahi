@@ -122,6 +122,7 @@ Infrastructure features have NO dependencies. They establish the foundation.
 
 - A key that is absent gets its default. A key that is set keeps its value, including 0 (#138): `priority = 0` starts first, `startsecs = 0` counts a process as RUNNING at once, `startretries = 0` never retries, `*_logfile_backups = 0` keeps no backups, and `exitcodes = []` expects no exit status.
 - Zero or negative values that would kill processes without a grace period are config errors: `stopwaitsecs` and `supervisor.shutdown_timeout` must be >= 1, and `numprocs` must be >= 1. Negative `startsecs`, `startretries`, `*_logfile_backups`, `minfds` and `minprocs` are config errors too.
+- Upper bounds (v0.3.0 review): `startsecs`, `stopwaitsecs` and `supervisor.shutdown_timeout` must be <= 31536000 (one year; larger values overflowed into an immediate SIGKILL), `numprocs` <= 10000 (a huge value panicked the daemon on load or reload) and `numprocs_start` between 0 and 1000000000 (a huge value wrapped to zero instances); each is a config error with "{key} must be <= {max}, got {n}" or "numprocs_start must be between 0 and 1000000000, got {n}"
 
 **Dependencies:** None
 
@@ -998,7 +999,10 @@ This feature adds two complementary mechanisms:
 
 **Edge Cases:**
 
-- Recursive expansion is not supported (a variable cannot reference another variable)
+- Recursive expansion is not supported (a variable cannot reference another variable): a value is expanded in one left-to-right pass, and what a substitution puts in is never scanned again, so a `$$`, `%%` or `${...}` inside an environment variable's value or in the config directory's path (`%(here)s`) stays as it is (v0.3.0 review, 2026-11-19)
+- With `numprocs > 1`, `%%` stays a literal `%` in every instance and a `%` a substitution puts in is never read as `%(process_num)d`
+- An unclosed `%(` or `${` is reported by position, without the value (the value can be a secret)
+- `kahi ctl` without `-s` expands `[server.unix] file` (`%(here)s`, `${VAR}`) as the daemon does, so it dials the same socket
 - Literal `%` and `$` can be escaped as `%%` and `$$`
 - Expansion happens at config load time, not at process start time
 - `%(group_name)s` is the program's own group, which is the program name, even when the program is also listed in an explicit `[groups.x]` table. This matches supervisord, which expands it in the program section before any regrouping (#167).

@@ -30,6 +30,15 @@ var validAutorestartValues = map[string]bool{
 }
 
 // Validate checks the config for semantic errors and returns all of them.
+// Upper bounds (v0.3.0 review): larger values overflowed a time.Duration
+// (an immediate SIGKILL), panicked instance naming on load and reload, or
+// wrapped the instance numbers.
+const (
+	MaxSeconds       = 31536000 // one year: startsecs, stopwaitsecs, shutdown_timeout
+	MaxNumprocs      = 10000
+	MaxNumprocsStart = 1000000000
+)
+
 func Validate(cfg *Config) []error {
 	var errs []error
 
@@ -45,6 +54,8 @@ func Validate(cfg *Config) []error {
 	// shutdown begins (#138).
 	if cfg.Supervisor.ShutdownTimeout < 1 {
 		errs = append(errs, fmt.Errorf("supervisor.shutdown_timeout must be >= 1, got %d", cfg.Supervisor.ShutdownTimeout))
+	} else if cfg.Supervisor.ShutdownTimeout > MaxSeconds {
+		errs = append(errs, fmt.Errorf("supervisor.shutdown_timeout must be <= %d, got %d", MaxSeconds, cfg.Supervisor.ShutdownTimeout))
 	}
 	if u := cfg.Supervisor.Umask; u != "" && !ValidUmask(u) {
 		errs = append(errs, fmt.Errorf("supervisor.umask: invalid umask: %s", u))
@@ -257,6 +268,19 @@ func checkProgram(prefix string, p ProgramConfig) []error {
 
 	if p.Numprocs < 1 {
 		errs = append(errs, fmt.Errorf("%s: numprocs must be >= 1, got %d", prefix, p.Numprocs))
+	} else if p.Numprocs > MaxNumprocs {
+		errs = append(errs, fmt.Errorf("%s: numprocs must be <= %d, got %d", prefix, MaxNumprocs, p.Numprocs))
+	}
+	if p.NumprocsStart < 0 || p.NumprocsStart > MaxNumprocsStart {
+		errs = append(errs, fmt.Errorf("%s: numprocs_start must be between 0 and %d, got %d", prefix, MaxNumprocsStart, p.NumprocsStart))
+	}
+	for _, f := range []struct {
+		key string
+		v   int
+	}{{"startsecs", p.Startsecs}, {"stopwaitsecs", p.Stopwaitsecs}} {
+		if f.v > MaxSeconds {
+			errs = append(errs, fmt.Errorf("%s: %s must be <= %d, got %d", prefix, f.key, MaxSeconds, f.v))
+		}
 	}
 
 	// A stop timeout of 0 or less sends SIGKILL right after the stop

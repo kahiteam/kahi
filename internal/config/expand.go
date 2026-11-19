@@ -61,74 +61,99 @@ func ExpandVariables(cfg *Config, configPath string) error {
 	return expandWebhooks(cfg, ctx)
 }
 
-// expandString expands all template variables and env references in a single string.
+// expandString expands template variables and environment references in a
+// single left-to-right pass (FUNC-012): %(var)s / %(var)d and ${VAR} are
+// replaced, %% and $$ are the escapes for a literal % and $, and a value put
+// in by a substitution is never scanned again, so a $$ or %% inside an
+// environment variable's value stays as it is (no recursion).
+//
+// With KeepProcessNum (numprocs > 1) %(process_num)d is left for each
+// instance (ExpandProcessNum), so %% stays escaped and every % a
+// substitution puts in is escaped as %% for that second pass.
 func expandString(s string, ctx ExpandContext) (string, error) {
 	if s == "" {
 		return s, nil
 	}
-
-	// Phase 1: Expand %(variable)s and %(variable)d patterns.
-	result, err := expandTemplateVars(s, ctx)
-	if err != nil {
-		return "", err
-	}
-
-	// Phase 2: Expand ${ENV_VAR} references.
-	result, err = expandEnvVars(result)
-	if err != nil {
-		return "", err
-	}
-
-	// Phase 3: Unescape %% -> % and $$ -> $.
-	result = strings.ReplaceAll(result, "%%", "%")
-	result = strings.ReplaceAll(result, "$$", "$")
-
-	return result, nil
-}
-
-func expandTemplateVars(s string, ctx ExpandContext) (string, error) {
-	var result strings.Builder
-	i := 0
-	for i < len(s) {
-		if i+1 < len(s) && s[i] == '%' && s[i+1] == '%' {
-			// Escaped percent, preserve for later unescaping.
-			result.WriteString("%%")
-			i += 2
-			continue
+	insert := func(b *strings.Builder, v string) {
+		if ctx.KeepProcessNum {
+			v = strings.ReplaceAll(v, "%", "%%")
 		}
-
-		if i+1 < len(s) && s[i] == '%' && s[i+1] == '(' {
-			// Find closing )s or )d.
+		b.WriteString(v)
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		switch {
+		case strings.HasPrefix(s[i:], "%%"):
+			if ctx.KeepProcessNum {
+				b.WriteString("%%")
+			} else {
+				b.WriteByte('%')
+			}
+			i += 2
+		case strings.HasPrefix(s[i:], "$$"):
+			b.WriteByte('$')
+			i += 2
+		case strings.HasPrefix(s[i:], "%("):
 			end := strings.Index(s[i:], ")s")
 			endD := strings.Index(s[i:], ")d")
 			if end < 0 && endD < 0 {
-				return "", fmt.Errorf("unclosed template variable at position %d in %q", i, s)
+				return "", fmt.Errorf("unclosed template variable at position %d", i)
 			}
-
-			var varName string
-			var advance int
-			if end >= 0 && (endD < 0 || end < endD) {
-				varName = s[i+2 : i+end]
-				advance = end + 2
+			if end < 0 || (endD >= 0 && endD < end) {
+				end = endD
+			}
+			name := s[i+2 : i+end]
+			if name == "process_num" && ctx.KeepProcessNum {
+				b.WriteString("%(process_num)d")
 			} else {
-				varName = s[i+2 : i+endD]
-				advance = endD + 2
+				val, err := resolveTemplateVar(name, ctx)
+				if err != nil {
+					return "", err
+				}
+				insert(&b, val)
 			}
-
-			val, err := resolveTemplateVar(varName, ctx)
-			if err != nil {
-				return "", err
+			i += end + 2
+		case strings.HasPrefix(s[i:], "${"):
+			end := strings.IndexByte(s[i:], '}')
+			if end < 0 {
+				return "", fmt.Errorf("unclosed environment variable reference at position %d", i)
 			}
-			result.WriteString(val)
-			i += advance
-			continue
+			name := s[i+2 : i+end]
+			val, ok := os.LookupEnv(name)
+			if !ok {
+				return "", fmt.Errorf("undefined environment variable: ${%s}", name)
+			}
+			insert(&b, val)
+			i += end + 1
+		default:
+			b.WriteByte(s[i])
+			i++
 		}
-
-		result.WriteByte(s[i])
-		i++
 	}
+	return b.String(), nil
+}
 
-	return result.String(), nil
+// ExpandProcessNum is the per-instance pass for numprocs > 1: it puts num
+// in for %(process_num)d and turns the %% the load pass kept back into %.
+func ExpandProcessNum(s string, num int) string {
+	if !strings.Contains(s, "%") {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		switch {
+		case strings.HasPrefix(s[i:], "%%"):
+			b.WriteByte('%')
+			i += 2
+		case strings.HasPrefix(s[i:], "%(process_num)d"):
+			fmt.Fprintf(&b, "%d", num)
+			i += len("%(process_num)d")
+		default:
+			b.WriteByte(s[i])
+			i++
+		}
+	}
+	return b.String()
 }
 
 func resolveTemplateVar(name string, ctx ExpandContext) (string, error) {
@@ -138,9 +163,6 @@ func resolveTemplateVar(name string, ctx ExpandContext) (string, error) {
 	case "program_name":
 		return ctx.ProgramName, nil
 	case "process_num":
-		if ctx.KeepProcessNum {
-			return "%(process_num)d", nil
-		}
 		return fmt.Sprintf("%d", ctx.ProcessNum), nil
 	case "group_name":
 		return ctx.GroupName, nil
@@ -149,40 +171,6 @@ func resolveTemplateVar(name string, ctx ExpandContext) (string, error) {
 	default:
 		return "", fmt.Errorf("unknown template variable: %%(%s)s", name)
 	}
-}
-
-func expandEnvVars(s string) (string, error) {
-	var result strings.Builder
-	i := 0
-	for i < len(s) {
-		if i+1 < len(s) && s[i] == '$' && s[i+1] == '$' {
-			// Escaped dollar, preserve for later unescaping.
-			result.WriteString("$$")
-			i += 2
-			continue
-		}
-
-		if i+1 < len(s) && s[i] == '$' && s[i+1] == '{' {
-			end := strings.Index(s[i:], "}")
-			if end < 0 {
-				return "", fmt.Errorf("unclosed environment variable reference at position %d in %q", i, s)
-			}
-
-			varName := s[i+2 : i+end]
-			val, ok := os.LookupEnv(varName)
-			if !ok {
-				return "", fmt.Errorf("undefined environment variable: ${%s}", varName)
-			}
-			result.WriteString(val)
-			i += end + 1
-			continue
-		}
-
-		result.WriteByte(s[i])
-		i++
-	}
-
-	return result.String(), nil
 }
 
 // ExpandString is exported for use by other packages needing single-value expansion.
