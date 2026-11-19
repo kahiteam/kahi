@@ -44,11 +44,12 @@ func TestLookPathIn(t *testing.T) {
 		dirOK, relOK, ok     bool
 	}{
 		{"absolute hit", "tool", bin, app, true, true, true},
-		{"empty entry runs in the program directory", "worker", "/nonexistent:", app, true, true, true},
-		{"no hit runs the bare name in the program directory", "worker", "/nonexistent", app, true, true, true},
+		{"absolute hit before a relative one", "tool", bin + ":", app, true, true, true},
+		{"empty entry hit is refused (ErrDot)", "worker", "/nonexistent:", app, true, true, false},
+		{"name only in the program directory, no relative entry", "worker", "/nonexistent", app, true, true, false},
 		{"not anywhere", "nosuch", "/nonexistent:", app, true, true, false},
-		{"directory missing: covered by its warning", "nosuch", "/nonexistent", app, false, true, true},
-		{"relative base unusable", "nosuch", "/nonexistent", "", true, false, true},
+		{"directory missing: covered by its warning", "nosuch", "/nonexistent:", app, false, true, true},
+		{"relative base unusable", "nosuch", ":/nonexistent", "", true, false, true},
 		{"daemon directory", "nosuch", "", "", true, true, false},
 	} {
 		err := lookPathIn(tc.cmd, env(tc.path), tc.dir, tc.dirOK, tc.relOK)

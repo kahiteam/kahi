@@ -2170,6 +2170,7 @@
       "title": "Process stdin Writing via API and CLI",
       "description": "Write data to a process's standard input via REST API or CLI, with errors for non-running processes, a broken stdin pipe, an open attach session and event listener processes (FUNC-077, #259).",
       "testing_steps": [
+        "e2e: 900 KB to a program that never reads stdin: status answers while the write is pending, the write fails within 10 s with 409 'process sleeper: stdin is full (the process is not reading it)', and more than 1 MiB of data is 413 'stdin data exceeds 1048576 bytes'",
         "e2e: POST /api/v1/processes/web/stdin {\"data\":\"quit\\n\"}; the program echoes and kahi ctl tail shows 'quit'",
         "e2e: 'kahi ctl send web quit' exits 0 and within 5 s kahi ctl tail web shows 'quit'",
         "e2e: stdin to a STOPPED process returns 400 'process not running: web' and ctl send exits 1",
@@ -2185,7 +2186,8 @@
       "verified_by": [
         "TestStdin_Write",
         "TestCLI_SendWritesLineToStdin",
-        "TestStdin_ErrorsAndBrokenPipe"
+        "TestStdin_ErrorsAndBrokenPipe",
+        "TestStdin_FullPipeDoesNotHangDaemon"
       ]
     },
     {
@@ -3348,7 +3350,7 @@
         "unit: each probe and its startup step agree on missing / not a directory / not writable / symlink / ok fixtures with the same error text (ADR-054 parity tests)",
         "e2e: TMPDIR with an existing kahi-<uid> socket directory mode 0500: kahi daemon fails with 'permission denied: cannot create socket in {dir}' and kahi config check exits 1 with 'error: ' and the same text",
         "e2e: [supervisor] directory missing, program paths relative (command bin/web, stdout_logfile logs/web.log, directory work): the check reports only the directory error and no 'warning: programs.' line",
-        "e2e: command = \"worker\" with umask (trampoline), directory app holding worker, environment PATH '/nonexistent:': the check prints no programs.w.command warning and the daemon runs w (RUNNING)",
+        "e2e: command = \"worker\" with umask (trampoline), directory app holding worker, environment PATH '/nonexistent:': the check warns 'programs.w.command: exec: \"worker\": cannot run executable found relative to current directory' and the daemon puts w in FATAL with that spawn error (a relative PATH hit is refused, as a direct spawn refuses it)",
         "e2e: a stale PID file at 'stale pid' with content '12 34': the check prints 'warning: replacing stale PID file path=\"{path}\" content=\"12 34\"'",
         "container: as root, 'kahi config check -u kahi' prints 'note: program checks ran as root; after the privilege drop the daemon opens program logs and starts programs as kahi (uid 1000), whose access was not checked'; without -u and with a program user = \"33\" it prints 'note: program checks ran as root; a program with a user setting starts as that user, whose access to its command and directory was not checked'"
       ],

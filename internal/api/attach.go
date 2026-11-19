@@ -202,6 +202,11 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 			if typ == FrameStdin && len(data) > 0 {
 				if err := session.Write(data); err != nil {
 					s.logger.Warn("attach input", "process", name, "error", err)
+					// Input the process does not read ends the session,
+					// so the lock is never held by a stalled write.
+					if strings.Contains(err.Error(), ": stdin is full") {
+						return
+					}
 				}
 			}
 		}

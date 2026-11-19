@@ -57,9 +57,9 @@ func TestConfigCheck_RelativeProgramPathsSkippedWithoutDirectory(t *testing.T) {
 	}
 }
 
-// A bare command run through the trampoline (umask) with a relative PATH
-// entry runs from the program's directory (exec.LookPath's ErrDot leaves the
-// bare name): the check finds it there, and the daemon starts it.
+// A bare command run through the trampoline (umask) and found only through
+// a relative PATH entry is refused, as a direct spawn refuses it
+// (exec.ErrDot): the check warns, and the daemon reports the spawn error.
 func TestConfigCheck_TrampolineRelativePathEntry(t *testing.T) {
 	t.Parallel()
 	base := realDir(t)
@@ -68,14 +68,18 @@ func TestConfigCheck_TrampolineRelativePathEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeScript(t, app, "worker", "exec /bin/sleep 300\n")
-	body := fmt.Sprintf("[programs.w]\ncommand = \"worker\"\ndirectory = %q\numask = \"022\"\nstartsecs = 0\nenvironment = { PATH = \"/nonexistent:\" }\n", app)
+	body := fmt.Sprintf("[programs.w]\ncommand = \"worker\"\ndirectory = %q\numask = \"022\"\nstartsecs = 0\nstartretries = 0\nenvironment = { PATH = \"/nonexistent:\" }\n", app)
 	dir, path := checkConfig(t, body)
+	refused := `exec: "worker": cannot run executable found relative to current directory`
 	_, stderr, code := runKahi(t, dir, "config", "check", "-c", path)
-	if code != 0 || strings.Contains(stderr, "programs.w.command") {
+	if code != 0 || !strings.Contains(stderr, "warning: programs.w.command: "+refused+"\n") {
 		t.Errorf("check: code %d, stderr %q", code, stderr)
 	}
 	client, _ := startDaemon(t, body)
-	waitForState(t, client, "w", "RUNNING", 5*time.Second)
+	waitForState(t, client, "w", "FATAL", 10*time.Second)
+	if info, err := getProcessInfo(client, "w"); err != nil || !strings.Contains(info.Description, refused) {
+		t.Errorf("w: %+v %v; want the spawn error %q", info, err, refused)
+	}
 }
 
 // Values with spaces are quoted as in a text log.

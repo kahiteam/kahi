@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -597,13 +598,28 @@ func (s *Server) handleSignalProcess(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "signaled", "name": name, "signal": canonical})
 }
 
+// maxStdinData bounds one stdin write through the API, as maxAttachFrame
+// bounds an attach input frame (FUNC-077).
+const maxStdinData = 1 << 20
+
 func (s *Server) handleWriteStdin(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	var body struct {
 		Data string `json:"data"`
 	}
+	// The JSON envelope of at most maxStdinData bytes of data (FUNC-077).
+	r.Body = http.MaxBytesReader(w, r.Body, 2*maxStdinData)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("stdin data exceeds %d bytes", maxStdinData), "TOO_LARGE")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "request body must contain {\"data\":\"...\"}", "BAD_REQUEST")
+		return
+	}
+	if len(body.Data) > maxStdinData {
+		writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("stdin data exceeds %d bytes", maxStdinData), "TOO_LARGE")
 		return
 	}
 	if err := s.processes.WriteStdin(name, []byte(body.Data)); err != nil {
@@ -1129,6 +1145,7 @@ func classifyError(err error) int {
 		strings.Contains(msg, "is still active"),
 		strings.Contains(msg, "did not stop"),
 		strings.Contains(msg, "stdin pipe broken"),
+		strings.Contains(msg, ": stdin is full"),
 		strings.Contains(msg, ": already attached"),
 		strings.HasSuffix(msg, ": attached"):
 		return http.StatusConflict
