@@ -3337,7 +3337,12 @@
         "e2e: a regular file at the [server.unix] socket path with no daemon running: exit 1, stderr contains 'exists and is not a socket'; the file is unchanged",
         "e2e: logfile parent is a symlink to an absolute directory: exit 1 with the daemon's 'cannot open log file: ' text",
         "e2e: [eventlisteners.x] without command: exit 1 with the same text kahi daemon prints; a pool whose command is missing gives 'warning: eventlisteners.l.command: ...' and exit 0",
-        "unit: each probe and its startup step agree on missing / not a directory / not writable / symlink / ok fixtures with the same error text (ADR-054 parity tests)"
+        "unit: each probe and its startup step agree on missing / not a directory / not writable / symlink / ok fixtures with the same error text (ADR-054 parity tests)",
+        "e2e: TMPDIR with an existing kahi-<uid> socket directory mode 0500: kahi daemon fails with 'permission denied: cannot create socket in {dir}' and kahi config check exits 1 with 'error: ' and the same text",
+        "e2e: [supervisor] directory missing, program paths relative (command bin/web, stdout_logfile logs/web.log, directory work): the check reports only the directory error and no 'warning: programs.' line",
+        "e2e: command = \"worker\" with umask (trampoline), directory app holding worker, environment PATH '/nonexistent:': the check prints no programs.w.command warning and the daemon runs w (RUNNING)",
+        "e2e: a stale PID file at 'stale pid' with content '12 34': the check prints 'warning: replacing stale PID file path=\"{path}\" content=\"12 34\"'",
+        "container: as root, 'kahi config check -u kahi' prints 'note: program checks ran as root; after the privilege drop the daemon opens program logs and starts programs as kahi (uid 1000), whose access was not checked'; without -u and with a program user = \"33\" it prints 'note: program checks ran as root; a program with a user setting starts as that user, whose access to its command and directory was not checked'"
       ],
       "passes": true,
       "verified_by": [
@@ -3353,7 +3358,12 @@
         "TestConfigCheck_Usage",
         "TestConfigCheck_SocketPathNotSocket",
         "TestConfigCheck_LogParentSymlink",
-        "TestConfigCheck_ListenerPools"
+        "TestConfigCheck_ListenerPools",
+        "TestConfigCheck_PrivateSocketDirNotWritable",
+        "TestConfigCheck_RelativeProgramPathsSkippedWithoutDirectory",
+        "TestConfigCheck_TrampolineRelativePathEntry",
+        "TestConfigCheck_WarningValuesQuoted",
+        "TestRootContainer_ConfigCheckProgramAccessNote"
       ],
       "dependencies": [
         "config-search-paths",

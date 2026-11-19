@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/kahiteam/kahi/internal/api"
+	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/logging"
 	"github.com/kahiteam/kahi/internal/process"
 	"github.com/kahiteam/kahi/internal/supervisor"
@@ -133,7 +134,10 @@ func configCheckRun(cmd *cobra.Command, _ []string) error {
 	if cfg.Server.Web.Enabled {
 		web.ProbeStaticDir(cfg.Server.Web.StaticDir, logger)
 	}
-	for _, w := range process.ProbePrograms(cfg) {
+	if n := programAccessNote(os.Geteuid(), drop, cfg); n != "" {
+		_, _ = fmt.Fprintf(stderr, "note: %s\n", n)
+	}
+	for _, w := range process.ProbePrograms(cfg, relOK) {
 		_, _ = fmt.Fprintf(stderr, "warning: %s\n", w)
 	}
 
@@ -162,17 +166,26 @@ func (h *checkHandler) Handle(_ context.Context, r slog.Record) error {
 	if r.Level >= slog.LevelWarn {
 		prefix = "warning"
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "%s: %s", prefix, r.Message)
-	for _, a := range h.attrs {
-		fmt.Fprintf(&b, " %s=%v", a.Key, a.Value)
+	// The attrs go through slog's text handler, so values are quoted as
+	// in a text log ("path=\"/run/my dir/k.pid\""); time, level and msg
+	// are dropped.
+	var attrs strings.Builder
+	text := slog.NewTextHandler(&attrs, &slog.HandlerOptions{ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+		if len(groups) == 0 && (a.Key == slog.TimeKey || a.Key == slog.LevelKey || a.Key == slog.MessageKey) {
+			return slog.Attr{}
+		}
+		return a
+	}})
+	rec := slog.NewRecord(r.Time, r.Level, "", r.PC)
+	r.Attrs(func(a slog.Attr) bool { rec.AddAttrs(a); return true })
+	if err := text.WithAttrs(h.attrs).Handle(context.Background(), rec); err != nil {
+		return err
 	}
-	r.Attrs(func(a slog.Attr) bool {
-		fmt.Fprintf(&b, " %s=%v", a.Key, a.Value)
-		return true
-	})
-	b.WriteByte('\n')
-	_, err := io.WriteString(h.w, b.String())
+	line := prefix + ": " + r.Message
+	if s := strings.TrimSpace(attrs.String()); s != "" {
+		line += " " + s
+	}
+	_, err := io.WriteString(h.w, line+"\n")
 	return err
 }
 
@@ -181,3 +194,31 @@ func (h *checkHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 }
 
 func (h *checkHandler) WithGroup(string) slog.Handler { return h }
+
+// programAccessNote says what the program checks could not cover when they
+// ran as root (FUNC-087): after a privilege drop the daemon opens program
+// logs and starts programs as the drop user, and a program's user setting
+// starts it as that user; the checks used root's access rights.
+func programAccessNote(euid int, drop supervisor.DropCheck, cfg *config.Config) string {
+	if euid != 0 {
+		return ""
+	}
+	if drop.Drop {
+		who := fmt.Sprintf("uid %d", drop.Cred.Uid)
+		if drop.Cred.Name != "" {
+			who = fmt.Sprintf("%s (uid %d)", drop.Cred.Name, drop.Cred.Uid)
+		}
+		return "program checks ran as root; after the privilege drop the daemon opens program logs and starts programs as " + who + ", whose access was not checked"
+	}
+	for _, p := range cfg.Programs {
+		if p.User != "" {
+			return "program checks ran as root; a program with a user setting starts as that user, whose access to its command and directory was not checked"
+		}
+	}
+	for _, l := range cfg.EventListeners {
+		if l.User != "" {
+			return "program checks ran as root; a program with a user setting starts as that user, whose access to its command and directory was not checked"
+		}
+	}
+	return ""
+}
