@@ -4719,6 +4719,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Edge Cases:**
 
+- Connections are bounded where no stream can be cut off: request headers within 10 s, and a kept-alive connection waits at most 120 s for its next request (`IdleTimeout`; SSE and attach are inside a request, so they are not affected). A 401 closes the connection at once, without reading the rest of the request body, so a client without credentials cannot hold connections by sending nothing or trickling a body (v0.3.0 review, 2026-11-19)
 - The Unix socket path is unaffected (its trust boundary is filesystem permissions, default 0700; see SEC-022)
 - Cross-container control without a password is achieved by sharing the socket via a mounted volume, not by loopback TCP; loopback TCP for cross-container use still requires credentials
 - The all-interfaces warning is retained in addition to the hard failure: config warnings are printed on stderr before the config error
@@ -4842,6 +4843,8 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 - If the accepted resolution is to document the trusted-path assumption rather than harden, the decision is recorded in the plan as an ADR and the code comment is updated accordingly
 - Behavior is consistent across process stdout/stderr capture and the daemon log file
+- The parent directory is opened one component at a time with O_NOFOLLOW. A symlink on the way is followed only when root or the daemon's own user owns it (macOS `/var` is a root symlink), relative and absolute alike; a link another user owns fails the open with "symlink {name} is owned by uid {n}; only root or the daemon's user may own a symlink in a log path". Rotation removes and renames backups relative to that verified directory, never by path (decided 2026-11-19, v0.3.0 review: rooting the walk at `/` with `os.Root` had followed every relative link)
+- The same principle covers the files the daemon reads or hands over as root before the drop: an existing PID file is read only when it is a regular file (opened with O_NOFOLLOW and O_NONBLOCK, at most 64 bytes); a symlink, FIFO or other non-regular file at the PID path is stale and replaced unread, logged with `content="(not a regular file)"`; the hand-over chowns a regular file through its descriptor after checking it has one link, and refuses a file or socket with more than one link ("privilege drop failed: chown {path}: {n} hard links; refusing to change the owner of a file linked elsewhere")
 
 **Dependencies:** SEC-012
 

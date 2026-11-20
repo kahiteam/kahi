@@ -367,12 +367,29 @@ func (s *Server) StartUnix(path string, mode os.FileMode) error {
 // shorten it.
 var readHeaderTimeout = 10 * time.Second
 
-// newHTTPServer returns the server used for both listeners. Only the header
-// read is bounded: ReadTimeout and WriteTimeout would cut off the
-// long-lived SSE streams and attach sessions.
-func (s *Server) newHTTPServer() *http.Server {
-	return &http.Server{Handler: s.handler, ReadHeaderTimeout: readHeaderTimeout}
+// refuseUnauthenticated makes a 401 end the connection at once: Go would
+// otherwise read and discard up to 256 KB of an unread request body, with
+// no deadline, before closing, so a client without credentials could hold
+// the connection by trickling its body.
+func refuseUnauthenticated(w http.ResponseWriter) {
+	w.Header().Set("Connection", "close")
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now())
 }
+
+// newHTTPServer returns the server used for both listeners. The header
+// read is bounded, and so is the wait for the next request on a kept-alive
+// connection (without it, Go waits forever, so a client could hold
+// connections after /healthz or a 401 until the daemon ran out of file
+// descriptors). ReadTimeout and WriteTimeout would cut off the long-lived
+// SSE streams and attach sessions; IdleTimeout applies only between
+// requests.
+func (s *Server) newHTTPServer() *http.Server {
+	return &http.Server{Handler: s.handler, ReadHeaderTimeout: readHeaderTimeout, IdleTimeout: idleTimeout}
+}
+
+// idleTimeout is how long a kept-alive connection may wait for its next
+// request; a variable so tests can shorten it.
+var idleTimeout = 120 * time.Second
 
 // StartTCP begins serving on a TCP address.
 func (s *Server) StartTCP(addr string) error {
@@ -1108,6 +1125,7 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		user, pass, ok := r.BasicAuth()
 		if !ok {
 			w.Header().Set("WWW-Authenticate", `Basic realm="kahi"`)
+			refuseUnauthenticated(w)
 			writeError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
 			return
 		}
@@ -1118,6 +1136,7 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		passOK := checkPassword(pass, s.authPass)
 		if !userOK || !passOK {
 			w.Header().Set("WWW-Authenticate", `Basic realm="kahi"`)
+			refuseUnauthenticated(w)
 			writeError(w, http.StatusUnauthorized, "invalid credentials", "UNAUTHORIZED")
 			return
 		}

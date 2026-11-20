@@ -31,6 +31,12 @@ func main() {
 		os.Exit(2)
 	}
 	switch os.Args[1] {
+	case "symlink":
+		// symlink target link: plants a link owned by the user it runs as.
+		if err := os.Symlink(os.Args[2], os.Args[3]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	case "spawn":
 		n, _ := strconv.Atoi(os.Args[2])
 		args := []string{os.Args[0], "child"}

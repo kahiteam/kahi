@@ -3,6 +3,7 @@ package supervisor
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"math"
@@ -23,6 +24,7 @@ var (
 	setgid    = syscall.Setgid
 	setuid    = syscall.Setuid
 	lchown    = os.Lchown
+	fchown    = func(f *os.File, uid, gid int) error { return f.Chown(uid, gid) }
 )
 
 // WritePIDFile writes the current process PID to the given path.
@@ -164,22 +166,62 @@ func CheckPIDFile(path string, logger *slog.Logger) error {
 	if path == "" {
 		return nil
 	}
-	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil
+	content, exists, err := readPIDFile(path)
+	if err != nil || !exists {
+		return err
 	}
-	if err != nil {
-		return fmt.Errorf("cannot read PID file: %s: %w", path, err)
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	pid, err := strconv.Atoi(content)
 	if err == nil && pid > 0 && pid != os.Getpid() {
 		// EPERM means the process exists but belongs to another user.
 		if err := syscall.Kill(pid, 0); err == nil || err == syscall.EPERM {
 			return fmt.Errorf("another instance running (pid %d); PID file %s", pid, path)
 		}
 	}
-	logger.Warn("replacing stale PID file", "path", path, "content", strings.TrimSpace(string(b)))
+	logger.Warn("replacing stale PID file", "path", path, "content", content)
 	return nil
+}
+
+// maxPIDFileRead bounds what is read (and logged) of an existing PID file.
+const maxPIDFileRead = 64
+
+// notRegularPIDFile is the logged content of a PID path that is not a
+// regular file; it is replaced without being read.
+const notRegularPIDFile = "(not a regular file)"
+
+// readPIDFile reads an existing PID file as root before the drop without
+// following anything at its path (SEC-019's principle): the PID directory
+// may belong to the drop user, who could plant a symlink to a secret
+// (which would be logged) or a FIFO (which would block the start). A path
+// that is not a regular file is reported as stale and not read; at most
+// maxPIDFileRead bytes are read. exists is false when there is no file.
+func readPIDFile(path string) (content string, exists bool, err error) {
+	fi, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("cannot read PID file: %s: %w", path, err)
+	}
+	if fi.IsDir() {
+		return "", false, fmt.Errorf("cannot read PID file: %s: %w", path, &fs.PathError{Op: "read", Path: path, Err: syscall.EISDIR})
+	}
+	if !fi.Mode().IsRegular() {
+		return notRegularPIDFile, true, nil
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		// Replaced between the lstat and the open: not followed.
+		return notRegularPIDFile, true, nil
+	}
+	defer func() { _ = f.Close() }()
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		return notRegularPIDFile, true, nil
+	}
+	b, err := io.ReadAll(io.LimitReader(f, maxPIDFileRead))
+	if err != nil {
+		return "", false, fmt.Errorf("cannot read PID file: %s: %w", path, err)
+	}
+	return strings.TrimSpace(string(b)), true, nil
 }
 
 // resolveDropUser resolves the user to drop to (ADR-046). Tests replace it
@@ -263,7 +305,7 @@ func DropPrivileges(cred userspec.Credential, paths []string, logger *slog.Logge
 		if p == "" {
 			continue
 		}
-		if err := lchown(p, uid, gid); err != nil {
+		if err := handOver(p, uid, gid); err != nil {
 			var pe *fs.PathError
 			if errors.As(err, &pe) {
 				err = pe.Err
@@ -302,6 +344,50 @@ func DropPrivileges(cred userspec.Credential, paths []string, logger *slog.Logge
 
 	logger.Info("dropped privileges", "uid", uid, "gid", gid, "groups", groups)
 	return nil
+}
+
+// handOver gives path to uid:gid without following anything planted at it.
+// lchown alone does not follow a symlink, but a hard link is the file
+// itself: one the drop user put at the path between create and chown would
+// make root chown its target (for example a root-owned file elsewhere on
+// the same filesystem). A regular file is opened with O_NOFOLLOW, must have
+// one link, and is chowned through that descriptor; a socket must have one
+// link; a directory cannot be hard-linked (SEC-019's principle).
+func handOver(path string, uid, gid int) error {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return lchown(path, uid, gid)
+	}
+	st, _ := fi.Sys().(*syscall.Stat_t)
+	switch {
+	case fi.Mode().IsRegular():
+		f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = f.Close() }()
+		ofi, err := f.Stat()
+		if err != nil {
+			return err
+		}
+		ost, _ := ofi.Sys().(*syscall.Stat_t)
+		if !ofi.Mode().IsRegular() || ost == nil || ost.Nlink != 1 {
+			return fmt.Errorf("%d hard links; refusing to change the owner of a file linked elsewhere", linkCount(ost))
+		}
+		return fchown(f, uid, gid)
+	case fi.Mode()&os.ModeSocket != 0:
+		if st == nil || st.Nlink != 1 {
+			return fmt.Errorf("%d hard links; refusing to change the owner of a socket linked elsewhere", linkCount(st))
+		}
+	}
+	return lchown(path, uid, gid)
+}
+
+func linkCount(st *syscall.Stat_t) uint64 {
+	if st == nil {
+		return 0
+	}
+	return uint64(st.Nlink)
 }
 
 // ensurePrivateDir creates dir with mode 0700 if it is missing and refuses it
