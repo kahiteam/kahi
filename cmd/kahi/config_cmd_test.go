@@ -13,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/supervisor"
 	"github.com/kahiteam/kahi/internal/userspec"
 )
@@ -201,29 +200,12 @@ func TestCheckHandlerQuotes(t *testing.T) {
 	}
 }
 
-func TestProgramAccessNote(t *testing.T) {
-	plain := &config.Config{Programs: map[string]config.ProgramConfig{"web": {}}}
-	withUser := &config.Config{Programs: map[string]config.ProgramConfig{"web": {User: "app"}}}
-	poolUser := &config.Config{EventListeners: map[string]config.EventListenerConfig{"l": {ProgramConfig: config.ProgramConfig{User: "app"}}}}
-	drop := supervisor.DropCheck{Drop: true, Cred: userspec.Credential{Uid: 1000, Name: "kahi"}}
-	numeric := supervisor.DropCheck{Drop: true, Cred: userspec.Credential{Uid: 4242}}
-	for _, tc := range []struct {
-		name string
-		euid int
-		drop supervisor.DropCheck
-		cfg  *config.Config
-		want string
-	}{
-		{"non-root", 1000, drop, withUser, ""},
-		{"root, nothing to switch", 0, supervisor.DropCheck{}, plain, ""},
-		{"root, drop", 0, drop, plain, "starts programs as kahi (uid 1000), whose access was not checked"},
-		{"root, numeric drop", 0, numeric, plain, "starts programs as uid 4242, whose"},
-		{"root, program user", 0, supervisor.DropCheck{}, withUser, "a program with a user setting starts as that user"},
-		{"root, pool user", 0, supervisor.DropCheck{}, poolUser, "a program with a user setting starts as that user"},
-	} {
-		got := programAccessNote(tc.euid, tc.drop, tc.cfg)
-		if (tc.want == "") != (got == "") || !strings.Contains(got, tc.want) {
-			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
-		}
+func TestProgramUsers(t *testing.T) {
+	if u := programUsers(supervisor.DropCheck{}); u.Drop != nil || u.ProgramUser == nil {
+		t.Errorf("no drop: %+v", u)
+	}
+	u := programUsers(supervisor.DropCheck{Drop: true, Cred: userspec.Credential{Uid: 1000, Name: "kahi"}})
+	if u.Drop == nil || u.Drop.Uid != 1000 {
+		t.Errorf("drop: %+v", u)
 	}
 }
