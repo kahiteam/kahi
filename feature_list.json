@@ -924,6 +924,7 @@
       "title": "CLI Process Control Commands",
       "description": "CLI subcommands for starting, stopping, restarting, and signaling processes via kahi ctl, supporting individual processes, groups, and the all keyword.",
       "testing_steps": [
+        "e2e: kahi ctl --addr {tcp} pid sleeper without credentials exits 1 with 'authentication required', not 'no such process'",
         "e2e: a program named 'a#b%c': kahi ctl start, pid, signal CONT, tail and stop it, each exit 0 (names are escaped in API paths)",
         "e2e: kahi ctl reload web, shutdown now, health x, version x, kahi version x and kahi init x --stdout each exit 2 (a command that takes no arguments refuses them)",
         "e2e: web (numprocs 2), api in [groups.svc]: kahi ctl signal CONT web:* prints 'web_0: signaled SIGCONT' and 'web_1: signaled SIGCONT'; signal CONT all signals 3; signal CONT nosuch:* exits 1 with 'no such group: nosuch'; with api stopped, signal CONT all exits 1 with '1 of 3 failed'",
@@ -948,6 +949,7 @@
       ],
       "passes": true,
       "verified_by": [
+        "TestCtl_PIDReportsAuthError",
         "TestCtl_SpecialCharacterNames",
         "TestCtl_ExtraArgumentsAreUsageErrors",
         "TestCtl_StatusAndSignalGroupTargets",
@@ -1032,6 +1034,7 @@
       "title": "CLI Log Tailing with Follow Mode",
       "description": "Tail process stdout/stderr logs from the CLI, supporting static tail, follow mode via SSE, and configurable byte count.",
       "testing_steps": [
+        "e2e: kahi ctl tail -f t, then the daemon stops: tail exits 1 with 'log stream lost' (it reconnects after the stream ends and gives up after 3 failed connects)",
         "Run 'kahi ctl tail web' and verify the last 1600 bytes of stdout are printed",
         "Run 'kahi ctl tail -f web' and verify new output is streamed in real time, exactly as written (a line written in two chunks stays one line)",
         "Run 'kahi ctl tail web stderr' and verify stderr log is tailed",
@@ -1043,6 +1046,7 @@
       "passes": true,
       "dependencies": ["sse-streaming", "cli-process-control"],
       "verified_by": [
+        "TestCtl_TailFollowDaemonGone",
         "TestCtl_Tail",
         "TestLog_TailFollowCLIExact",
         "TestLog_TailFollow",

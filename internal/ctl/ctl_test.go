@@ -1021,7 +1021,7 @@ func TestCopySSEData(t *testing.T) {
 		"data: a\ndata: b\ndata: \n\n" +
 		": comment\n\n"
 	var out bytes.Buffer
-	if err := copySSEData(context.Background(), strings.NewReader(stream), &out); err != nil {
+	if _, err := copySSEData(context.Background(), strings.NewReader(stream), &out); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := out.String(), "split green\na\nb\n"; got != want {

@@ -448,13 +448,21 @@ var reapChild = func() (int, syscall.WaitStatus, error) {
 	return pid, ws, nil
 }
 
+// shutdownTimeout reads supervisor.shutdown_timeout under mu: a reload that
+// began before shutdown may still replace s.config (#301).
+func (s *Supervisor) shutdownTimeout() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return time.Duration(s.config.Supervisor.ShutdownTimeout) * time.Second
+}
+
 // shutdownProcesses stops the processes one priority level at a time,
 // highest first, waiting for each level to stop before the next is
 // signalled. One deadline, shutdown_timeout from now, covers all levels; when
 // it passes, or a second SIGTERM, SIGINT or SIGQUIT arrives, every remaining
 // process is SIGKILLed (FUNC-066, ADR-031).
 func (s *Supervisor) shutdownProcesses() {
-	deadline := time.Now().Add(time.Duration(s.config.Supervisor.ShutdownTimeout) * time.Second)
+	deadline := time.Now().Add(s.shutdownTimeout())
 	for _, level := range s.manager.ShutdownLevels() {
 		var procs []*process.Process
 		var names []string
@@ -487,8 +495,7 @@ func (s *Supervisor) shutdownProcesses() {
 
 // waitForShutdown waits up to shutdown_timeout for every process to stop.
 func (s *Supervisor) waitForShutdown() {
-	timeout := time.Duration(s.config.Supervisor.ShutdownTimeout) * time.Second
-	s.waitUntil(time.Now().Add(timeout), s.allStopped)
+	s.waitUntil(time.Now().Add(s.shutdownTimeout()), s.allStopped)
 }
 
 // waitUntil reaps children until done reports true and returns true. When
