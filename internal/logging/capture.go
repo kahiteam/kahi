@@ -81,6 +81,10 @@ type CaptureWriter struct {
 	// from an earlier process of the same name is recognised (ADR-033).
 	total      int64
 	generation string
+
+	// rotateRetryAt is when a rotation that failed may be tried again; a
+	// failed rename is not retried, and logged, on every write (#299).
+	rotateRetryAt time.Time
 }
 
 // generations makes each writer's generation unique even when two are
@@ -148,14 +152,17 @@ func (cw *CaptureWriter) CaptureAndPublish(p []byte, publish func(data []byte, i
 	// Write to ring buffer.
 	cw.ringBuf.Write(data)
 
-	// Write to file if configured.
+	// Write to file if configured, rotating first when this write would
+	// take the file past maxbytes (FUNC-019).
+	if cw.file != nil {
+		cw.rotateIfNeeded(int64(len(data)))
+	}
 	if cw.file != nil {
 		if _, err := cw.file.Write(data); err != nil {
 			if cw.config.Logger != nil {
 				cw.config.Logger.Error("log write failed", "file", cw.config.Logfile, "error", err)
 			}
 		}
-		cw.rotateIfNeeded()
 	}
 
 	// Call handlers.
@@ -226,9 +233,14 @@ func (cw *CaptureWriter) Close() error {
 	return nil
 }
 
-// rotateIfNeeded checks if the log file exceeds MaxBytes and rotates it.
-// Must be called with mu held.
-func (cw *CaptureWriter) rotateIfNeeded() {
+// rotateRetry is how long a failed rotation waits before it is tried again.
+var rotateRetry = time.Minute
+
+// rotateIfNeeded rotates the log file before a write of n bytes that would
+// take it past MaxBytes (FUNC-019: rotate first, then write). An empty file
+// is not rotated, so a single write larger than MaxBytes still goes into a
+// file of its own. Must be called with mu held.
+func (cw *CaptureWriter) rotateIfNeeded(n int64) {
 	if cw.file == nil || cw.config.MaxBytes == "" {
 		return
 	}
@@ -237,7 +249,10 @@ func (cw *CaptureWriter) rotateIfNeeded() {
 		return
 	}
 	info, err := cw.file.Stat()
-	if err != nil || info.Size() < maxBytes {
+	if err != nil || info.Size() == 0 || info.Size()+n <= maxBytes {
+		return
+	}
+	if time.Now().Before(cw.rotateRetryAt) {
 		return
 	}
 	// With no backups to keep, empty the file in place. Truncating the open
@@ -251,7 +266,10 @@ func (cw *CaptureWriter) rotateIfNeeded() {
 	// below opens the same file again, so writing goes on there (#187).
 	_ = cw.file.Close()
 	if err := rotateFile(cw.config.Logfile, cw.config.Backups); err != nil {
-		cw.logError("log rotation failed; writing on to the current file", err)
+		cw.rotateRetryAt = time.Now().Add(rotateRetry)
+		cw.logError(fmt.Sprintf("log rotation failed; writing on to the current file, next try in %s", rotateRetry), err)
+	} else {
+		cw.rotateRetryAt = time.Time{}
 	}
 	f, err := openLogFile(cw.config.Logfile, 0644)
 	if err != nil {
@@ -275,18 +293,23 @@ func (cw *CaptureWriter) Reopen() error {
 	cw.mu.Lock()
 	defer cw.mu.Unlock()
 
-	if cw.file == nil || cw.config.Logfile == "" {
+	if cw.config.Logfile == "" {
 		return nil
 	}
 
 	// Open the new file before closing the old one: if the open fails, output
-	// keeps going to the old file and the next SIGUSR2 retries (#230).
+	// keeps going to the old file and the next SIGUSR2 retries (#230). A
+	// writer that lost its file (a failed reopen after rotation) gets it
+	// back here too, not only at the next start (#299).
 	f, err := openLogFile(cw.config.Logfile, 0644)
 	if err != nil {
 		return fmt.Errorf("cannot reopen log file: %s: %w", cw.config.Logfile, err)
 	}
-	_ = cw.file.Close()
+	if cw.file != nil {
+		_ = cw.file.Close()
+	}
 	cw.file = f
+	cw.rotateRetryAt = time.Time{}
 	return nil
 }
 
