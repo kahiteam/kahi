@@ -3239,7 +3239,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 
 - **Given** `kahi migrate supervisord.conf --output kahi.toml`
   **When** the file is valid
-  **Then** kahi.toml is written to disk
+  **Then** kahi.toml is written to disk, created with mode 0600 (it may hold credentials); with `--force` an existing file is truncated and keeps its mode, and a symlink at the output path is not followed (decided 2026-11-20)
 
 - **Given** supervisord config with unsupported options
   **When** migration runs
@@ -3311,7 +3311,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 **Edge Cases:**
 
 - supervisord.conf supports `%(ENV_X)s` syntax, which must be mapped to Kahi's `${X}` syntax
-- In a value Kahi does not expand (for example `[supervisord] user`), `%(ENV_X)s` would stay a literal `${X}`; migrate puts in X's value from the environment it runs in, with the warning "{section}.{key}: %(ENV_X)s replaced with the value of X in this environment (Kahi does not expand {key})", or, when X is unset, leaves `%(ENV_X)s` as it is with "{section}.{key}: %(ENV_X)s left as is: X is not set here and Kahi does not expand {key}" (#302, decided 2026-11-20)
+- In a value Kahi does not expand (for example `[supervisord] user`), `%(ENV_X)s` would stay a literal `${X}`; migrate puts in X's value from the environment it runs in, with the warning "{section}.{key}: %(ENV_X)s replaced with the value of X in this environment (Kahi does not expand {key})", or, when X is unset, leaves `%(ENV_X)s` as it is with "{section}.{key}: %(ENV_X)s left as is: X is not set here and Kahi does not expand {key}" (#302, decided 2026-11-20). This applies only to keys that become active Kahi settings. An unsupported key or section (written as a `# UNSUPPORTED` comment) and `[inet_http_server] password` keep the `%(ENV_X)s` reference unchanged, so a secret kept out of supervisord.conf never lands in the output; the password gets "inet_http_server.password: %(ENV_X)s left as is: the password must be a bcrypt hash; create one with kahi hash-password", the unsupported keys only their unsupported warning (decided 2026-11-20, v0.3.0 security review)
 - supervisord takes `$` literally. In the values Kahi expands (`[supervisor]` logfile and directory, `[server.unix]` file, and a program's or pool's command, directory, environment, process_name, stdout_logfile, stderr_logfile and user) a literal `$` is written as `$$` before `%(ENV_X)s` becomes `${X}`, so `echo $$ ${HOME}` reaches the shell unchanged (v0.3.0 review, 2026-11-19)
 - `environment=` is split as supervisord's parser splits it: a comma or `=` inside single or double quotes belongs to the value, and the quotes are removed (`OPTS="-Xms1g,-Xmx2g",B=z` is two variables)
 - Section names that are not bare TOML keys (a dot, a space, any character outside `A-Za-z0-9_-`) are written quoted (`[programs."api.worker"]`), so a dot never nests tables and no program is lost; strings are written as TOML basic strings (control characters as `\uXXXX`, invalid UTF-8 as U+FFFD), never in Go's `%q` form

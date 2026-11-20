@@ -164,8 +164,10 @@ func ParseINI(r io.Reader) (*INIFile, error) {
 		var envWarnings []string
 		if expandedKeys[currentSection.Type][key] {
 			value = strings.ReplaceAll(value, "$", "$$")
-		} else {
+		} else if envCarriedOver(currentSection.Type, key) {
 			value, envWarnings = substituteEnv(value, sectionLabel(currentSection), key)
+		} else {
+			value, envWarnings = keepEnv(value, currentSection.Type, key)
 		}
 		// Expand %(ENV_X)s to ${X} syntax.
 		value, varWarnings := expandSupervisordVars(value)
@@ -259,6 +261,54 @@ func substituteEnv(value, section, key string) (string, []string) {
 		}
 		warnings = append(warnings, fmt.Sprintf("%s.%s: %s left as is: %s is not set here and Kahi does not expand %s", section, key, m, name, key))
 		return "%(ENV_" + name + ")" + envKeep + "s" // kept out of the ${X} conversion
+	})
+	return value, warnings
+}
+
+// envCarriedOver reports whether key in a section of type typ becomes an
+// active Kahi setting, the only place a substituted value is worth having.
+// An unsupported key or section ends up in a comment and the HTTP password
+// must be a bcrypt hash, so there a %(ENV_X)s keeps its reference: the
+// environment's value, often a secret kept out of supervisord.conf on
+// purpose, is never written into the output (decided 2026-11-20).
+func envCarriedOver(typ, key string) bool {
+	supported := func(m map[string]OptionMapping) bool {
+		o, ok := m[key]
+		return ok && !o.Unsupported
+	}
+	switch typ {
+	case "program":
+		return supported(programMappings)
+	case "eventlistener":
+		switch key {
+		case "events", "buffer_size":
+			return true
+		case "result_handler", "redirect_stderr":
+			return false
+		}
+		return supported(programMappings)
+	case "supervisord":
+		return supported(supervisordMappings)
+	case "group":
+		return supported(groupMappings)
+	case "unix_http_server":
+		return key == "file" || key == "chmod"
+	case "inet_http_server":
+		return key == "port" || key == "username"
+	}
+	return false
+}
+
+// keepEnv leaves every %(ENV_X)s in value as it is, escaped so it is not
+// turned into ${X}. Only the HTTP password is reported: the other keys are
+// unsupported and reported as such.
+func keepEnv(value, typ, key string) (string, []string) {
+	var warnings []string
+	value = supervisordEnvVarRe.ReplaceAllStringFunc(value, func(m string) string {
+		if typ == "inet_http_server" && key == "password" {
+			warnings = append(warnings, fmt.Sprintf("%s.%s: %s left as is: the password must be a bcrypt hash; create one with kahi hash-password", typ, key, m))
+		}
+		return "%(ENV_" + supervisordEnvVarRe.FindStringSubmatch(m)[1] + ")" + envKeep + "s"
 	})
 	return value, warnings
 }

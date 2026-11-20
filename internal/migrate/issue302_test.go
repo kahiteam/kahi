@@ -10,7 +10,7 @@ import (
 // becomes a literal ${X}. Values Kahi expands still get ${X} (#302).
 func TestMigrateEnvInUnexpandedField(t *testing.T) {
 	t.Setenv("ZZ_MIG_USER", "kahi")
-	in := "[supervisord]\nuser=%(ENV_ZZ_MIG_USER)s\nidentifier=%(ENV_ZZ_MIG_UNSET)s\n\n[program:a]\ncommand=/bin/a %(ENV_ZZ_MIG_USER)s\n"
+	in := "[supervisord]\nuser=%(ENV_ZZ_MIG_USER)s\numask=%(ENV_ZZ_MIG_UNSET)s\n\n[program:a]\ncommand=/bin/a %(ENV_ZZ_MIG_USER)s\n"
 	r, err := MigrateReader(strings.NewReader(in), Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -26,7 +26,7 @@ func TestMigrateEnvInUnexpandedField(t *testing.T) {
 	w := strings.Join(r.Warnings, "\n")
 	for _, want := range []string{
 		"supervisord.user: %(ENV_ZZ_MIG_USER)s replaced with the value of ZZ_MIG_USER in this environment (Kahi does not expand user)",
-		"supervisord.identifier: %(ENV_ZZ_MIG_UNSET)s left as is: ZZ_MIG_UNSET is not set here and Kahi does not expand identifier",
+		"supervisord.umask: %(ENV_ZZ_MIG_UNSET)s left as is: ZZ_MIG_UNSET is not set here and Kahi does not expand umask",
 	} {
 		if !strings.Contains(w, want) {
 			t.Errorf("warnings lack %q:\n%s", want, w)

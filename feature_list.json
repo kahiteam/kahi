@@ -2024,10 +2024,13 @@
         "Verify an [include] section becomes a commented TOML include listing its globs, with a warning to migrate each included file",
         "Verify environment variables are mapped from supervisord format to Kahi format",
         "Verify signal names are normalized to their signal.h names (e.g., TERM to SIGTERM)",
-        "Migrate a supervisord config with stopsignal=TERM and another with stopsignal=SIGINT and verify the output has \"SIGTERM\" and \"SIGINT\"; migrating stopwaitsecs=0 warns with 'stopsignal = SIGKILL'"
+        "Migrate a supervisord config with stopsignal=TERM and another with stopsignal=SIGINT and verify the output has \"SIGTERM\" and \"SIGINT\"; migrating stopwaitsecs=0 warns with 'stopsignal = SIGKILL'",
+        "e2e: with ZZ_E2E_SECRET set, migrating password=%(ENV_ZZ_E2E_SECRET)s and an unsupported serverurl containing it with -o writes neither the value nor ${X}: the output keeps 'password = \"%(ENV_ZZ_E2E_SECRET)s\"' and the reference in the '# UNSUPPORTED: serverurl' comment, stderr warns 'the password must be a bcrypt hash; create one with kahi hash-password', and the new file is mode 0600 (decided 2026-11-20)",
+        "Unit (migrate): TestWriteResultFileModes: --force keeps an existing file's mode and refuses a symlinked output path; TestMigrateKeepsEnvReferenceInSecretsAndComments covers unsupported sections, listener and unix server keys"
       ],
       "passes": true,
       "verified_by": [
+        "TestMigrate_EnvSecretNotWritten",
         "TestCLI_MigrateToStdout",
         "TestCLI_MigrateOutputFile",
         "TestCLI_MigrateErrors",
