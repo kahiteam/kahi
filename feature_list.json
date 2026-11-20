@@ -2957,7 +2957,10 @@
         "e2e: a log parent that is a symlink owned by the daemon's own user is followed: the program runs and writes its log in the link's target; after the log directory is swapped for such a link, SIGUSR2 logs 'log files reopened' and output continues in the target",
         "Verify a normal log path with no symlinked components opens unchanged from the prior O_NOFOLLOW behavior",
         "Verify internal/logging/open_other.go documents the trusted-path assumption for platforms without openat (doc check)",
-        "Unit (logging): TestLogOpenRejectsSymlinkedParent, TestLogOpenWriteNotRedirectedThroughSwappedParent and TestLogOpenRejectsSymlinkedAncestor cover the parent-symlink case"
+        "Unit (logging): TestLogOpenRejectsSymlinkedParent, TestLogOpenWriteNotRedirectedThroughSwappedParent and TestLogOpenRejectsSymlinkedAncestor cover the parent-symlink case",
+        "e2e: a program's stdout_logfile that is a second hard link to another file ends FATAL with 'cannot open log file for web: {path}: ' and '2 hard links; refusing to write a log file linked elsewhere', and the linked file is unchanged (decided 2026-11-20)",
+        "e2e: a hard-linked [supervisor] logfile stops kahi daemon with 'cannot open log file: {path}: ' and '2 hard links', and kahi config check reports the same as an error",
+        "Unit (logging): TestCaptureWriterRefusesHardLinkOnEveryOpen, TestReopenableFileReopenRefusesHardLink, TestLogOpenRefusesFIFOWithoutBlocking and TestProbeLogFileRefusesHardLinkAndFIFO cover reopen, rotation truncate, FIFOs and the probe"
       ],
       "passes": true,
       "verified_by": [
@@ -2965,7 +2968,9 @@
         "TestRootContainer_LogLinkFromOtherUserRefused",
         "TestLog_SIGUSR2ReopenFollowsDaemonUserLink",
         "TestCapture_LinesAndFiles",
-        "TestLog_OpenOtherDocumentsTrustedPath"
+        "TestLog_OpenOtherDocumentsTrustedPath",
+        "TestLog_HardLinkedLogfileRefused",
+        "TestDaemonLog_HardLinkRefused"
       ],
       "dependencies": ["process-output-capture"]
     },

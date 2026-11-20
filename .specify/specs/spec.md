@@ -4844,9 +4844,11 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Error Condition               | Expected Behavior                         | User-Facing Message                     |
-| ----------------------------- | ----------------------------------------- | --------------------------------------- |
-| A path component is a symlink | Open fails; process to FATAL / daemon err | "cannot open log file: {path}: {error}" |
+| Error Condition                                   | Expected Behavior                                          | User-Facing Message                                                                                          |
+| ------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| A path component is a symlink                     | Open fails; process to FATAL / daemon err                  | "cannot open log file: {path}: {error}"                                                                      |
+| The log file has more than one hard link          | Open fails; process to FATAL / daemon err                  | "cannot open log file: {path}: openat {path}: {n} hard links; refusing to write a log file linked elsewhere" |
+| The log path is not a regular file (FIFO, device) | Open fails without blocking; process to FATAL / daemon err | "cannot open log file: {path}: openat {path}: not a regular file"                                            |
 
 **Edge Cases:**
 
@@ -4854,6 +4856,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 - Behavior is consistent across process stdout/stderr capture and the daemon log file
 - The parent directory is opened one component at a time with O_NOFOLLOW. A symlink on the way is followed only when root or the daemon's own user owns it (macOS `/var` is a root symlink), relative and absolute alike; a link another user owns fails the open with "symlink {name} is owned by uid {n}; only root or the daemon's user may own a symlink in a log path". Rotation removes and renames backups relative to that verified directory, never by path (decided 2026-11-19, v0.3.0 review: rooting the walk at `/` with `os.Root` had followed every relative link)
 - The same principle covers the files the daemon reads or hands over as root before the drop: an existing PID file is read only when it is a regular file (opened with O_NOFOLLOW and O_NONBLOCK, at most 64 bytes); a symlink, FIFO or other non-regular file at the PID path is stale and replaced unread, logged with `content="(not a regular file)"`; the hand-over chowns a regular file through its descriptor after checking it has one link, and refuses a file or socket with more than one link ("privilege drop failed: chown {path}: {n} hard links; refusing to change the owner of a file linked elsewhere")
+- `O_NOFOLLOW` stops a symlink, not a hard link. Every log open (program capture at start, after rotation and on SIGUSR2, the zero-backups truncate, the daemon log and its reopen) fstats the opened descriptor and refuses a file that is not regular or has more than one hard link, before anything is written or truncated; the open carries `O_NONBLOCK` (cleared after the check) so a FIFO at the path fails instead of blocking. Without it a program user who can write its log directory could link a file it cannot write (on macOS, FreeBSD, or Linux with `fs.protected_hardlinks=0`) and a daemon running as root without a drop would append the program's output to it or truncate it. `kahi config check` applies the same check to an existing log file. The owner of the log file is not checked: an operator may pre-create a log owned by the program's user (decided 2026-11-20, v0.3.0 security review)
 
 **Dependencies:** SEC-012
 

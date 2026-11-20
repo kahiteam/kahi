@@ -27,12 +27,49 @@ func openLogFile(path string, perm os.FileMode) (*os.File, error) {
 		return nil, err
 	}
 	defer func() { _ = dir.Close() }()
-	flags := logFileOpenFlags | unix.O_NOFOLLOW | unix.O_CLOEXEC
+	// O_NONBLOCK so a FIFO planted at the path fails the regular-file check
+	// below instead of blocking the open; it is cleared before any write.
+	flags := logFileOpenFlags | unix.O_NOFOLLOW | unix.O_CLOEXEC | unix.O_NONBLOCK
 	fd, err := unix.Openat(int(dir.Fd()), base, flags, uint32(perm.Perm()))
 	if err != nil {
 		return nil, &os.PathError{Op: "openat", Path: path, Err: err}
 	}
+	if err := checkLogFileFd(fd); err != nil {
+		_ = unix.Close(fd)
+		return nil, &os.PathError{Op: "openat", Path: path, Err: err}
+	}
+	if err := unix.SetNonblock(fd, false); err != nil {
+		_ = unix.Close(fd)
+		return nil, &os.PathError{Op: "openat", Path: path, Err: err}
+	}
 	return os.NewFile(uintptr(fd), path), nil
+}
+
+// checkLogFileFd refuses an opened log that is not a regular file or that has
+// more than one hard link. O_NOFOLLOW stops a symlink, not a hard link: a
+// program user who can write its log directory could replace the log with a
+// hard link to a file it cannot write (on a platform without
+// fs.protected_hardlinks), and a daemon running as root would then append
+// the program's output to that file or truncate it (SEC-019, decided
+// 2026-11-20). The hand-over refuses linked files for the same reason.
+func checkLogFileFd(fd int) error {
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		return err
+	}
+	return checkLogFileStat(&st)
+}
+
+// checkLogFileStat is the check checkLogFileFd and probeLogFile share.
+func checkLogFileStat(st *unix.Stat_t) error {
+	if st.Mode&unix.S_IFMT != unix.S_IFREG {
+		return fmt.Errorf("not a regular file")
+	}
+	// > 1, not != 1: a file unlinked after the open has 0 links.
+	if n := uint64(st.Nlink); n > 1 {
+		return fmt.Errorf("%d hard links; refusing to write a log file linked elsewhere", n)
+	}
+	return nil
 }
 
 // trustedLinkOwner reports whether a symlink owned by uid may be followed in
@@ -130,7 +167,8 @@ func readlinkat(dirfd int, name string) (string, error) {
 // creating or opening the file (FUNC-087): the parent is resolved by the
 // same walk (openLogParent; directories are opened read-only), an existing file
 // must not be a symlink or directory and must be writable, a missing one
-// needs a writable parent.
+// needs a writable parent. An existing file must also be a regular file with
+// one link, as openLogFile requires.
 func probeLogFile(path string) error {
 	dirFile, base, err := openLogParent(path)
 	if err != nil {
@@ -150,7 +188,9 @@ func probeLogFile(path string) error {
 	case st.Mode&unix.S_IFMT == unix.S_IFDIR:
 		err = unix.EISDIR
 	default:
-		err = unix.Faccessat(dfd, base, unix.W_OK, 0)
+		if err = checkLogFileStat(&st); err == nil {
+			err = unix.Faccessat(dfd, base, unix.W_OK, 0)
+		}
 	}
 	if err != nil {
 		return &os.PathError{Op: "openat", Path: path, Err: err}
