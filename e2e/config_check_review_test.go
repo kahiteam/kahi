@@ -96,12 +96,12 @@ func TestConfigCheck_WarningValuesQuoted(t *testing.T) {
 	}
 }
 
-// Run as root, the program checks use root's access rights; the programs
-// start as the drop user or their own user, so the check says what it did
-// not cover.
-func TestRootContainer_ConfigCheckProgramAccessNote(t *testing.T) {
+// Run as root, the program checks also check access as the user a program
+// runs as (#293): after a drop the drop user, which also opens the program
+// logs; without one a program's own user setting.
+func TestRootContainer_ConfigCheckProgramAccessAsUser(t *testing.T) {
 	t.Parallel()
-	c := startRootContainer(t, usersImage(`[supervisor]
+	files := usersImage(`[supervisor]
 shutdown_timeout = 5
 
 [server.unix]
@@ -109,19 +109,38 @@ file = "/run/kahi.sock"
 
 [programs.web]
 command = "/orphaner id"
-user = "33"
+stdout_logfile = "/logs/web.log"
 startsecs = 0
 autorestart = false
-`), nil, nil)
+
+[programs.locked]
+command = "/orphaner id"
+user = "33"
+directory = "/srv/locked"
+autostart = false
+`)
+	files["logs/|0700"] = ""
+	files["srv/locked/|0700"] = ""
+	c := startRootContainer(t, files, nil, nil)
 	c.waitLogs(`"msg":"supervisor running"`)
 	check := func(args ...string) string {
 		out, _ := exec.Command(c.rt, append([]string{"exec", c.name, "/kahi", "config", "check", "-c", "/kahi.toml"}, args...)...).CombinedOutput()
 		return string(out)
 	}
-	if out, want := check("-u", "kahi"), "note: program checks ran as root; after the privilege drop the daemon opens program logs and starts programs as kahi (uid 1000), whose access was not checked\n"; !strings.Contains(out, want) {
-		t.Errorf("with -u kahi: %q lacks %q", out, want)
+	out := check("-u", "kahi")
+	for _, want := range []string{
+		"warning: programs.web.stdout_logfile: /logs/web.log: permission denied (as kahi (uid 1000))\n",
+		"warning: programs.locked.directory: cannot access directory: /srv/locked: permission denied (as kahi (uid 1000))\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("with -u kahi: %q lacks %q", out, want)
+		}
 	}
-	if out, want := check(), "note: program checks ran as root; a program with a user setting starts as that user, whose access to its command and directory was not checked\n"; !strings.Contains(out, want) {
+	out = check()
+	if want := "warning: programs.locked.directory: cannot access directory: /srv/locked: permission denied (as www-data (uid 33))\n"; !strings.Contains(out, want) {
 		t.Errorf("program user: %q lacks %q", out, want)
+	}
+	if strings.Contains(out, "programs.web.stdout_logfile") {
+		t.Errorf("without a drop, root opens web's log: %q", out)
 	}
 }

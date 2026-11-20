@@ -25,31 +25,9 @@ import (
 // relOK is false when the [supervisor] directory chdir failed: relative
 // paths would resolve elsewhere than in the daemon, so they are skipped.
 func ProbePrograms(cfg *config.Config, relOK bool) []string {
-	type unit struct {
-		table, name string
-		cfg         config.ProgramConfig
-	}
-	var units []unit
-	for name, p := range cfg.Programs {
-		units = append(units, unit{"programs", name, p})
-	}
-	// Pool members are spawned like programs (FUNC-055); their stdout carries
-	// the protocol, so only stderr has a log file to check.
-	for name, l := range cfg.EventListeners {
-		p := l.ProgramConfig
-		p.StdoutLogfile = ""
-		units = append(units, unit{"eventlisteners", name, p})
-	}
-	slices.SortFunc(units, func(a, b unit) int {
-		if a.table != b.table {
-			return strings.Compare(b.table, a.table) // programs first
-		}
-		return strings.Compare(a.name, b.name)
-	})
-
 	var out []string
 	seen := map[string]bool{}
-	for _, u := range units {
+	for _, u := range probeUnits(cfg) {
 		add := func(key string, err error) {
 			msg := fmt.Sprintf("%s.%s.%s: %v", u.table, u.name, key, err)
 			if !seen[msg] {
@@ -83,6 +61,34 @@ func ProbePrograms(cfg *config.Config, relOK bool) []string {
 		}
 	}
 	return out
+}
+
+type probeUnit struct {
+	table, name string
+	cfg         config.ProgramConfig
+}
+
+// probeUnits lists the programs and event listener pools to check, programs
+// first, each sorted by name. Pool members are spawned like programs
+// (FUNC-055); their stdout carries the protocol, so only stderr has a log
+// file to check.
+func probeUnits(cfg *config.Config) []probeUnit {
+	var units []probeUnit
+	for name, p := range cfg.Programs {
+		units = append(units, probeUnit{"programs", name, p})
+	}
+	for name, l := range cfg.EventListeners {
+		p := l.ProgramConfig
+		p.StdoutLogfile = ""
+		units = append(units, probeUnit{"eventlisteners", name, p})
+	}
+	slices.SortFunc(units, func(a, b probeUnit) int {
+		if a.table != b.table {
+			return strings.Compare(b.table, a.table) // programs first
+		}
+		return strings.Compare(a.name, b.name)
+	})
+	return units
 }
 
 // probeProgramDir mirrors the directory check at the top of spawnLocked,

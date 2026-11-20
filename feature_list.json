@@ -3357,7 +3357,7 @@
         "e2e: [supervisor] directory missing, program paths relative (command bin/web, stdout_logfile logs/web.log, directory work): the check reports only the directory error and no 'warning: programs.' line",
         "e2e: command = \"worker\" with umask (trampoline), directory app holding worker, environment PATH '/nonexistent:': the check warns 'programs.w.command: exec: \"worker\": cannot run executable found relative to current directory' and the daemon puts w in FATAL with that spawn error (a relative PATH hit is refused, as a direct spawn refuses it)",
         "e2e: a stale PID file at 'stale pid' with content '12 34': the check prints 'warning: replacing stale PID file path=\"{path}\" content=\"12 34\"'",
-        "container: as root, 'kahi config check -u kahi' prints 'note: program checks ran as root; after the privilege drop the daemon opens program logs and starts programs as kahi (uid 1000), whose access was not checked'; without -u and with a program user = \"33\" it prints 'note: program checks ran as root; a program with a user setting starts as that user, whose access to its command and directory was not checked'"
+        "container: as root with /logs and /srv/locked 0700 root: 'kahi config check -u kahi' warns 'programs.web.stdout_logfile: /logs/web.log: permission denied (as kahi (uid 1000))' and 'programs.locked.directory: cannot access directory: /srv/locked: permission denied (as kahi (uid 1000))'; without -u it warns about locked's directory as www-data (uid 33), its own user, and not about web's log (root opens it)"
       ],
       "passes": true,
       "verified_by": [
@@ -3378,7 +3378,7 @@
         "TestConfigCheck_RelativeProgramPathsSkippedWithoutDirectory",
         "TestConfigCheck_TrampolineRelativePathEntry",
         "TestConfigCheck_WarningValuesQuoted",
-        "TestRootContainer_ConfigCheckProgramAccessNote"
+        "TestRootContainer_ConfigCheckProgramAccessAsUser"
       ],
       "dependencies": [
         "config-search-paths",

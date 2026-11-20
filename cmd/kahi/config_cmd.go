@@ -11,10 +11,10 @@ import (
 	"strings"
 
 	"github.com/kahiteam/kahi/internal/api"
-	"github.com/kahiteam/kahi/internal/config"
 	"github.com/kahiteam/kahi/internal/logging"
 	"github.com/kahiteam/kahi/internal/process"
 	"github.com/kahiteam/kahi/internal/supervisor"
+	"github.com/kahiteam/kahi/internal/userspec"
 	"github.com/kahiteam/kahi/internal/web"
 	"github.com/spf13/cobra"
 )
@@ -134,11 +134,15 @@ func configCheckRun(cmd *cobra.Command, _ []string) error {
 	if cfg.Server.Web.Enabled {
 		web.ProbeStaticDir(cfg.Server.Web.StaticDir, logger)
 	}
-	if n := programAccessNote(os.Geteuid(), drop, cfg); n != "" {
-		_, _ = fmt.Fprintf(stderr, "note: %s\n", n)
-	}
 	for _, w := range process.ProbePrograms(cfg, relOK) {
 		_, _ = fmt.Fprintf(stderr, "warning: %s\n", w)
+	}
+	// As root, the checks above used root's rights; programs run, and after
+	// a drop their logs are opened, as another user (#293).
+	if os.Geteuid() == 0 {
+		for _, w := range process.ProbeProgramsAs(cfg, relOK, programUsers(drop)) {
+			_, _ = fmt.Fprintf(stderr, "warning: %s\n", w)
+		}
 	}
 
 	if len(errs) > 0 {
@@ -195,30 +199,13 @@ func (h *checkHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 
 func (h *checkHandler) WithGroup(string) slog.Handler { return h }
 
-// programAccessNote says what the program checks could not cover when they
-// ran as root (FUNC-087): after a privilege drop the daemon opens program
-// logs and starts programs as the drop user, and a program's user setting
-// starts it as that user; the checks used root's access rights.
-func programAccessNote(euid int, drop supervisor.DropCheck, cfg *config.Config) string {
-	if euid != 0 {
-		return ""
-	}
+// programUsers says who runs programs for the as-root checks: the drop user
+// when there is one, else each program's own user setting.
+func programUsers(drop supervisor.DropCheck) process.ProgramUsers {
+	users := process.ProgramUsers{ProgramUser: userspec.Resolve}
 	if drop.Drop {
-		who := fmt.Sprintf("uid %d", drop.Cred.Uid)
-		if drop.Cred.Name != "" {
-			who = fmt.Sprintf("%s (uid %d)", drop.Cred.Name, drop.Cred.Uid)
-		}
-		return "program checks ran as root; after the privilege drop the daemon opens program logs and starts programs as " + who + ", whose access was not checked"
+		c := drop.Cred
+		users.Drop = &c
 	}
-	for _, p := range cfg.Programs {
-		if p.User != "" {
-			return "program checks ran as root; a program with a user setting starts as that user, whose access to its command and directory was not checked"
-		}
-	}
-	for _, l := range cfg.EventListeners {
-		if l.User != "" {
-			return "program checks ran as root; a program with a user setting starts as that user, whose access to its command and directory was not checked"
-		}
-	}
-	return ""
+	return users
 }
