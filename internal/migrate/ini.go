@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -157,12 +158,19 @@ func ParseINI(r io.Reader) (*INIFile, error) {
 		value = strings.TrimSpace(value)
 
 		// supervisord takes $ literally; where Kahi expands variables a
-		// literal $ is written $$, before %(ENV_X)s becomes ${X}.
+		// literal $ is written $$, before %(ENV_X)s becomes ${X}. Where
+		// Kahi does not expand, ${X} would stay literal, so %(ENV_X)s is
+		// replaced with its value here, with a warning (#302).
+		var envWarnings []string
 		if expandedKeys[currentSection.Type][key] {
 			value = strings.ReplaceAll(value, "$", "$$")
+		} else {
+			value, envWarnings = substituteEnv(value, sectionLabel(currentSection), key)
 		}
 		// Expand %(ENV_X)s to ${X} syntax.
 		value, varWarnings := expandSupervisordVars(value)
+		value = strings.ReplaceAll(value, envKeep, "")
+		varWarnings = append(envWarnings, varWarnings...)
 		for _, w := range varWarnings {
 			result.Warnings = append(result.Warnings, fmt.Sprintf("line %d: %s", lineNum, w))
 		}
@@ -236,6 +244,35 @@ var supervisordVarRe = regexp.MustCompile(`%\(([a-z_]+)\)(\d*)([sd])`)
 // the same %(name)s / %(name)d syntax.
 var kahiVars = map[string]bool{
 	"here": true, "program_name": true, "group_name": true, "process_num": true, "numprocs": true,
+}
+
+// substituteEnv replaces %(ENV_X)s in a value Kahi does not expand with
+// X's value in this environment. An unset X leaves the reference as it is,
+// escaped so it is not turned into ${X}. Each replacement is reported.
+func substituteEnv(value, section, key string) (string, []string) {
+	var warnings []string
+	value = supervisordEnvVarRe.ReplaceAllStringFunc(value, func(m string) string {
+		name := supervisordEnvVarRe.FindStringSubmatch(m)[1]
+		if v, ok := os.LookupEnv(name); ok {
+			warnings = append(warnings, fmt.Sprintf("%s.%s: %s replaced with the value of %s in this environment (Kahi does not expand %s)", section, key, m, name, key))
+			return v
+		}
+		warnings = append(warnings, fmt.Sprintf("%s.%s: %s left as is: %s is not set here and Kahi does not expand %s", section, key, m, name, key))
+		return "%(ENV_" + name + ")" + envKeep + "s" // kept out of the ${X} conversion
+	})
+	return value, warnings
+}
+
+// envKeep marks an unset %(ENV_X)s that substituteEnv keeps, so the ${X}
+// conversion does not match it; it is removed right after.
+const envKeep = "\x00"
+
+// sectionLabel names a section for warnings as supervisord writes it.
+func sectionLabel(sec *INISection) string {
+	if sec.Name != "" {
+		return sec.Type + ":" + sec.Name
+	}
+	return sec.Type
 }
 
 // expandSupervisordVars converts %(ENV_X)s to Kahi's ${X} and keeps the

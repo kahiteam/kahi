@@ -3311,6 +3311,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 **Edge Cases:**
 
 - supervisord.conf supports `%(ENV_X)s` syntax, which must be mapped to Kahi's `${X}` syntax
+- In a value Kahi does not expand (for example `[supervisord] user`), `%(ENV_X)s` would stay a literal `${X}`; migrate puts in X's value from the environment it runs in, with the warning "{section}.{key}: %(ENV_X)s replaced with the value of X in this environment (Kahi does not expand {key})", or, when X is unset, leaves `%(ENV_X)s` as it is with "{section}.{key}: %(ENV_X)s left as is: X is not set here and Kahi does not expand {key}" (#302, decided 2026-11-20)
 - supervisord takes `$` literally. In the values Kahi expands (`[supervisor]` logfile and directory, `[server.unix]` file, and a program's or pool's command, directory, environment, process_name, stdout_logfile, stderr_logfile and user) a literal `$` is written as `$$` before `%(ENV_X)s` becomes `${X}`, so `echo $$ ${HOME}` reaches the shell unchanged (v0.3.0 review, 2026-11-19)
 - `environment=` is split as supervisord's parser splits it: a comma or `=` inside single or double quotes belongs to the value, and the quotes are removed (`OPTS="-Xms1g,-Xmx2g",B=z` is two variables)
 - Section names that are not bare TOML keys (a dot, a space, any character outside `A-Za-z0-9_-`) are written quoted (`[programs."api.worker"]`), so a dot never nests tables and no program is lost; strings are written as TOML basic strings (control characters as `\uXXXX`, invalid UTF-8 as U+FFFD), never in Go's `%q` form
