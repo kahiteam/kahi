@@ -478,60 +478,120 @@ func (c *Client) TailFollow(ctx context.Context, name, stream string, w io.Write
 		stream = "stdout"
 	}
 	path := fmt.Sprintf("/api/v1/processes/%s/log/%s/stream", url.PathEscape(name), stream)
+	// The daemon closes the stream of a client that falls behind (ADR-033);
+	// tail -f then reconnects with the last event id, and the server
+	// replays what the buffer still holds. It gives up after
+	// tailReconnects failed connects in a row.
+	lastID := ""
+	failures := 0
+	for {
+		resp, err := c.openStream(ctx, path, lastID)
+		if ctx.Err() != nil {
+			return nil
+		}
+		if err != nil {
+			if lastID == "" {
+				return fmt.Errorf("connection failed: %w", err)
+			}
+			if failures++; failures >= tailReconnects {
+				return fmt.Errorf("log stream lost: %w", err)
+			}
+			if !sleepCtx(ctx, tailReconnectDelay) {
+				return nil
+			}
+			continue
+		}
+		if resp.StatusCode >= 400 {
+			err := responseError(resp)
+			_ = resp.Body.Close()
+			return err
+		}
+		failures = 0
+		id, _ := copySSEData(ctx, resp.Body, w)
+		_ = resp.Body.Close()
+		if ctx.Err() != nil {
+			return nil
+		}
+		if id != "" {
+			lastID = id
+		}
+		if !sleepCtx(ctx, tailReconnectDelay) {
+			return nil
+		}
+	}
+}
+
+// tail -f reconnect policy: tailReconnects failed connects in a row end it,
+// tailReconnectDelay apart. Variables so tests can shorten them.
+var (
+	tailReconnects     = 3
+	tailReconnectDelay = 500 * time.Millisecond
+)
+
+func (c *Client) openStream(ctx context.Context, path, lastID string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+path, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
+	if lastID != "" {
+		req.Header.Set("Last-Event-ID", lastID)
+	}
 	if c.username != "" {
 		req.SetBasicAuth(c.username, c.password)
 	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("connection failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode >= 400 {
-		var errBody map[string]string
-		if err := json.NewDecoder(resp.Body).Decode(&errBody); err != nil {
-			return fmt.Errorf("server error (status %d)", resp.StatusCode)
-		}
-		return fmt.Errorf("%s", errBody["error"])
-	}
-
-	return copySSEData(ctx, resp.Body, w)
+	return c.httpClient.Do(req)
 }
 
-// copySSEData writes the data of each SSE event to w exactly as sent: the
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// copySSEData writes the data of each log event to w exactly as sent: the
 // event's "data:" lines joined with newlines, as an EventSource does, and
 // nothing added. A chunk of output that ends mid-line then continues on the
 // same line with the next event, instead of each chunk ending a line (#190).
-func copySSEData(ctx context.Context, body io.Reader, w io.Writer) error {
+// Named events (event: reset) carry no output and are not written. It
+// returns the id of the last event written, for a resume.
+func copySSEData(ctx context.Context, body io.Reader, w io.Writer) (lastID string, err error) {
 	rd := bufio.NewReader(body)
 	var data []string
+	id, event := "", ""
 	for {
 		line, err := rd.ReadString('\n')
 		if line != "" && err == nil {
 			line = strings.TrimSuffix(line, "\n")
 			switch {
 			case line == "":
-				if data != nil {
+				if data != nil && event == "" {
 					_, _ = io.WriteString(w, strings.Join(data, "\n"))
-					data = nil
 				}
+				if id != "" {
+					lastID = id
+				}
+				data, id, event = nil, "", ""
 			case strings.HasPrefix(line, "data: "):
 				data = append(data, line[len("data: "):])
 			case line == "data:":
 				data = append(data, "")
+			case strings.HasPrefix(line, "id: "):
+				id = line[len("id: "):]
+			case strings.HasPrefix(line, "event: "):
+				event = line[len("event: "):]
 			}
 		}
 		if err != nil {
 			if err == io.EOF || ctx.Err() != nil {
-				return nil
+				return lastID, nil
 			}
-			return err
+			return lastID, err
 		}
 	}
 }
@@ -600,13 +660,14 @@ func (c *Client) PID(name string) (string, error) {
 		return "", fmt.Errorf("connection failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-
+	// The API's own error: "no such process: {name}" is its 404 text; a
+	// 401 or 500 is not reported as a missing process.
+	if resp.StatusCode >= 400 {
+		return "", responseError(resp)
+	}
 	var info ProcessInfo
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return "", err
-	}
-	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("no such process: %s", name)
+		return "", fmt.Errorf("invalid response: %w", err)
 	}
 	return fmt.Sprintf("%d", info.PID), nil
 }
