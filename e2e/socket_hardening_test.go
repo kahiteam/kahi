@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -115,4 +116,57 @@ func TestSocketBind_OwnerOnlyUnderOpenUmask(t *testing.T) {
 		t.Fatalf("socket %v %v; want mode 0700 under umask 000", fi, err)
 	}
 	waitForMarker(t, filepath.Join(dir, "umask.out"), "0000", 5*time.Second)
+}
+
+// The configured mode is applied at bind, with no chmod by path afterwards
+// (decided 2026-11-20): under a stricter inherited umask the socket still
+// comes out exactly as configured.
+func TestSocketBind_ConfiguredModeUnderStrictUmask(t *testing.T) {
+	t.Parallel()
+	dir := shortDir(t)
+	socket := filepath.Join(dir, "kahi.sock")
+	cfg := filepath.Join(dir, "kahi.toml")
+	body := fmt.Sprintf("[supervisor]\nshutdown_timeout = 5\n\n[server.unix]\nfile = %q\nchmod = \"0600\"\n", socket)
+	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/bin/sh", "-c", "umask 0277 && exec \"$0\" daemon -c \"$1\"", kahiBinary, cfg)
+	cmd.Dir = dir
+	out := daemonOutput(t)
+	cmd.Stdout = out
+	cmd.Stderr = out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stopDaemon(t, cmd, socket) })
+	waitForSocket(t, socket, 5*time.Second)
+	if fi, err := os.Lstat(socket); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("socket %v %v; want mode 0600 under umask 0277", fi, err)
+	}
+}
+
+// A symlink at the socket path is refused at start, even when it points at a
+// stale socket: it is not judged by its target (Lstat, decided 2026-11-20).
+func TestSocketBind_SymlinkAtSocketPathRefused(t *testing.T) {
+	t.Parallel()
+	dir := shortDir(t)
+	stale := filepath.Join(dir, "stale.sock")
+	ln, err := net.Listen("unix", stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	_ = ln.Close()
+	socket := filepath.Join(dir, "kahi.sock")
+	if err := os.Symlink(stale, socket); err != nil {
+		t.Fatal(err)
+	}
+	cfg := socketConfig(t, dir, socket, "")
+	_, stderr, code := runKahi(t, dir, "daemon", "-c", cfg)
+	if want := "cannot create socket: " + socket + ": " + socket + " exists and is not a socket"; code == 0 || !strings.Contains(stderr, want) {
+		t.Fatalf("exit %d, stderr %q; want %q", code, stderr, want)
+	}
+	if fi, err := os.Lstat(socket); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the planted link was replaced: %v %v", fi, err)
+	}
 }

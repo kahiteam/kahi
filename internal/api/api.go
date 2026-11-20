@@ -23,8 +23,9 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// chmodSocket is a seam over os.Chmod so the fail-closed path is testable.
-var chmodSocket = os.Chmod
+// checkSocketMode verifies the bound socket without following anything; a
+// seam so the fail-closed path is testable.
+var checkSocketMode = verifySocketMode
 
 // ProcessInfo describes the runtime state of a managed process.
 type ProcessInfo struct {
@@ -335,16 +336,21 @@ func (s *Server) StartUnix(path string, mode os.FileMode) error {
 		return fmt.Errorf("cannot create socket: %s: %w", path, err)
 	}
 
-	// SEC-023: bind under a tightened umask so the socket is owner-only from
-	// the moment it exists, not only once the chmod below has run. Unix-socket
-	// peers skip authentication, so a connection accepted before the chmod
-	// would be a full control session.
-	ln, err := sockutil.ListenUnix(path)
+	// SEC-023: bind under a umask that yields the configured mode, so the
+	// socket is owner-only from the moment it exists. Unix-socket peers skip
+	// authentication, so a connection accepted before a later chmod would be
+	// a full control session. There is no chmod by path: as root, in a socket
+	// directory the drop user owns since an earlier run, it followed a
+	// symlink swapped in after the bind (decided 2026-11-20).
+	ln, err := sockutil.ListenUnix(path, mode)
 	if err != nil {
 		return fmt.Errorf("cannot create socket: %s: %w", path, err)
 	}
 
-	if err := chmodSocket(path, mode); err != nil {
+	// SEC-022 fails closed: a socket that did not come out as configured
+	// (a default ACL on the directory, a platform without umask semantics)
+	// is never served.
+	if err := checkSocketMode(path, mode); err != nil {
 		_ = ln.Close()
 		return fmt.Errorf("cannot set socket permissions: %s: %w", path, err)
 	}
@@ -467,8 +473,26 @@ func (s *Server) TCPAddr() string {
 	return ""
 }
 
+// verifySocketMode reports an error unless path is a socket (not followed)
+// whose permission bits are exactly mode's owner bits.
+func verifySocketMode(path string, mode os.FileMode) error {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("%s is not the bound socket", path)
+	}
+	if want := mode.Perm() &^ 0o077; fi.Mode().Perm() != want {
+		return fmt.Errorf("mode %#o after bind, want %#o", fi.Mode().Perm(), want)
+	}
+	return nil
+}
+
 func removeStaleSocket(path string) error {
-	info, err := os.Stat(path)
+	// Lstat: a symlink at the socket path is not a socket, and is refused
+	// rather than judged by its target.
+	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -493,7 +517,7 @@ func removeStaleSocket(path string) error {
 // connections there, err is the error StartUnix would fail with for a path
 // that is not a socket.
 func ProbeSocket(path string) (running bool, err error) {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return false, nil
 	}
