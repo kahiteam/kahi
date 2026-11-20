@@ -162,6 +162,16 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 				}
 			}, nil)
 	}
+	// An exit published between Attach above and this subscription is not
+	// delivered by the bus: check the state once now, so such a session
+	// ends at once instead of holding the lock (#298).
+	if info, err := s.processes.Get(name); err == nil && info.State != "RUNNING" {
+		b, _ := json.Marshal(map[string]string{"name": name, "state": info.State})
+		select {
+		case exited <- b:
+		default:
+		}
+	}
 	cleanup := func() {
 		for _, c := range cancels {
 			c()

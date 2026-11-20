@@ -247,6 +247,13 @@ func (m *Manager) ApplyReloadGroups(oldCfg, newCfg *config.Config, only map[stri
 	stuckGroup := make(map[string]bool)
 	for i, u := range units {
 		if stuckUnit[i] {
+			// The unit keeps its old processes and config: they are
+			// tracked again, so they can be started by hand or by
+			// autorestart once the child exits (#300), as a refused
+			// group removal does.
+			for _, p := range u.procs {
+				p.unretire()
+			}
 			if u.program != "" {
 				out.Stuck = append(out.Stuck, u.program)
 			} else {
