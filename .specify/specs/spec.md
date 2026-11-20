@@ -1270,6 +1270,7 @@ This feature adds two complementary mechanisms:
 
 **Edge Cases:**
 
+- A rotation whose rename fails is retried at most once a minute, with one ERROR "log rotation failed; writing on to the current file, next try in 1m0s" per try; writing goes on to the current file in between (#299)
 - Rotation is atomic (rename, not copy+truncate)
 - Rotation check happens before each write; if adding this write would exceed threshold, rotate first then write
 - If a single write is larger than maxbytes, the write is allowed (do not split writes); rotation happens on the next write
@@ -1394,6 +1395,7 @@ syslog_priority = "INFO"     # EMERG, ALERT, CRIT, ERR, WARNING, NOTICE, INFO, D
 
 **Edge Cases:**
 
+- SIGUSR2 also reopens a log file a process lost (a reopen after rotation that failed): output goes to the file again without waiting for the next start (#299)
 - Log reopen is safe to call concurrently with log writes
 - SIGUSR2 during shutdown is ignored
 
@@ -2651,6 +2653,7 @@ numprocs = 1            # every [programs.x] key is accepted (autorestart, user,
 
 **Edge Cases:**
 
+- A protocol line (`READY`, `RESULT {len}`) longer than 1024 bytes is invalid: it is consumed up to its newline without being kept and counts as an invalid result, so a member that writes without a newline cannot make the daemon buffer its output without limit (#299)
 - Multiple listener instances in a pool; events dispatched round-robin to READY listeners
 - Listener pool with numprocs=3 has 3 listener processes
 - Events are buffered while no member is READY, up to `buffer_size`

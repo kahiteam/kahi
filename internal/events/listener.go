@@ -2,6 +2,7 @@ package events
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -319,7 +320,11 @@ func (p *Pool) send(m memberMsg) bool {
 func (p *Pool) read(name string, gen uint64, stdout io.Reader) {
 	r := bufio.NewReader(stdout)
 	for {
-		line, err := r.ReadString('\n')
+		line, err := readProtocolLine(r)
+		if errors.Is(err, errLineTooLong) {
+			p.send(memberMsg{kind: msgInvalid, name: name, gen: gen, data: line})
+			continue
+		}
 		if err != nil {
 			if line != "" {
 				p.send(memberMsg{kind: msgInvalid, name: name, gen: gen, data: strings.TrimRight(line, "\r\n")})
@@ -680,4 +685,37 @@ func formatEventBody(event Event) string {
 		pairs = append(pairs, k+":"+v)
 	}
 	return strings.Join(pairs, " ")
+}
+
+// maxProtocolLine bounds a protocol line ("READY", "RESULT {len}"): a
+// member that writes without a newline cannot make the daemon buffer its
+// output without limit (#299). The RESULT body has its own 1 MiB bound.
+const maxProtocolLine = 1024
+
+var errLineTooLong = errors.New("protocol line too long")
+
+// readProtocolLine reads one line, newline included, like ReadString. A
+// line longer than maxProtocolLine is consumed up to its newline without
+// being kept and returns errLineTooLong with its first bytes.
+func readProtocolLine(r *bufio.Reader) (string, error) {
+	var line []byte
+	tooLong := false
+	for {
+		chunk, err := r.ReadSlice('\n')
+		if !tooLong {
+			if len(line)+len(chunk) > maxProtocolLine {
+				line = append(line, chunk[:maxProtocolLine-len(line)]...)
+				tooLong = true
+			} else {
+				line = append(line, chunk...)
+			}
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		if tooLong && err == nil {
+			return strings.TrimRight(string(line), "\r\n") + "...", errLineTooLong
+		}
+		return string(line), err
+	}
 }
