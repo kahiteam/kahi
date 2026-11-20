@@ -1082,6 +1082,7 @@ This feature adds two complementary mechanisms:
 
 **Edge Cases:**
 
+- A program or group whose processes do not stop for a reload (stopwaitsecs plus 5 s) keeps its old processes and config; they stay managed, so once the stuck child exits the process can be started by hand or by autorestart, and the next reload applies the change (#300)
 - Programs not changed in the reload are untouched (processes keep running)
 - Reload during shutdown is ignored
 - Concurrent reload requests are serialized (second waits for first to complete)
@@ -1759,6 +1760,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 - Signal names follow `<signal.h>`: `kahi ctl signal` accepts `HUP` and `SIGHUP`, and output always uses the `SIG` form (decided 2026-10-29)
 - `group:*` syntax targets all processes in a group
 - Multiple process names can be specified: `kahi ctl start web api worker`; every target is attempted, and the command exits 1 if any of them failed (#213)
+- `kahi ctl pid {name}` prints the API's error as is: "no such process: {name}" for 404, "authentication required" for 401, so a missing credential is not reported as a missing process (#297)
 - `kahi ctl signal` takes one process, `{group}:*` or `all`; on a stopped process it reports "process not running: {name}". With `{group}:*` (the group, else the program of that name, as the daemon resolves it) or `all` it signals every process named, prints `{name}: signaled {SIG}` or `{name}: {error}` for each, and fails with "{n} of {m} failed" (exit 1) when any failed, as start and stop do; an unknown group is "no such group: {name}" (decided 2026-11-19)
 - `kahi ctl status` takes process names, `{group}:*` and `all` as targets, resolved the same way; a name that matches nothing is left out of the table (decided 2026-11-19)
 - A command whose usage names no arguments (`reload`, `shutdown`, `health`, `ready`, `version`, `kahi version`, `kahi init`, `kahi daemon`, `kahi hash-password`) refuses any with a usage error (exit 2); `kahi ctl reload web` used to reload everything and exit 0 (v0.3.0 review)
@@ -1832,6 +1834,7 @@ Every error is JSON, `{"error": "...", "code": "..."}`, with `Content-Type: appl
 
 **Edge Cases:**
 
+- `kahi ctl tail -f` keeps the last event id. When the daemon closes the stream (a client that fell behind, ADR-033) it reconnects with `Last-Event-ID`, and the replay delivers what the buffer still holds; a `reset` event prints nothing. After 3 failed connects in a row, 500 ms apart, it exits 1 with "log stream lost: {error}" (a stopped daemon); an API error on reconnect (for example "no such process") is printed and exits 1 (#297, decided 2026-11-20)
 - `tail -f` uses SSE streaming from the API and prints the output exactly as written: a line written in several chunks stays one line, and nothing is added (#190)
 - Without a log file, tail reads the in-memory buffer (64 KB per stream by default, FUNC-086)
 - Ctrl+C cleanly terminates the tail stream
@@ -1887,6 +1890,8 @@ API: a successful upgrade is 101 Switching Protocols with `Upgrade: kahi-attach`
 - Only input is put in raw mode (ICANON, ECHO and ISIG off); output post-processing stays on, so a child's `\n` still starts a new line. The child is not on a pty, so typed input is not echoed locally; programs that want echo do it themselves
 - The session lock is held by the daemon, not the client: it is taken when the session opens and released when the client disconnects, detaches or the process exits, so a killed client never leaves the process locked
 - Ctrl+] is the only detach key; Ctrl+C, Ctrl+Z and Ctrl+\ are forwarded to the process as bytes (decided 2026-11-14), so an interactive program receives ^C as it would in a terminal. SIGINT, SIGTERM or SIGHUP sent to the `kahi ctl` client itself still ends the session and restores the terminal
+- A signal to the client also ends `kahi ctl attach` while the handshake still waits for the daemon's answer (an endpoint that accepts and never replies), with nothing printed (#297)
+- A process that exits right as the session opens (between the attach and the subscription to its state events) ends the session at once with "process {name} exited", so the lock is not held until the client disconnects (#298)
 - Input bytes are written without a trailing newline; the line-oriented `kahi ctl send` (FUNC-077) is unchanged
 - Input waits while the process does not read its stdin; the wait ends when the session ends, and input the process does not read for 30 seconds ends the session (the client reports it lost), so a stalled write never keeps the process locked (v0.3.0 review, 2026-11-19)
 - With `redirect_stderr = true` the process has no separate stderr stream; everything arrives on stdout

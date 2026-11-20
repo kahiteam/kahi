@@ -53,6 +53,10 @@ func (c *Client) Attach(ctx context.Context, name string, in io.Reader, stdout, 
 		return 0, fmt.Errorf("connection failed: %w", err)
 	}
 	defer func() { _ = conn.Close() }()
+	// A signal to the client (ctx) ends the session at any point, also
+	// while the handshake waits for an answer that may never come (FUNC-034).
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	defer stop()
 
 	req, _ := http.NewRequest("POST", c.baseURL+"/api/v1/processes/"+url.PathEscape(name)+"/attach", nil)
 	req.Header.Set("Connection", "Upgrade")
@@ -61,11 +65,17 @@ func (c *Client) Attach(ctx context.Context, name string, in io.Reader, stdout, 
 		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(c.username+":"+c.password)))
 	}
 	if err := req.Write(conn); err != nil {
+		if ctx.Err() != nil {
+			return AttachInterrupted, nil
+		}
 		return 0, fmt.Errorf("connection failed: %w", err)
 	}
 	br := bufio.NewReader(conn)
 	resp, err := http.ReadResponse(br, req)
 	if err != nil {
+		if ctx.Err() != nil {
+			return AttachInterrupted, nil
+		}
 		return 0, fmt.Errorf("connection failed: %w", err)
 	}
 	if resp.StatusCode != http.StatusSwitchingProtocols {
