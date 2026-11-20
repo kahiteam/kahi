@@ -1082,6 +1082,7 @@ This feature adds two complementary mechanisms:
 
 **Edge Cases:**
 
+- A program or group whose processes do not stop for a reload (stopwaitsecs plus 5 s) keeps its old processes and config; they stay managed, so once the stuck child exits the process can be started by hand or by autorestart, and the next reload applies the change (#300)
 - Programs not changed in the reload are untouched (processes keep running)
 - Reload during shutdown is ignored
 - Concurrent reload requests are serialized (second waits for first to complete)
@@ -1885,6 +1886,7 @@ API: a successful upgrade is 101 Switching Protocols with `Upgrade: kahi-attach`
 - Only input is put in raw mode (ICANON, ECHO and ISIG off); output post-processing stays on, so a child's `\n` still starts a new line. The child is not on a pty, so typed input is not echoed locally; programs that want echo do it themselves
 - The session lock is held by the daemon, not the client: it is taken when the session opens and released when the client disconnects, detaches or the process exits, so a killed client never leaves the process locked
 - Ctrl+] is the only detach key; Ctrl+C, Ctrl+Z and Ctrl+\ are forwarded to the process as bytes (decided 2026-11-14), so an interactive program receives ^C as it would in a terminal. SIGINT, SIGTERM or SIGHUP sent to the `kahi ctl` client itself still ends the session and restores the terminal
+- A process that exits right as the session opens (between the attach and the subscription to its state events) ends the session at once with "process {name} exited", so the lock is not held until the client disconnects (#298)
 - Input bytes are written without a trailing newline; the line-oriented `kahi ctl send` (FUNC-077) is unchanged
 - Input waits while the process does not read its stdin; the wait ends when the session ends, and input the process does not read for 30 seconds ends the session (the client reports it lost), so a stalled write never keeps the process locked (v0.3.0 review, 2026-11-19)
 - With `redirect_stderr = true` the process has no separate stderr stream; everything arrives on stdout
