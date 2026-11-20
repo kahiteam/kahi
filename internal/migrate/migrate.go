@@ -2,11 +2,14 @@
 package migrate
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/kahiteam/kahi/internal/config"
 )
@@ -60,12 +63,26 @@ func MigrateReader(r io.Reader, opts Options) (*Result, error) {
 // WriteResult writes migration output to the configured destination.
 func WriteResult(result *Result, opts Options, w io.Writer) error {
 	if opts.Output != "" && !opts.DryRun {
-		if !opts.Force {
-			if _, err := os.Stat(opts.Output); err == nil {
-				return fmt.Errorf("output file exists: %s (use --force)", opts.Output)
-			}
+		// A new file is created 0600 (it may hold credentials); --force
+		// truncates an existing one and keeps its mode, so an operator's
+		// chgrp/chmod 0640 for a drop user survives. Nothing at the path is
+		// followed (decided 2026-11-20).
+		flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL | syscall.O_NOFOLLOW
+		if opts.Force {
+			flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC | syscall.O_NOFOLLOW
 		}
-		if err := os.WriteFile(opts.Output, []byte(result.TOML), 0644); err != nil {
+		f, err := os.OpenFile(opts.Output, flags, 0o600)
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("output file exists: %s (use --force)", opts.Output)
+		}
+		if err != nil {
+			return fmt.Errorf("cannot write output: %w", err)
+		}
+		if _, err := f.WriteString(result.TOML); err != nil {
+			_ = f.Close()
+			return fmt.Errorf("cannot write output: %w", err)
+		}
+		if err := f.Close(); err != nil {
 			return fmt.Errorf("cannot write output: %w", err)
 		}
 		return nil

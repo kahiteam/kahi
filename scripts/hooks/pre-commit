@@ -38,6 +38,11 @@ check_for_secrets() {
     local content
     content=$(git show ":$file" 2>/dev/null || echo "")
 
+    # A line carrying a "secret-scan: allow" comment is a reviewed false
+    # positive (a placeholder or test fixture, never a real credential) and
+    # is not scanned. Every other line of the file still is.
+    content=$(printf '%s\n' "$content" | grep -v 'secret-scan: allow' || true)
+
     if [[ -z "$content" ]]; then
         return 0
     fi

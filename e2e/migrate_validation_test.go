@@ -71,3 +71,36 @@ func TestMigrateValidation_FailureReported(t *testing.T) {
 		})
 	}
 }
+
+// A secret kept out of supervisord.conf with %(ENV_X)s is never written into
+// the migrated file: the HTTP password and unsupported keys keep the
+// reference, and the new file is 0600 (decided 2026-11-20).
+func TestMigrate_EnvSecretNotWritten(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	in := "[inet_http_server]\nport=127.0.0.1:9001\nusername=admin\npassword=%(ENV_ZZ_E2E_SECRET)s\n\n" +
+		"[program:web]\ncommand=/bin/sleep 300\nserverurl=http://u:%(ENV_ZZ_E2E_SECRET)s@h\n"
+	if err := os.WriteFile(filepath.Join(dir, "in.conf"), []byte(in), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := append(os.Environ(), "ZZ_E2E_SECRET=e2e-s3cr3t")
+	_, stderr, _ := runKahiEnv(t, dir, env, "migrate", "in.conf", "-o", "out.toml")
+	b, err := os.ReadFile(filepath.Join(dir, "out.toml"))
+	if err != nil {
+		t.Fatalf("no output written: %v; stderr %q", err, stderr)
+	}
+	if strings.Contains(string(b), "e2e-s3cr3t") {
+		t.Fatalf("the secret reached the output:\n%s", b)
+	}
+	for _, want := range []string{`password = "%(ENV_ZZ_E2E_SECRET)s"`, "# UNSUPPORTED: serverurl = http://u:%(ENV_ZZ_E2E_SECRET)s@h"} { // secret-scan: allow (a placeholder, not a credential)
+		if !strings.Contains(string(b), want) {
+			t.Errorf("output lacks %s:\n%s", want, b)
+		}
+	}
+	if want := "warning: line 4: inet_http_server.password: %(ENV_ZZ_E2E_SECRET)s left as is: the password must be a bcrypt hash; create one with kahi hash-password"; !strings.Contains(stderr, want) {
+		t.Errorf("stderr lacks %q:\n%s", want, stderr)
+	}
+	if fi, err := os.Stat(filepath.Join(dir, "out.toml")); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("output %v %v; want mode 0600", fi, err)
+	}
+}

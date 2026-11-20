@@ -70,7 +70,11 @@ crashed workers automatically.
 **Migrating from supervisord.**
 Run `kahi migrate supervisord.conf -o kahi.toml` to convert existing
 configurations. The tool maps INI sections and directives to their TOML
-equivalents; unsupported directives produce warnings.
+equivalents; unsupported directives produce warnings. A `%(ENV_X)s` in a
+setting Kahi uses but does not expand gets X's value from the environment
+`kahi migrate` runs in; the HTTP password and unsupported directives keep
+the reference, so secrets passed through the environment stay out of the
+file. With `kahi daemon -u`, make the new file readable by that user.
 
 **Regulated environments.**
 Every Kahi binary is built against Go's FIPS 140-3 cryptographic module
@@ -260,11 +264,11 @@ usage error (wrong number of arguments, unknown flag or subcommand).
 kahi migrate <supervisord.conf> [flags]
 ```
 
-| Flag           | Description                          |
-| -------------- | ------------------------------------ |
-| `-o, --output` | Write TOML to file instead of stdout |
-| `--force`      | Overwrite existing output file       |
-| `--dry-run`    | Preview output without writing files |
+| Flag           | Description                                            |
+| -------------- | ------------------------------------------------------ |
+| `-o, --output` | Write TOML to a new file (mode 0600) instead of stdout |
+| `--force`      | Overwrite an existing output file (its mode is kept)   |
+| `--dry-run`    | Preview output without writing files                   |
 
 ### Config search order
 

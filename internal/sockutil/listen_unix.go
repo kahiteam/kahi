@@ -4,15 +4,16 @@
 // moment they exist.
 //
 // SEC-023 / ADR-026: net.Listen("unix", ...) creates the socket inode at
-// 0777 &^ umask, and callers narrow it with os.Chmod only afterwards. Kahi
-// inherits its umask from whatever launched it, so under a permissive umask the
-// socket is briefly connectable by other users, and a connection accepted in
-// that window survives the chmod. Binding under a tightened umask removes the
-// dependence on the inherited one.
+// 0777 &^ umask. Kahi inherits its umask from whatever launched it, so under
+// a permissive umask a socket narrowed by chmod afterwards is briefly
+// connectable by other users, and a connection accepted in that window
+// survives the chmod. Binding under a umask derived from the wanted mode
+// removes both the dependence on the inherited umask and the chmod.
 package sockutil
 
 import (
 	"net"
+	"os"
 	"sync"
 	"syscall"
 )
@@ -28,24 +29,33 @@ var umaskMu sync.Mutex
 // critical section while the first holds it.
 var afterUmask = func() {}
 
-// ListenUnix binds a Unix domain socket at path with the umask tightened to
-// the inherited umask plus 077, so the socket is created no wider than 0700.
-// The caller still applies the configured mode with chmod afterwards.
+// ListenUnix binds a Unix domain socket at path, created with exactly mode's
+// owner bits and never any group or other bit, so no chmod by path is needed
+// afterwards (decided 2026-11-20, v0.3.0 security review: a chmod by path
+// after the bind followed a symlink swapped in between, as root, when the
+// socket directory belonged to the drop user).
 //
-// The mask is only ever tightened, never loosened. POSIX cannot read the umask
-// without setting it, so it is read by setting the strictest mask, 0777. The
-// effective umask is therefore 0777 during the read, inherited|077 during the
-// bind, and the inherited value again afterwards. A file another goroutine
-// creates during this window may come out more restrictive than requested, but
-// never wider than the inherited umask allows.
-func ListenUnix(path string) (net.Listener, error) {
+// The bind runs under the umask (0777 &^ mode) | 077 instead of the inherited
+// one: the inherited umask no longer narrows the configured mode (the chmod
+// that used to correct it is gone), and group and other bits are masked
+// whatever mode says. POSIX cannot read the umask without setting it, so it
+// is read by setting the strictest mask, 0777. The effective umask is
+// therefore 0777 during the read, the bind mask during the bind, and the
+// inherited value again afterwards. A file another goroutine creates in this
+// window may come out without group or other bits, never with more.
+func ListenUnix(path string, mode os.FileMode) (net.Listener, error) {
 	umaskMu.Lock()
 	defer umaskMu.Unlock()
 
 	old := syscall.Umask(0o777)
 	defer syscall.Umask(old)
-	syscall.Umask(old | 0o077)
+	syscall.Umask(BindUmask(mode))
 
 	afterUmask()
 	return net.Listen("unix", path)
+}
+
+// BindUmask is the umask ListenUnix binds under for mode.
+func BindUmask(mode os.FileMode) int {
+	return int(0o777&^mode.Perm()) | 0o077
 }

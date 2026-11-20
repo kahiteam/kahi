@@ -44,7 +44,7 @@ func socketPath(t *testing.T, name string) string {
 
 func listen(t *testing.T, path string) {
 	t.Helper()
-	ln, err := ListenUnix(path)
+	ln, err := ListenUnix(path, 0o700)
 	if err != nil {
 		t.Fatalf("ListenUnix: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestListenUnixRestoresUmaskOnBindFailure(t *testing.T) {
 	withUmask(t, 0o022)
 	missing := filepath.Join(t.TempDir(), "missing-dir", "s.sock")
 
-	ln, err := ListenUnix(missing)
+	ln, err := ListenUnix(missing, 0o700)
 	if err == nil {
 		_ = ln.Close()
 		t.Fatal("ListenUnix into a missing directory must fail")
@@ -95,21 +95,46 @@ func TestListenUnixRestoresUmaskOnBindFailure(t *testing.T) {
 	}
 }
 
-// The temporary mask must only add restriction. A fixed Umask(0o077) would
-// loosen a stricter inherited umask: under 0277 the socket would be born 0700
-// instead of 0500, and so would any file created concurrently.
-func TestListenUnixNeverLoosensStricterUmask(t *testing.T) {
-	// Create the directory before tightening the umask: under 0277 MkdirTemp
-	// would create it 0500, without the write bit the bind needs.
-	p := socketPath(t, "s.sock")
-	withUmask(t, 0o277)
-	listen(t, p)
-
-	if got := perm(t, p); got&^0o500 != 0 {
-		t.Fatalf("socket created %#o under umask 0277, want no wider than 0500", got)
+// The configured mode is exact: a stricter inherited umask no longer narrows
+// it (no chmod corrects it afterwards), but group and other bits are never
+// granted, whatever the mode or the inherited umask says.
+func TestListenUnixAppliesModeExactly(t *testing.T) {
+	for _, tc := range []struct {
+		inherited int
+		mode      os.FileMode
+		want      os.FileMode
+	}{
+		{0o277, 0o700, 0o700},
+		{0o022, 0o600, 0o600},
+		{0, 0o700, 0o700},
+		{0, 0o777, 0o700},
+		{0o077, 0o755, 0o700},
+	} {
+		// Create the directory before changing the umask: under 0277
+		// MkdirTemp would create it without the write bit the bind needs.
+		p := socketPath(t, "s.sock")
+		old := syscall.Umask(tc.inherited)
+		ln, err := ListenUnix(p, tc.mode)
+		restored := syscall.Umask(old)
+		if err != nil {
+			t.Fatalf("ListenUnix(%#o) under %#o: %v", tc.mode, tc.inherited, err)
+		}
+		got := perm(t, p)
+		_ = ln.Close()
+		if got != tc.want {
+			t.Errorf("mode %#o under umask %#o: socket %#o, want %#o", tc.mode, tc.inherited, got, tc.want)
+		}
+		if restored != tc.inherited {
+			t.Errorf("umask after ListenUnix = %#o, want %#o", restored, tc.inherited)
+		}
 	}
-	if got := currentUmask(); got != 0o277 {
-		t.Fatalf("umask after ListenUnix = %#o, want 0277", got)
+}
+
+func TestBindUmask(t *testing.T) {
+	for mode, want := range map[os.FileMode]int{0o700: 0o077, 0o600: 0o177, 0o777: 0o077, 0: 0o777} {
+		if got := BindUmask(mode); got != want {
+			t.Errorf("BindUmask(%#o) = %#o, want %#o", mode, got, want)
+		}
 	}
 }
 
@@ -139,7 +164,7 @@ func TestListenUnixSerializesConcurrentCalls(t *testing.T) {
 		}
 		once.Do(func() {
 			wg.Go(func() {
-				ln, err := ListenUnix(second)
+				ln, err := ListenUnix(second, 0o700)
 				if err != nil {
 					errs <- err
 					return

@@ -847,6 +847,8 @@ CodeQL's `BarrierGuard` recognizes only relational comparisons (`<`, `<=`, `>`, 
 
 The socket is therefore created at `0700 &^ old`: exactly `0700` under any umask that leaves owner bits alone, narrower under a stricter one. `api.StartUnix` calls it in place of `net.Listen` and keeps its own chmod and fail-closed close, so the configured mode is applied afterwards as today. (As first implemented it also served `fcgi.Socket.Open`; FastCGI was descoped on 2026-10-18 and that caller removed with `internal/fcgi`.) A `!unix` build falls back to plain `net.Listen`, matching the `open_unix.go` / `open_other.go` precedent from ADR-022.
 
+**Amended 2026-11-20 (v0.3.0 security review):** `ListenUnix(path, mode)` binds under `(0777 &^ mode) | 077` and `api.StartUnix` no longer chmods the path: as root, in a socket directory the drop user owns since an earlier run, the chmod followed a symlink swapped in after the bind. `StartUnix` instead lstats the bound path and closes the listener unless it is a socket with exactly the configured owner bits (SEC-022 still fails closed); the stale-socket check uses lstat. The inherited umask no longer narrows the socket (the chmod used to undo that), and the paragraph below describes the original design.
+
 At no instant is the effective umask less strict than the inherited one: it is `0o777` during the read, `old | 0o077` during the bind, and `old` again afterwards. That is what makes the residual below safe. A fixed `Umask(0o077)` would loosen a stricter inherited mask (e.g. `0277`) and let concurrently created files come out wider than intended.
 
 **Alternatives Considered:**

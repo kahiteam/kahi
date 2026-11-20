@@ -2024,10 +2024,13 @@
         "Verify an [include] section becomes a commented TOML include listing its globs, with a warning to migrate each included file",
         "Verify environment variables are mapped from supervisord format to Kahi format",
         "Verify signal names are normalized to their signal.h names (e.g., TERM to SIGTERM)",
-        "Migrate a supervisord config with stopsignal=TERM and another with stopsignal=SIGINT and verify the output has \"SIGTERM\" and \"SIGINT\"; migrating stopwaitsecs=0 warns with 'stopsignal = SIGKILL'"
+        "Migrate a supervisord config with stopsignal=TERM and another with stopsignal=SIGINT and verify the output has \"SIGTERM\" and \"SIGINT\"; migrating stopwaitsecs=0 warns with 'stopsignal = SIGKILL'",
+        "e2e: with ZZ_E2E_SECRET set, migrating password=%(ENV_ZZ_E2E_SECRET)s and an unsupported serverurl containing it with -o writes neither the value nor ${X}: the output keeps 'password = \"%(ENV_ZZ_E2E_SECRET)s\"' and the reference in the '# UNSUPPORTED: serverurl' comment, stderr warns 'the password must be a bcrypt hash; create one with kahi hash-password', and the new file is mode 0600 (decided 2026-11-20)",
+        "Unit (migrate): TestWriteResultFileModes: --force keeps an existing file's mode and refuses a symlinked output path; TestMigrateKeepsEnvReferenceInSecretsAndComments covers unsupported sections, listener and unix server keys"
       ],
       "passes": true,
       "verified_by": [
+        "TestMigrate_EnvSecretNotWritten",
         "TestCLI_MigrateToStdout",
         "TestCLI_MigrateOutputFile",
         "TestCLI_MigrateErrors",
@@ -3013,7 +3016,8 @@
       "description": "The Unix control socket must stay owner-only (0700, service UID). Reject the dead server.unix.chown field and any group/other chmod with a config error rather than silently ignoring them; peer-credential authorization is deferred as a future extension.",
       "testing_steps": [
         "Start the daemon with default config and verify the control socket is mode 0700 owned by the service UID via stat",
-        "Unit (api): TestUnixControlSocketChmodFailureClosesListener: a chmod failure at bind closes the listener so no world-accessible socket is served",
+        "Unit (api): TestUnixControlSocketModeCheckFailureClosesListener: a socket that did not come out at the configured mode closes the listener so no world-accessible socket is served; TestVerifySocketModeDoesNotFollow: the mode check, the stale-socket check and the probe never follow a symlink (no chmod by path, decided 2026-11-20)",
+        "e2e: started under umask 0277 with server.unix.chmod = \"0600\", the socket is exactly 0600 (the mode is applied at bind); a symlink to a stale socket at the socket path stops kahi daemon with 'cannot create socket: {path}: {path} exists and is not a socket' and the link stays",
         "Set server.unix.chmod to 0770 and verify the daemon refuses to start with 'control socket must be owner-only (0700); got 0770'",
         "Set server.unix.chown and verify the daemon refuses to start with 'server.unix.chown is not supported; socket is owner-only'",
         "Verify the migrator keeps a supervisord chown only as a '# UNSUPPORTED: chown' comment with a warning, never as an active setting, and 'kahi init' output has no chown",
@@ -3023,7 +3027,9 @@
       "verified_by": [
         "TestUnixSocket_DefaultOwnerOnly",
         "TestUnixSocket_ModeAndOwnership",
-        "TestUnixSocket_NoChownGenerated"
+        "TestUnixSocket_NoChownGenerated",
+        "TestSocketBind_ConfiguredModeUnderStrictUmask",
+        "TestSocketBind_SymlinkAtSocketPathRefused"
       ],
       "dependencies": ["unix-socket-server"]
     },

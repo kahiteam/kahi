@@ -3239,7 +3239,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 
 - **Given** `kahi migrate supervisord.conf --output kahi.toml`
   **When** the file is valid
-  **Then** kahi.toml is written to disk
+  **Then** kahi.toml is written to disk, created with mode 0600 (it may hold credentials); with `--force` an existing file is truncated and keeps its mode, and a symlink at the output path is not followed (decided 2026-11-20)
 
 - **Given** supervisord config with unsupported options
   **When** migration runs
@@ -3311,7 +3311,7 @@ enabled = false   # serve GET /metrics; requires [server.http] enabled = true
 **Edge Cases:**
 
 - supervisord.conf supports `%(ENV_X)s` syntax, which must be mapped to Kahi's `${X}` syntax
-- In a value Kahi does not expand (for example `[supervisord] user`), `%(ENV_X)s` would stay a literal `${X}`; migrate puts in X's value from the environment it runs in, with the warning "{section}.{key}: %(ENV_X)s replaced with the value of X in this environment (Kahi does not expand {key})", or, when X is unset, leaves `%(ENV_X)s` as it is with "{section}.{key}: %(ENV_X)s left as is: X is not set here and Kahi does not expand {key}" (#302, decided 2026-11-20)
+- In a value Kahi does not expand (for example `[supervisord] user`), `%(ENV_X)s` would stay a literal `${X}`; migrate puts in X's value from the environment it runs in, with the warning "{section}.{key}: %(ENV_X)s replaced with the value of X in this environment (Kahi does not expand {key})", or, when X is unset, leaves `%(ENV_X)s` as it is with "{section}.{key}: %(ENV_X)s left as is: X is not set here and Kahi does not expand {key}" (#302, decided 2026-11-20). This applies only to keys that become active Kahi settings. An unsupported key or section (written as a `# UNSUPPORTED` comment) and `[inet_http_server] password` keep the `%(ENV_X)s` reference unchanged, so a secret kept out of supervisord.conf never lands in the output; the password gets "inet_http_server.password: %(ENV_X)s left as is: the password must be a bcrypt hash; create one with kahi hash-password", the unsupported keys only their unsupported warning (decided 2026-11-20, v0.3.0 security review)
 - supervisord takes `$` literally. In the values Kahi expands (`[supervisor]` logfile and directory, `[server.unix]` file, and a program's or pool's command, directory, environment, process_name, stdout_logfile, stderr_logfile and user) a literal `$` is written as `$$` before `%(ENV_X)s` becomes `${X}`, so `echo $$ ${HOME}` reaches the shell unchanged (v0.3.0 review, 2026-11-19)
 - `environment=` is split as supervisord's parser splits it: a comma or `=` inside single or double quotes belongs to the value, and the quotes are removed (`OPTS="-Xms1g,-Xmx2g",B=z` is two variables)
 - Section names that are not bare TOML keys (a dot, a space, any character outside `A-Za-z0-9_-`) are written quoted (`[programs."api.worker"]`), so a dot never nests tables and no program is lost; strings are written as TOML basic strings (control characters as `\uXXXX`, invalid UTF-8 as U+FFFD), never in Go's `%q` form
@@ -4930,7 +4930,7 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 - **Given** the default configuration
   **When** the daemon binds the control socket
-  **Then** the socket is mode 0700, owned by the service UID, and a chmod failure closes the listener (no world-accessible socket is ever served) — existing behavior preserved
+  **Then** the socket is mode 0700, owned by the service UID, and a socket that did not come out at the configured mode closes the listener (no world-accessible socket is ever served)
 
 - **Given** a config that sets `server.unix.chmod` to a mode granting group or other access (e.g. `0770`, `0666`)
   **When** the daemon starts
@@ -4942,17 +4942,19 @@ This validates user input at the system boundary and gives CodeQL a second cut p
 
 **Error Handling:**
 
-| Error Condition                        | Expected Behavior                | User-Facing Message                                        |
-| -------------------------------------- | -------------------------------- | ---------------------------------------------------------- |
-| `server.unix.chown` present in config  | Refuse to start                  | "server.unix.chown is not supported; socket is owner-only" |
-| `server.unix.chmod` grants group/other | Refuse to start                  | "control socket must be owner-only (0700); got {mode}"     |
-| `os.Chmod` fails at bind               | Close the listener; do not serve | "cannot set socket permissions: {path}: {error}"           |
+| Error Condition                                                                              | Expected Behavior                                    | User-Facing Message                                               |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------- |
+| `server.unix.chown` present in config                                                        | Refuse to start                                      | "server.unix.chown is not supported; socket is owner-only"        |
+| `server.unix.chmod` grants group/other                                                       | Refuse to start                                      | "control socket must be owner-only (0700); got {mode}"            |
+| Bound socket is not at the configured mode, or the path is no longer a socket (not followed) | Close the listener; do not serve                     | "cannot set socket permissions: {path}: {error}"                  |
+| A symlink (or any non-socket) is at the socket path before the bind                          | Refuse to start; the link is not followed or removed | "cannot create socket: {path}: {path} exists and is not a socket" |
 
 **Edge Cases:**
 
 - The migrator (`internal/migrate`) must not emit `chown` into generated config, and the generated template must drop the commented `chown` example, so migration output stays loadable under the new rule
 - Rejecting a group/other-accessible `chmod` is the enforcement mechanism for "lock to the service id"; a future peer-credential check would be the prerequisite before any shared mode could be permitted
 - This does not change the SEC-015 rule that TCP always requires credentials; this feature governs the Unix socket transport only
+- The configured mode is applied by the bind itself (SEC-023's umask is derived from it), never by a chmod of the path afterwards: started as root after a privilege drop, the socket directory may belong to the drop user since an earlier run, and a chmod by path followed a symlink that user swapped in after the bind. The bound socket is then checked with lstat (a socket, exactly the configured owner bits); anything else closes the listener. The stale-socket check and `kahi config check` judge the path with lstat too, so a symlink there is "exists and is not a socket", whatever it points at (decided 2026-11-20, v0.3.0 security review)
 
 **Dependencies:** FUNC-024
 
@@ -4976,20 +4978,20 @@ This validates user input at the system boundary and gives CodeQL a second cut p
   **When** both creations complete
   **Then** the second does not enter its critical section until the first has restored the umask, and the final process umask equals the original value
 
-- **Given** an inherited umask stricter than `077` (e.g. `0277`)
+- **Given** an inherited umask stricter than `077` (e.g. `0277`) and a configured mode (e.g. `0600`)
   **When** a socket is created and any other file is created concurrently by another goroutine
-  **Then** neither is created with a wider mode than the inherited umask alone would produce
+  **Then** the socket has exactly the configured mode, and neither gets a group or other bit
 
 **Error Handling:**
 
-| Error Condition                 | Expected Behavior                    | User-Facing Message                              |
-| ------------------------------- | ------------------------------------ | ------------------------------------------------ |
-| Control socket `bind()` fails   | Restore umask; return the bind error | "cannot create socket: {path}: {error}"          |
-| Control socket `os.Chmod` fails | Close the listener (unchanged)       | "cannot set socket permissions: {path}: {error}" |
+| Error Condition                                    | Expected Behavior                    | User-Facing Message                              |
+| -------------------------------------------------- | ------------------------------------ | ------------------------------------------------ |
+| Control socket `bind()` fails                      | Restore umask; return the bind error | "cannot create socket: {path}: {error}"          |
+| Bound control socket is not at the configured mode | Close the listener                   | "cannot set socket permissions: {path}: {error}" |
 
 **Edge Cases:**
 
-- The temporary umask is the inherited umask with `077` added (`inherited | 077`), never a fixed value, so it can only add restriction. A file created by another goroutine during the masked window may get a more restrictive mode than requested (a log file opened `0644` under inherited `022` is created `0600`), but never a wider one than the inherited umask would give. This is accepted and recorded in ADR-026
+- The temporary umask is `(0777 &^ mode) | 077`, derived from the configured mode instead of the inherited umask, so the socket is born exactly at the configured mode and no chmod follows (decided 2026-11-20; until then it was `inherited | 077` with a chmod by path afterwards, see SEC-022). Group and other bits are masked whatever the mode. A file created by another goroutine during the masked window gets no group or other bit (a log file opened `0644` is created `0600`), and its owner bits follow the configured mode instead of the inherited umask; the window holds only the bind. This is accepted and recorded in ADR-026
 - Set, bind and restore are serialized by a lock so concurrent socket creations cannot leave the daemon at the temporary umask. The lock serializes callers of the socket helper only; the one other `umask` call site (`process.ApplyUmask`, used in `childinit.go`) runs in the re-exec'd child process, not the daemon, so it cannot interleave
 - On `!unix` builds the helper is plain `net.Listen` and this guarantee does not apply; no shipped target is `!unix` (GoReleaser builds linux and darwin only)
 
